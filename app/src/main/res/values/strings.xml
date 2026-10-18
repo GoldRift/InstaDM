@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">InstaDM</string>
+    <string name="chat_back">Back</string>
+    <string name="chat_active_now">Active now</string>
+    <string name="chat_today">Today</string>
+    <string name="chat_seen">Seen</string>
+    <string name="chat_sent">Sent</string>
+    <string name="chat_message_hint">Message…</string>
+    <string name="chat_send">Send message</string>
+    <string name="inbox_you_prefix">You: %1$s</string>
+    <string name="inbox_no_messages">No messages yet</string>
 </resources>
