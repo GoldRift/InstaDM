@@ -190,6 +190,57 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintNewDMResult(t *testing.T) {
+	result := &igcore.NewDMResult{
+		ProtocolVersion:    "test",
+		RecipientFBID:      "123",
+		ThreadID:           "thread-1",
+		ThreadTitle:        "Recipient",
+		OfflineThreadingID: "otid-1",
+		MessageID:          "message-1",
+		Text:               "hello",
+		TimestampMS:        1_700_000_000_000,
+	}
+	var output bytes.Buffer
+	printNewDMResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Sent new DM", "recipient: 123", "thread-1", "Recipient", "message-1", "otid-1", "hello"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunSendNewValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runSendNew(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli send-new") {
+			t.Errorf("error = %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty recipient", args: []string{"", "hello", "--cookie-header", fakeCookies}, want: "recipient FBID is empty"},
+		{name: "non-numeric recipient", args: []string{"abc", "hello", "--cookie-header", fakeCookies}, want: "must be numeric"},
+		{name: "empty text", args: []string{"123", "", "--cookie-header", fakeCookies}, want: "text is required"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runSendNew(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintMuteResult(t *testing.T) {
 	result := &igcore.MuteResult{
 		ProtocolVersion:    "test",

@@ -40,6 +40,15 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.SendMediaJSON("123", "photo.png", "image/png", nil, "", "", 1); err == nil || !strings.Contains(err.Error(), "media file is empty") {
 		t.Errorf("send media error = %v", err)
 	}
+	if _, err := client.SendNewDMJSON("", "hello", "", 1); err == nil || !strings.Contains(err.Error(), "recipient FBID is required") {
+		t.Errorf("new DM empty recipient error = %v", err)
+	}
+	if _, err := client.SendNewDMJSON("abc", "hello", "", 1); err == nil || !strings.Contains(err.Error(), "must be numeric") {
+		t.Errorf("new DM non-numeric recipient error = %v", err)
+	}
+	if _, err := client.SendNewDMJSON("123", " ", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
+		t.Errorf("new DM text error = %v", err)
+	}
 	if _, err := client.EditJSON("thread-id", "message-id", " ", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
 		t.Errorf("edit error = %v", err)
 	}

@@ -3,10 +3,10 @@
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
 Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
 adds/removes reactions, edits and unsends messages, marks threads read, downloads
-attachments, mutes/pins threads, persists pending sends in a local outbox, and watches
-the DGW realtime stream.
+attachments, mutes/pins threads, starts new DMs by recipient FBID, persists pending
+sends in a local outbox, and watches the DGW realtime stream.
 
-It does **not** create new DMs or touch the Android app. Those are later levels.
+It does **not** touch the Android app yet. That is a later level.
 
 ## Upstream dependency
 
@@ -123,6 +123,9 @@ go run ./cmd/igcli edit <thread-id> <message-id> "updated text" --cookies ~/.con
 # Remove one of your own messages for everyone
 go run ./cmd/igcli unsend <thread-id> <message-id> --cookies ~/.config/instadm/cookies.json
 
+# Start a DM with a recipient FBID (from mailbox thread_key or participant fbid)
+go run ./cmd/igcli send-new <recipient-fbid> "hello" --cookies ~/.config/instadm/cookies.json
+
 # Upload and send an image or file
 go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
 
@@ -172,7 +175,7 @@ Flags:
 | `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
 | `--after <cursor>` | `thread`: load older messages after this cursor |
 | `--reply-to <message-id>` | `send`, `send-media`: reply to an existing message |
-| `--otid <otid>` | `send`, `send-media`, `edit`: reuse a specific offline threading ID |
+| `--otid <otid>` | `send`, `send-new`, `send-media`, `edit`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--outbox <path>` | `send`, `send-media`: persist pending sends in this JSON file |
 | `--path <path>` | `outbox`: outbox JSON file |
@@ -224,7 +227,7 @@ The `send` result includes the thread ID, canonical message ID, OTID, timestamp,
 sent text. Keep the OTID if a send times out; re-running with the same `--otid` is safer
 than generating a new one. `--retry` retries transient failures with that same OTID.
 Permanent errors (expired session, challenge, checkpoint, rate limit) are not retried.
-`send` only targets existing threads; new-DM creation via `recipient_igids` is deferred.
+`send` only targets existing threads; `send-new` uses the new-DM path described below.
 
 `send` and `send-media` accept `--outbox <path>`. The command writes a pending record
 before any network I/O, removes it after a successful send, and leaves it in place on
@@ -239,6 +242,14 @@ for Unix hosts; the Android app will use Room instead.
 with `--id`), and `outbox remove` discards one. A failed retry stays in the outbox and
 the command exits non-zero after processing the rest. The same OTID is reused on every
 retry, so a send that reached Instagram before the local failure should not duplicate.
+
+`send-new` sends text with `ig_thread_igid = null` and
+`recipient_igids = ["<recipient-fbid>"]`. Get the recipient FBID from a mailbox
+thread's `thread_key` or a participant's `fbid`. The server may reuse an existing
+thread; after sending, the command tries to resolve the thread from the mailbox and
+prints its short ID and title. With the test account's existing contact this reused the
+existing thread, so a truly brand-new recipient is still untested. A new DM cannot be
+recorded in the outbox yet, because the outbox keys records by an existing thread ID.
 
 `send-media` uploads a local file through the web upload endpoint, then sends the
 resulting attachment ID to an existing thread. It prints the message ID, attachment
@@ -320,6 +331,7 @@ threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 | `MailboxJSON(timeoutSeconds)` | Inbox and viewer JSON |
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
+| `SendNewDMJSON(recipientFBID, text, otid, timeoutSeconds)` | New-DM send result JSON |
 | `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
 | `UnsendJSON(threadID, messageID, timeoutSeconds)` | Unsend result JSON |
 | `MuteJSON(threadID, muteSeconds, timeoutSeconds)` | Mute/unmute result JSON |
@@ -369,6 +381,8 @@ itself is covered by host tests.
     `message.delete` delta, and a later thread query no longer contained it;
   - `mute` and `pin` changed the mailbox `is_muted`/`is_pinned` flags on and off, and
     the mutation results matched the requested state;
+  - `send-new` sent with a recipient FBID, matched its `message.new` watch delta, and
+    resolved to the existing test thread; a truly new recipient remains untested;
   - a text send forced past its timeout left a pending outbox record; `outbox retry`
     reused its OTID, matched the `message.new` watch delta, and cleared the outbox;
   - the same forced-timeout and retry flow worked for a pending image send, including
