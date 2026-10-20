@@ -102,13 +102,7 @@ class InboxState(
                 }
 
                 runCatching { repository.loadMailbox() }
-                    .onSuccess { mailbox ->
-                        val existing = items.associateBy { it.id }
-                        val updated = mapMailbox(mailbox, existing)
-                        items.clear()
-                        items.addAll(updated)
-                        status = InboxStatus.Ready
-                    }
+                    .onSuccess { mailbox -> applyMailbox(mailbox) }
                     .onFailure { error ->
                         status = InboxStatus.Error
                         errorMessage = describeError(error)
@@ -117,6 +111,16 @@ class InboxState(
                 refreshInFlight = false
             }
         }
+    }
+
+    /** Applies the mailbox returned by login validation without another fetch. */
+    fun applyMailbox(mailbox: JSONObject) {
+        val existing = items.associateBy { it.id }
+        val updated = mapMailbox(mailbox, existing)
+        items.clear()
+        items.addAll(updated)
+        errorMessage = null
+        status = InboxStatus.Ready
     }
 
     fun loadThread(threadId: String) {

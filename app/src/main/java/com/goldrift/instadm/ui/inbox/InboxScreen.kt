@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,9 +54,9 @@ fun InboxScreen(
     modifier: Modifier = Modifier,
     status: InboxStatus = InboxStatus.Ready,
     errorMessage: String? = null,
-    cookiePath: String = "",
     realtimeStatus: RealtimeStatus = RealtimeStatus.Connected,
     onRefresh: () -> Unit = {},
+    onLogin: () -> Unit = {},
 ) {
     val realtimeLabel = when (realtimeStatus) {
         RealtimeStatus.Connected -> stringResource(R.string.realtime_connected)
@@ -121,9 +122,9 @@ fun InboxScreen(
                 status == InboxStatus.NoSession && conversations.isEmpty() -> {
                     InboxMessage(
                         title = stringResource(R.string.inbox_no_session_title),
-                        body = stringResource(R.string.inbox_no_session_body, cookiePath),
-                        actionLabel = stringResource(R.string.inbox_retry),
-                        onAction = onRefresh,
+                        body = stringResource(R.string.inbox_no_session_body),
+                        actionLabel = stringResource(R.string.inbox_login),
+                        onAction = onLogin,
                     )
                 }
 
@@ -133,6 +134,8 @@ fun InboxScreen(
                         body = errorMessage ?: stringResource(R.string.inbox_error_body),
                         actionLabel = stringResource(R.string.inbox_retry),
                         onAction = onRefresh,
+                        secondaryActionLabel = stringResource(R.string.inbox_error_login),
+                        onSecondaryAction = onLogin,
                     )
                 }
 
@@ -187,6 +190,8 @@ private fun InboxMessage(
     body: String,
     actionLabel: String,
     onAction: () -> Unit,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -210,6 +215,11 @@ private fun InboxMessage(
         Spacer(Modifier.height(16.dp))
         Button(onClick = onAction) {
             Text(actionLabel)
+        }
+        if (secondaryActionLabel != null) {
+            TextButton(onClick = onSecondaryAction) {
+                Text(secondaryActionLabel)
+            }
         }
     }
 }

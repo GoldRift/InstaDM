@@ -1,10 +1,18 @@
 package com.goldrift.instadm.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -16,8 +24,10 @@ import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.inbox.InboxScreen
+import com.goldrift.instadm.ui.login.LoginScreen
 
 private object Routes {
+    const val Login = "login"
     const val Inbox = "inbox"
     const val Chat = "chat"
     const val ThreadIdArg = "threadId"
@@ -30,30 +40,55 @@ private object Routes {
 fun InstaDmApp() {
     val context = LocalContext.current
     val application = context.applicationContext as InstaDmApplication
-    val sessionStore = application.sessionStore
     val inboxState = application.inboxState
     val navController = rememberNavController()
     val realtimeStatus by RealtimeBus.status.collectAsState()
+    var startRoute by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(application.repository) {
+        startRoute = if (application.repository.hasCookies()) Routes.Inbox else Routes.Login
+    }
 
     LaunchedEffect(inboxState) {
         inboxState.refreshIfNeeded()
     }
 
+    val resolvedStart = startRoute
+    if (resolvedStart == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
     NavHost(
         navController = navController,
-        startDestination = Routes.Inbox,
+        startDestination = resolvedStart,
     ) {
+        composable(Routes.Login) {
+            LoginScreen(
+                signIn = { cookies -> application.repository.signIn(cookies) },
+                onSignedIn = { mailbox ->
+                    inboxState.applyMailbox(mailbox)
+                    RealtimeService.start(context)
+                    navController.navigate(Routes.Inbox) {
+                        popUpTo(Routes.Login) { inclusive = true }
+                    }
+                },
+            )
+        }
+
         composable(Routes.Inbox) {
             InboxScreen(
                 conversations = inboxState.conversations,
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
-                cookiePath = sessionStore.cookieFile.absolutePath,
                 realtimeStatus = realtimeStatus,
                 onRefresh = {
                     inboxState.refresh()
                     RealtimeService.restart(context)
                 },
+                onLogin = { navController.navigate(Routes.Login) },
                 onConversationClick = { threadId ->
                     inboxState.clearError()
                     navController.navigate(Routes.chat(threadId))

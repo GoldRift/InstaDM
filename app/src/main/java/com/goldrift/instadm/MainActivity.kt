@@ -38,7 +38,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisibility.isForeground = true
-        RealtimeService.start(this)
+        val app = application as InstaDmApplication
+        if (app.sessionStore.hasStoredSession()) {
+            RealtimeService.start(this)
+        }
     }
 
     override fun onStop() {
