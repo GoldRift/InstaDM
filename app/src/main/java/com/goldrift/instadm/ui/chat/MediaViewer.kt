@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,17 +57,25 @@ data class MediaViewerTarget(
     val media: MessageMedia,
 )
 
+/** Downloads one attachment and returns the local file. */
+typealias MediaLoader =
+    suspend (threadId: String, messageId: String, partIndex: Int, mediaType: String) -> File
+
 /**
- * Inline bubble attachment. The signed CDN URL is only used for the thumbnail;
- * tapping opens the full-screen viewer, which downloads through the Go client.
+ * Inline bubble attachment. Images and videos use the signed CDN preview;
+ * GIFs download and autoplay while their row is visible. Tapping any attachment
+ * opens the full-screen viewer, which downloads through the Go client.
  */
 @Composable
 fun MediaThumbnail(
     media: MessageMedia,
+    threadId: String,
+    messageId: String,
+    active: Boolean,
+    loadMedia: MediaLoader?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     Box(
         modifier = modifier
             .widthIn(max = 260.dp)
@@ -77,55 +86,157 @@ fun MediaThumbnail(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (media.thumbnailUrl.isBlank()) {
-            // Videos without a preview still get the play card; images show a
-            // broken-attachment glyph.
-            if (!media.isVideo) MediaPlaceholder(isLoading = false)
-        } else {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(media.thumbnailUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = stringResource(R.string.chat_media_open),
-                contentScale = ContentScale.Crop,
+        if (media.type == "gif") {
+            InlineGif(
+                threadId = threadId,
+                messageId = messageId,
+                media = media,
+                active = active,
+                loadMedia = loadMedia,
                 modifier = Modifier.fillMaxSize(),
-                loading = { MediaPlaceholder(isLoading = true) },
-                error = { MediaPlaceholder(isLoading = false) },
             )
-        }
-
-        if (media.isVideo) {
+            // Keep taps above the VideoView so they reach the viewer.
             Box(
                 modifier = Modifier
-                    .size(54.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
-                    contentDescription = stringResource(R.string.chat_video_play),
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp),
-                )
-            }
-            if (media.durationMs > 0) {
-                Text(
-                    text = formatMediaDuration(media.durationMs),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
+                    .matchParentSize()
+                    .clickable(onClick = onClick),
+            )
+        } else {
+            ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
+
+            if (media.isVideo) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .background(
-                            color = Color.Black.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(6.dp),
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .size(54.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = stringResource(R.string.chat_video_play),
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+                if (media.durationMs > 0) {
+                    Text(
+                        text = formatMediaDuration(media.durationMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(6.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThumbnailImage(
+    media: MessageMedia,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    if (media.thumbnailUrl.isBlank()) {
+        // Videos without a preview still get the play card; images show a
+        // broken-attachment glyph.
+        if (!media.isVideo) MediaPlaceholder(isLoading = false)
+    } else {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(media.thumbnailUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = stringResource(R.string.chat_media_open),
+            contentScale = ContentScale.Crop,
+            modifier = modifier,
+            loading = { MediaPlaceholder(isLoading = true) },
+            error = { MediaPlaceholder(isLoading = false) },
+        )
+    }
+}
+
+/**
+ * Downloads a GIF through the Go client once its row is visible, then loops it
+ * inline. While the download runs, the static preview stays in place.
+ */
+@Composable
+private fun InlineGif(
+    threadId: String,
+    messageId: String,
+    media: MessageMedia,
+    active: Boolean,
+    loadMedia: MediaLoader?,
+    modifier: Modifier = Modifier,
+) {
+    var file by remember(messageId, media.partIndex) { mutableStateOf<File?>(null) }
+    var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
+
+    LaunchedEffect(messageId, media.partIndex, active) {
+        if (!active || file != null || failed) return@LaunchedEffect
+        val loader = loadMedia ?: return@LaunchedEffect
+        runCatching { loader(threadId, messageId, media.partIndex, media.type) }
+            .onSuccess { file = it }
+            .onFailure { failed = true }
+    }
+
+    val loaded = file
+    if (loaded != null) {
+        LoopingVideo(
+            file = loaded,
+            active = active,
+            modifier = modifier,
+        )
+    } else {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
+            if (!failed) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun LoopingVideo(
+    file: File,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val activeState = rememberUpdatedState(active)
+    AndroidView(
+        factory = { viewContext ->
+            VideoView(viewContext).apply {
+                setVideoURI(Uri.fromFile(file))
+                setOnPreparedListener { player ->
+                    player.isLooping = true
+                    if (activeState.value) start()
+                }
+                isClickable = false
+                isFocusable = false
+            }
+        },
+        update = { view ->
+            if (active) {
+                if (!view.isPlaying) view.start()
+            } else if (view.isPlaying) {
+                view.pause()
+            }
+        },
+        modifier = modifier,
+        onRelease = { view -> view.stopPlayback() },
+    )
 }
 
 @Composable
@@ -154,7 +265,7 @@ private fun MediaPlaceholder(isLoading: Boolean) {
 fun MediaViewerDialog(
     threadId: String,
     target: MediaViewerTarget,
-    loadMedia: (suspend (threadId: String, messageId: String, partIndex: Int, mediaType: String) -> File)?,
+    loadMedia: MediaLoader?,
     onDismiss: () -> Unit,
 ) {
     Dialog(

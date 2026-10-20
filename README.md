@@ -42,10 +42,10 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
 20 messages; sending text appends the server message after the mutation succeeds.
-Image, GIF, sticker, and video attachments render inline. Tapping an attachment
-opens a full-screen viewer; it downloads the original through the Go core into the
-app cache (so expired thumbnail URLs still work) and plays videos with the platform
-player, including looping GIFs.
+Image, GIF, sticker, and video attachments render inline, and GIFs autoplay while
+their row is visible. Tapping an attachment opens a full-screen viewer; it downloads
+the original through the Go core into the app cache (so expired thumbnail URLs still
+work) and plays videos with the platform player, including looping GIFs.
 Use the refresh button after replacing the cookie file. If the file is missing, the
 app shows the exact path it expects.
 

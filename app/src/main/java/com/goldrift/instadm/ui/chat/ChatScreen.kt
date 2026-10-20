@@ -52,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +70,6 @@ import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
-import java.io.File
 
 private val OutgoingBubbleShape = RoundedCornerShape(
     topStart = 24.dp,
@@ -94,7 +94,7 @@ fun ChatScreen(
     isTyping: Boolean = false,
     isLoading: Boolean = false,
     errorMessage: String? = null,
-    onLoadMedia: (suspend (threadId: String, messageId: String, partIndex: Int, mediaType: String) -> File)? = null,
+    onLoadMedia: MediaLoader? = null,
 ) {
     val messages = conversation.messages
     var draft by remember { mutableStateOf("") }
@@ -180,9 +180,11 @@ fun ChatScreen(
                         contactInitials = conversation.contact.initials,
                         isTyping = isTyping,
                         listState = listState,
+                        threadId = conversation.id,
                         onOpenMedia = { messageId, media ->
                             viewerTarget = MediaViewerTarget(messageId, media)
                         },
+                        onLoadMedia = onLoadMedia,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -257,10 +259,17 @@ private fun MessageList(
     contactInitials: String,
     isTyping: Boolean,
     listState: LazyListState,
+    threadId: String,
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
+    onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
     val reversed = messages.asReversed()
+    val visibleMessageIds by remember(listState) {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { it.key as? String }
+        }
+    }
 
     LazyColumn(
         state = listState,
@@ -292,7 +301,10 @@ private fun MessageList(
                 message = message,
                 contactInitials = contactInitials,
                 showAvatar = showAvatar,
+                threadId = threadId,
+                isVisible = message.id in visibleMessageIds,
                 onOpenMedia = { media -> onOpenMedia(message.id, media) },
+                onLoadMedia = onLoadMedia,
                 modifier = Modifier.animateItem(),
             )
         }
@@ -308,7 +320,10 @@ private fun MessageRow(
     message: ChatMessage,
     contactInitials: String,
     showAvatar: Boolean,
+    threadId: String,
+    isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
+    onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
@@ -349,7 +364,10 @@ private fun MessageRow(
             ) {
                 MessageBubbleContent(
                     message = message,
+                    threadId = threadId,
+                    isVisible = isVisible,
                     onOpenMedia = onOpenMedia,
+                    onLoadMedia = onLoadMedia,
                 )
             }
 
@@ -393,7 +411,10 @@ private fun MessageRow(
 @Composable
 private fun MessageBubbleContent(
     message: ChatMessage,
+    threadId: String,
+    isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
+    onLoadMedia: MediaLoader?,
 ) {
     val media = message.media.filter { it.isVisual }
     Column(
@@ -406,6 +427,10 @@ private fun MessageBubbleContent(
             if (index > 0) Spacer(Modifier.height(4.dp))
             MediaThumbnail(
                 media = item,
+                threadId = threadId,
+                messageId = message.id,
+                active = isVisible,
+                loadMedia = onLoadMedia,
                 onClick = { onOpenMedia(item) },
             )
         }
