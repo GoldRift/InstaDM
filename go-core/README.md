@@ -313,9 +313,9 @@ checkpoint, and rate-limit errors are returned instead of retried forever.
 
 ## Mobile wrapper
 
-`mobile/` is a JSON-only wrapper designed for `gomobile bind`. It keeps the Android
-boundary small: every method returns normalized JSON and an error, and no Go types cross
-the boundary except strings, bytes, and primitives.
+`mobile/` is a JSON-only wrapper designed for `gomobile bind`. The request/response
+methods return normalized JSON strings, and realtime events are JSON strings delivered
+through a small callback interface.
 
 ```go
 client, err := mobile.New(cookieJSON)
@@ -323,6 +323,9 @@ defer client.Close()
 
 mailboxJSON, err := client.MailboxJSON(90)
 threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
+
+client.StartWatch(callback) // callback.OnEvent(eventJSON) on a Go-owned thread
+defer client.StopWatch()
 ```
 
 | Method | Purpose |
@@ -341,7 +344,9 @@ threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
 | `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
 | `DownloadMediaJSON(threadID, messageID, part, destPath, timeoutSeconds)` | Download one attachment to `destPath` |
-| `Close()` | Release the client |
+| `StartWatch(callback)` | Start the DGW watcher; `callback.OnEvent(eventJSON)` receives normalized events |
+| `StopWatch()` | Cancel the watcher and wait briefly for the socket loop |
+| `Close()` | Stop watching and release the client |
 
 A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes bytes
 rather than a path so Android can pass the result of reading a content URI; the Go side
@@ -370,12 +375,15 @@ The generated Java package is `com.goldrift.instadm.core.mobile`:
   `sendMediaJSON(...)`, `sendNewDMJSON(...)`, `editJSON(...)`, `unsendJSON(...)`,
   `reactJSON(...)`, `markReadJSON(...)`, `muteJSON(...)`, `pinJSON(...)`, and
   `downloadMediaJSON(...)` return JSON strings.
+- `Client.startWatch(callback)` accepts a `WatchCallback` with
+  `onEvent(String eventJSON)`; `stopWatch()` cancels it. The callback runs on a Go-owned
+  thread, so Kotlin must keep it fast and must not call back into the same client.
 - `int32` parameters become Java `int`; `[]byte` becomes `byte[]`; Go errors become
   exceptions.
 
-The wrapper itself is covered by host tests. The Android smoke test lives in
-`app/src/androidTest` and requires a cookie file under the app's external files
-directory.
+The wrapper itself is covered by host tests. The Android tests live in
+`app/src/androidTest` and require a cookie file under the app's external files
+directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
 
 ## Validation status
 

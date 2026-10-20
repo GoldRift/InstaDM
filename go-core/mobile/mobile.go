@@ -1,5 +1,6 @@
 // Package mobile exposes a JSON-only, gomobile-friendly wrapper around igcore.
-// All methods run with their own timeout and never return cookies or tokens.
+// Request methods run with their own timeout; StartWatch streams JSON events on
+// a callback until StopWatch. Nothing returns cookies or bootstrap tokens.
 package mobile
 
 import (
@@ -7,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -14,8 +16,19 @@ import (
 	"github.com/goldrift/instadm/go-core/igcore"
 )
 
+// WatchCallback receives normalized event JSON from StartWatch. Callbacks run
+// on a Go-owned thread, so implementations must not block for long.
+type WatchCallback interface {
+	OnEvent(eventJSON string)
+}
+
 type Client struct {
 	inner *igcore.Client
+
+	watchMu      sync.Mutex
+	watchCancel  context.CancelFunc
+	watchDone    chan struct{}
+	watchHandler WatchCallback
 }
 
 // New creates a client from the same cookie JSON/header formats as the CLI.
@@ -24,24 +37,125 @@ func New(cookiesJSON string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	client := &Client{}
 	inner, err := igcore.New(cookies, igcore.Options{
 		LogLevel:  zerolog.WarnLevel,
 		LogOutput: os.Stderr,
+		OnEvent:   client.handleEvent,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Client{inner: inner}, nil
+	client.inner = inner
+	return client, nil
+}
+
+// handleEvent forwards protocol events to the active watch callback. The
+// callback is nil between StopWatch and the next StartWatch.
+func (c *Client) handleEvent(event igcore.Event) {
+	c.watchMu.Lock()
+	callback := c.watchHandler
+	c.watchMu.Unlock()
+	if callback == nil {
+		return
+	}
+	emitWatchEvent(callback, event)
 }
 
 func Version() string {
 	return igcore.ProtocolVersion
 }
 
+// StartWatch connects to DGW and delivers normalized event JSON to callback
+// until StopWatch or Close. It returns after the watch goroutine starts; the
+// caller should keep the callback object alive until StopWatch returns.
+func (c *Client) StartWatch(callback WatchCallback) error {
+	if c == nil || c.inner == nil {
+		return errors.New("client is not initialized")
+	}
+	if callback == nil {
+		return errors.New("watch callback is required")
+	}
+
+	c.watchMu.Lock()
+	if c.watchCancel != nil {
+		c.watchMu.Unlock()
+		return errors.New("watch is already running")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	c.watchCancel = cancel
+	c.watchDone = done
+	c.watchHandler = callback
+	c.watchMu.Unlock()
+
+	go func() {
+		defer close(done)
+
+		err := c.inner.Watch(ctx)
+
+		c.watchMu.Lock()
+		if c.watchDone == done {
+			c.watchCancel = nil
+			c.watchDone = nil
+			c.watchHandler = nil
+		}
+		c.watchMu.Unlock()
+
+		if err != nil && ctx.Err() == nil {
+			emitWatchEvent(callback, igcore.Event{
+				Type:  "watch.error",
+				Error: err.Error(),
+			})
+		}
+	}()
+
+	return nil
+}
+
+// StopWatch cancels the watch and waits briefly for the socket loop to exit.
+// It is safe to call more than once.
+func (c *Client) StopWatch() {
+	if c == nil {
+		return
+	}
+
+	c.watchMu.Lock()
+	cancel := c.watchCancel
+	done := c.watchDone
+	c.watchCancel = nil
+	c.watchDone = nil
+	c.watchHandler = nil
+	c.watchMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
 func (c *Client) Close() {
-	if c != nil && c.inner != nil {
+	if c == nil {
+		return
+	}
+	c.StopWatch()
+	if c.inner != nil {
 		c.inner.Close()
 	}
+}
+
+func emitWatchEvent(callback WatchCallback, event igcore.Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	callback.OnEvent(string(data))
 }
 
 func (c *Client) MailboxJSON(timeoutSeconds int32) (string, error) {
