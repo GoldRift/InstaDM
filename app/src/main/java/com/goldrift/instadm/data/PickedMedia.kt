@@ -245,10 +245,6 @@ object CameraCapture {
         return CaptureTarget(uri, file)
     }
 
-    fun delete(target: CaptureTarget) {
-        runCatching { target.file.delete() }
-    }
-
     /** Clears captured photos that a pending-send retry no longer needs. */
     fun prune(context: Context) {
         val cutoff = System.currentTimeMillis() - MAX_AGE_MS
