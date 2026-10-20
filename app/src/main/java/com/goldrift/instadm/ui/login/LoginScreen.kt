@@ -107,10 +107,11 @@ fun LoginScreen(
     fun maybeCapture(url: String, view: WebView) {
         if (validating || !isReadyUrl(url)) return
 
-        CookieManager.getInstance().flush()
         val raw = CookieManager.getInstance().getCookie(url) ?: return
         val cookies = parseCookieHeader(raw)
         if (missingCookies(cookies).isNotEmpty()) return
+        // Persist any cookies Instagram just set before the app is torn down.
+        CookieManager.getInstance().flush()
 
         val cookiesJson = canonicalCookieJson(cookies)
         if (cookiesJson == lastAttempt) return
