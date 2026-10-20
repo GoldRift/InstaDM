@@ -2,6 +2,7 @@ package com.goldrift.instadm.data
 
 import com.goldrift.instadm.core.mobile.Client
 import com.goldrift.instadm.core.mobile.Mobile
+import com.goldrift.instadm.core.mobile.WatchCallback
 import org.json.JSONObject
 import java.io.Closeable
 
@@ -108,6 +109,18 @@ class GoClient(cookiesJson: String) : Closeable {
     ): JSONObject = JSONObject(
         client.downloadMediaJSON(threadId, messageId, part, destPath, timeoutSeconds),
     )
+
+    /**
+     * Starts the Go watch loop. Events arrive as JSON on a Go-owned thread, so
+     * the callback must be fast and must not call back into this client.
+     */
+    fun startWatch(callback: WatchCallback) {
+        client.startWatch(callback)
+    }
+
+    fun stopWatch() {
+        client.stopWatch()
+    }
 
     override fun close() {
         client.close()

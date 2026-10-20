@@ -21,6 +21,7 @@ data class Conversation(
     val lastActivityMs: Long = 0,
     val preview: String = "",
     val isGroup: Boolean = false,
+    val messagesLoaded: Boolean = false,
 )
 
 data class ChatMessage(
@@ -28,6 +29,7 @@ data class ChatMessage(
     val text: String,
     val sender: MessageSender,
     val timestamp: String,
+    val timestampMs: Long = 0,
     val seen: Boolean = false,
     val pending: Boolean = false,
 )
@@ -46,6 +48,7 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("maya-6", "I'll be there", MessageSender.Me, now, 13, seen = true),
         ),
         lastActivityMs = now - 13 * 60_000L,
+        messagesLoaded = true,
     ),
     Conversation(
         id = "dev",
@@ -56,6 +59,7 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("dev-103", "awesome, ping me with notes", MessageSender.Them, now, 38),
         ),
         lastActivityMs = now - 38 * 60_000L,
+        messagesLoaded = true,
     ),
     Conversation(
         id = "sofia",
@@ -67,6 +71,7 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("sofia-204", "you're the best", MessageSender.Them, now, 88),
         ),
         lastActivityMs = now - 88 * 60_000L,
+        messagesLoaded = true,
     ),
     Conversation(
         id = "liam",
@@ -77,6 +82,7 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("liam-303", "you're a legend", MessageSender.Them, now, 175),
         ),
         lastActivityMs = now - 175 * 60_000L,
+        messagesLoaded = true,
     ),
 )
 
@@ -92,6 +98,7 @@ private fun message(
     text = text,
     sender = sender,
     timestamp = timeLabel(now, minutesAgo),
+    timestampMs = now - minutesAgo * 60_000L,
     seen = seen,
 )
 

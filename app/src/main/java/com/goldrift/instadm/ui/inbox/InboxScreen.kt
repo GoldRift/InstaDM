@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.MessageSender
@@ -53,20 +54,43 @@ fun InboxScreen(
     status: InboxStatus = InboxStatus.Ready,
     errorMessage: String? = null,
     cookiePath: String = "",
+    realtimeStatus: RealtimeStatus = RealtimeStatus.Connected,
     onRefresh: () -> Unit = {},
 ) {
+    val realtimeLabel = when (realtimeStatus) {
+        RealtimeStatus.Connected -> stringResource(R.string.realtime_connected)
+        RealtimeStatus.Connecting -> stringResource(R.string.realtime_connecting)
+        RealtimeStatus.Reconnecting -> stringResource(R.string.realtime_reconnecting)
+        RealtimeStatus.NoSession -> stringResource(R.string.realtime_no_session)
+        RealtimeStatus.Error -> stringResource(R.string.realtime_error)
+        RealtimeStatus.Stopped -> stringResource(R.string.realtime_stopped)
+    }
+    val realtimeColor = when (realtimeStatus) {
+        RealtimeStatus.Connected -> MaterialTheme.colorScheme.tertiary
+        RealtimeStatus.Error -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.headlineSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = realtimeLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = realtimeColor,
+                            maxLines = 1,
+                        )
+                    }
                 },
                 actions = {
                     IconButton(onClick = onRefresh) {

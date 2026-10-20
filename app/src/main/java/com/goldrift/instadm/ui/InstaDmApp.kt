@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
@@ -13,7 +15,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.SessionStore
+import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.inbox.InboxScreen
@@ -35,6 +39,7 @@ fun InstaDmApp() {
     val repository = remember(sessionStore) { ProtocolRepository(sessionStore) }
     val inboxState = remember(repository, scope) { InboxState(repository, scope) }
     val navController = rememberNavController()
+    val realtimeStatus by RealtimeBus.status.collectAsState()
 
     DisposableEffect(repository) {
         onDispose { repository.close() }
@@ -53,7 +58,11 @@ fun InstaDmApp() {
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
                 cookiePath = sessionStore.cookieFile.absolutePath,
-                onRefresh = { inboxState.refresh() },
+                realtimeStatus = realtimeStatus,
+                onRefresh = {
+                    inboxState.refresh()
+                    RealtimeService.restart(context)
+                },
                 onConversationClick = { threadId ->
                     inboxState.clearError()
                     navController.navigate(Routes.chat(threadId))

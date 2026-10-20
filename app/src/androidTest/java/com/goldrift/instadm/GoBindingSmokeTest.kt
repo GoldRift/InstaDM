@@ -2,13 +2,19 @@ package com.goldrift.instadm
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.goldrift.instadm.core.mobile.WatchCallback
 import com.goldrift.instadm.data.GoClient
+import com.goldrift.instadm.data.RealtimeEvent
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Runtime smoke test for the gomobile AAR.
@@ -51,6 +57,47 @@ class GoBindingSmokeTest {
             val threadId = firstThread.getString("id")
             val thread = client.thread(threadId, 5, "", 90)
             assertNotNull("thread has no messages array", thread.optJSONArray("messages"))
+        }
+    }
+
+    @Test
+    fun watchDeliversConnectedEvent() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val overridePath = InstrumentationRegistry.getArguments().getString("instadmCookiesPath")
+        val cookieFile = if (overridePath != null) {
+            File(overridePath)
+        } else {
+            File(context.getExternalFilesDir(null) ?: context.filesDir, "cookies.json")
+        }
+
+        assumeTrue("Cookie file not found at ${cookieFile.absolutePath}", cookieFile.isFile)
+
+        val connected = CountDownLatch(1)
+        val failure = AtomicReference<String?>(null)
+        GoClient(cookieFile.readText()).use { client ->
+            val callback = object : WatchCallback {
+                override fun onEvent(eventJSON: String) {
+                    val event = RealtimeEvent.fromJson(eventJSON) ?: return
+                    when (event.type) {
+                        "connected" -> connected.countDown()
+                        "auth.error", "watch.error" -> {
+                            failure.set("${event.type}: ${event.error}")
+                            connected.countDown()
+                        }
+                    }
+                }
+            }
+            client.startWatch(callback)
+            try {
+                assertTrue(
+                    "watch did not connect within 60s",
+                    connected.await(60, TimeUnit.SECONDS),
+                )
+                assertNull("watch failed: ${failure.get()}", failure.get())
+            } finally {
+                client.stopWatch()
+            }
         }
     }
 }

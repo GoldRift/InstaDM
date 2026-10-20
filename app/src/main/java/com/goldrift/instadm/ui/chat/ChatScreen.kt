@@ -87,10 +87,10 @@ fun ChatScreen(
     conversation: Conversation,
     onSend: (String) -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     isTyping: Boolean = false,
     isLoading: Boolean = false,
     errorMessage: String? = null,
-    modifier: Modifier = Modifier,
 ) {
     val messages = conversation.messages
     var draft by remember { mutableStateOf("") }

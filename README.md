@@ -7,8 +7,8 @@ An Android Instagram DM client built around a Go protocol core.
   download, mute/pin, new DMs, a durable outbox, and DGW realtime watch. See
   [`go-core/README.md`](go-core/README.md).
 - [`app/`](app/) — Android Jetpack Compose app. It embeds the Go core through the
-  generated `igcore.aar`; connecting the demo UI to the protocol client is the
-  next step.
+  generated `igcore.aar`, loads the real inbox and threads, sends text, and keeps a
+  realtime watch alive in a foreground service.
 
 ## Build
 
@@ -44,6 +44,14 @@ The inbox loads the mailbox from the Go core. Opening a thread fetches its newes
 Use the refresh button after replacing the cookie file. If the file is missing, the
 app shows the exact path it expects.
 
+The app starts a `dataSync`/`remoteMessaging` foreground service that keeps the DGW
+watch connected while the UI is in the background. The status under the app name shows
+`Live`, `Connecting…`, `Reconnecting…`, `No realtime session`, or `Realtime error`.
+Incoming messages update the open thread and inbox immediately. When the app is in the
+background, they also post a notification in the `Messages` channel; Android 13+ asks
+for notification permission on first launch. The notification actions include `Stop`
+for the foreground service.
+
 ## Runtime smoke test
 
 ```bash
@@ -52,14 +60,28 @@ app shows the exact path it expects.
 ```
 
 The test skips if the cookie file is missing. It creates the Go client, loads the
-mailbox, and fetches the first thread.
+mailbox, fetches the first thread, and starts the watch until a `connected` event
+arrives. `RealtimeEventTest` covers the JSON event parser without needing cookies.
+
+Because `connectedDebugAndroidTest` may reinstall the app and remove its external
+files, the reliable real-account path is to install both APKs, push cookies, and run
+the instrumentation directly:
+
+```bash
+./gradlew :app:installDebug :app:installDebugAndroidTest
+adb shell mkdir -p /sdcard/Android/data/com.goldrift.instadm/files
+adb push ~/.config/instadm/cookies.json \
+  /sdcard/Android/data/com.goldrift.instadm/files/cookies.json
+adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.AndroidJUnitRunner
+```
 
 ## Status
 
 The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read, mute/pin, new DMs, reconnect backoff, and a durable send outbox. The
-Android inbox and chat now load real mailbox/thread JSON and send text through the
-AAR. Media rendering, realtime updates, and an in-app session screen are next.
+Android inbox and chat load real mailbox/thread JSON, send text through the AAR, and
+apply realtime events from a foreground watch service. Media rendering, older-message
+paging in the UI, and an in-app session screen are next.
 
 ## License
 

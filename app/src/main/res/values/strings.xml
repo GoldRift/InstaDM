@@ -18,4 +18,17 @@
     <string name="inbox_empty_title">No conversations</string>
     <string name="inbox_empty_body">Your inbox is empty.</string>
     <string name="inbox_retry">Retry</string>
+    <string name="realtime_connected">Live</string>
+    <string name="realtime_connecting">Connecting…</string>
+    <string name="realtime_reconnecting">Reconnecting…</string>
+    <string name="realtime_no_session">No realtime session</string>
+    <string name="realtime_error">Realtime error</string>
+    <string name="realtime_stopped">Realtime off</string>
+    <string name="realtime_stop">Stop</string>
+    <string name="notification_channel_status">Realtime connection</string>
+    <string name="notification_channel_status_description">Keeps the realtime message connection running.</string>
+    <string name="notification_channel_messages">Messages</string>
+    <string name="notification_channel_messages_description">New Instagram direct messages.</string>
+    <string name="notification_new_message">New message</string>
+    <string name="notification_message">New message</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
+import com.goldrift.instadm.data.messagePreview
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -32,13 +33,17 @@ fun mapMailbox(
             lastActivityMs = thread.optLong("last_activity_ms"),
             preview = previous?.preview.orEmpty(),
             isGroup = thread.optBoolean("is_group"),
+            messagesLoaded = previous?.messagesLoaded ?: false,
         )
     }
     return result.sortedByDescending { it.lastActivityMs }
 }
 
 fun mapThread(json: JSONObject, conversation: Conversation): Conversation =
-    conversation.copy(messages = mapMessages(json.optJSONArray("messages")))
+    conversation.copy(
+        messages = mapMessages(json.optJSONArray("messages")),
+        messagesLoaded = true,
+    )
 
 private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
     if (messages == null) return emptyList()
@@ -46,16 +51,17 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
     for (index in 0 until messages.length()) {
         val message = messages.optJSONObject(index) ?: continue
         val kind = message.optString("kind")
-        val text = message.optString("text").ifBlank { placeholder(kind) }
+        val timestampMs = message.optLong("timestamp_ms")
         result += ChatMessage(
             id = message.optString("id").ifBlank { "message-$index" },
-            text = text,
+            text = messagePreview(message.optString("text"), kind),
             sender = if (message.optBoolean("is_from_viewer")) {
                 MessageSender.Me
             } else {
                 MessageSender.Them
             },
-            timestamp = formatMessageTime(message.optLong("timestamp_ms")),
+            timestamp = formatMessageTime(timestampMs),
+            timestampMs = timestampMs,
         )
     }
     return result
@@ -81,17 +87,6 @@ private fun initials(name: String): String {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
     if (parts.isEmpty()) return "?"
     return parts.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "?" }
-}
-
-private fun placeholder(kind: String): String = when (kind) {
-    "image" -> "[image]"
-    "video" -> "[video]"
-    "audio" -> "[audio]"
-    "gif" -> "[gif]"
-    "sticker" -> "[sticker]"
-    "media" -> "[media]"
-    "link" -> "[link]"
-    else -> if (kind.isBlank()) "" else "[$kind]"
 }
 
 fun formatMessageTime(milliseconds: Long): String {
