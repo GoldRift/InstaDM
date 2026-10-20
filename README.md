@@ -51,7 +51,11 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 The debug `cookies.json` is excluded from Android backup. The encrypted session
 is kept only in `noBackupFilesDir`.
 
-The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
+The inbox loads the mailbox from the Go core. Conversation rows and chat headers show
+profile pictures from the mailbox payload: a direct chat uses the other person's picture,
+a group uses its custom photo, and a group without one falls back to a collage of its
+members. Opening a thread refreshes the title and photo along with the newest messages.
+Opening a thread fetches its newest
 30 messages, and scrolling to the oldest bubble pages in older messages until the
 thread begins. Sending text appends the server message after the mutation succeeds.
 Attachments can be captured with the camera button or picked from the system photo

@@ -28,12 +28,14 @@ fun mapMailbox(
             contact = Contact(
                 id = threadID,
                 name = title,
-                initials = initials(title),
+                initials = initialsOf(title),
+                avatarUrl = thread.optString("avatar_url"),
             ),
             messages = previous?.messages.orEmpty(),
             lastActivityMs = thread.optLong("last_activity_ms"),
             preview = previous?.preview.orEmpty(),
             isGroup = thread.optBoolean("is_group"),
+            participants = mapParticipants(thread.optJSONArray("participants")),
             // Reload the thread when it is reopened after a mailbox refresh so
             // read receipts and newer messages are not left stale.
             messagesLoaded = false,
@@ -53,7 +55,17 @@ fun mapMailbox(
 
 fun mapThread(json: JSONObject, conversation: Conversation): Conversation {
     val thread = json.optJSONObject("thread")
+    val title = thread?.optString("title").orEmpty()
+    val participants = mapParticipants(thread?.optJSONArray("participants"))
     return conversation.copy(
+        contact = conversation.contact.copy(
+            name = title.ifBlank { conversation.contact.name },
+            initials = initialsOf(title.ifBlank { conversation.contact.name }),
+            avatarUrl = thread?.optString("avatar_url").orEmpty().ifBlank {
+                conversation.contact.avatarUrl
+            },
+        ),
+        participants = participants.ifEmpty { conversation.participants },
         threadFbid = thread?.optString("thread_fbid").orEmpty()
             .ifBlank { conversation.threadFbid },
         longThreadId = thread?.optString("thread_id").orEmpty()
@@ -118,6 +130,8 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
             } else {
                 MessageSender.Them
             },
+            senderFbid = message.optLong("sender_fbid"),
+            senderName = message.optString("sender_name"),
             timestamp = formatMessageTime(timestampMs),
             timestampMs = timestampMs,
             seen = message.optBoolean("seen"),
@@ -153,6 +167,7 @@ private fun threadTitle(thread: JSONObject): String {
     if (participants != null) {
         for (index in 0 until participants.length()) {
             val participant = participants.optJSONObject(index) ?: continue
+            if (participant.optBoolean("is_viewer")) continue
             val name = participant.optString("name")
                 .ifBlank { participant.optString("username") }
             if (name.isNotBlank()) return name
@@ -161,10 +176,29 @@ private fun threadTitle(thread: JSONObject): String {
     return "Instagram user"
 }
 
-private fun initials(name: String): String {
-    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    if (parts.isEmpty()) return "?"
-    return parts.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "?" }
+/**
+ * Maps the thread's participant list for avatar rendering. The viewer is
+ * dropped: group collages show the other members, and one-to-one rows use
+ * [Contact.avatarUrl] resolved by the Go core.
+ */
+private fun mapParticipants(participants: JSONArray?): List<ConversationParticipant> {
+    if (participants == null) return emptyList()
+    val result = ArrayList<ConversationParticipant>(participants.length())
+    for (index in 0 until participants.length()) {
+        val participant = participants.optJSONObject(index) ?: continue
+        if (participant.optBoolean("is_viewer")) continue
+        val name = participant.optString("name")
+            .ifBlank { participant.optString("username") }
+        val fbid = participant.optLong("fbid")
+        if (name.isBlank() && fbid == 0L) continue
+        result += ConversationParticipant(
+            fbid = fbid,
+            name = name,
+            initials = initialsOf(name),
+            avatarUrl = participant.optString("avatar_url"),
+        )
+    }
+    return result
 }
 
 fun formatMessageTime(milliseconds: Long): String {

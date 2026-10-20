@@ -113,6 +113,7 @@ import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
+import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import java.io.File
 
@@ -240,6 +241,8 @@ fun ChatScreen(
         topBar = {
             ChatTopSection(
                 contact = conversation.contact,
+                isGroup = conversation.isGroup,
+                participants = conversation.participants,
                 onBack = onBack,
             )
         },
@@ -297,7 +300,9 @@ fun ChatScreen(
                 else -> {
                     MessageList(
                         messages = messages,
-                        contactInitials = conversation.contact.initials,
+                        contact = conversation.contact,
+                        isGroup = conversation.isGroup,
+                        participants = conversation.participants,
                         isTyping = isTyping,
                         listState = listState,
                         threadId = conversation.id,
@@ -388,14 +393,18 @@ fun ChatScreen(
 @Composable
 private fun ChatTopSection(
     contact: Contact,
+    isGroup: Boolean,
+    participants: List<ConversationParticipant>,
     onBack: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         TopAppBar(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(
-                        initials = contact.initials,
+                    ConversationAvatar(
+                        contact = contact,
+                        isGroup = isGroup,
+                        participants = participants,
                         size = 38.dp,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -438,7 +447,9 @@ private fun ChatTopSection(
 @Composable
 private fun MessageList(
     messages: List<ChatMessage>,
-    contactInitials: String,
+    contact: Contact,
+    isGroup: Boolean,
+    participants: List<ConversationParticipant>,
     isTyping: Boolean,
     listState: LazyListState,
     threadId: String,
@@ -498,7 +509,7 @@ private fun MessageList(
         if (isTyping) {
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
-                    contactInitials = contactInitials,
+                    contact = contact,
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -510,13 +521,32 @@ private fun MessageList(
             contentType = { _, message -> message.sender },
         ) { reverseIndex, message ->
             val originalIndex = messages.lastIndex - reverseIndex
-            val previousSender = messages.getOrNull(originalIndex - 1)?.sender
-            val showAvatar =
-                message.sender == MessageSender.Them && previousSender != MessageSender.Them
+            val previous = messages.getOrNull(originalIndex - 1)
+            val sender = if (isGroup) {
+                participants.firstOrNull { it.fbid == message.senderFbid }
+            } else {
+                null
+            }
+            val senderInitials = sender?.initials
+                ?: message.senderName.takeIf { it.isNotBlank() }?.let(::initialsOf)
+                ?: contact.initials
+            val senderAvatarUrl = if (isGroup) {
+                sender?.avatarUrl.orEmpty()
+            } else {
+                contact.avatarUrl
+            }
+            // Consecutive messages from the same person share one avatar; in a
+            // group, a change of sender starts a new bubble cluster.
+            val showAvatar = message.sender == MessageSender.Them &&
+                (
+                    previous?.sender != MessageSender.Them ||
+                        (isGroup && previous?.senderFbid != message.senderFbid)
+                    )
 
             MessageRow(
                 message = message,
-                contactInitials = contactInitials,
+                senderInitials = senderInitials,
+                senderAvatarUrl = senderAvatarUrl,
                 showAvatar = showAvatar,
                 threadId = threadId,
                 isVisible = message.id in visibleMessageIds,
@@ -554,7 +584,8 @@ private fun MessageList(
 @Composable
 private fun MessageRow(
     message: ChatMessage,
-    contactInitials: String,
+    senderInitials: String,
+    senderAvatarUrl: String,
     showAvatar: Boolean,
     threadId: String,
     isVisible: Boolean,
@@ -581,8 +612,9 @@ private fun MessageRow(
         if (!isMine) {
             if (showAvatar) {
                 Avatar(
-                    initials = contactInitials,
+                    initials = senderInitials,
                     size = 28.dp,
+                    imageUrl = senderAvatarUrl,
                 )
             } else {
                 Spacer(Modifier.width(28.dp))
@@ -1079,7 +1111,7 @@ private fun copyToClipboard(context: Context, text: String) {
 
 @Composable
 private fun TypingBubble(
-    contactInitials: String,
+    contact: Contact,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -1087,8 +1119,9 @@ private fun TypingBubble(
         verticalAlignment = Alignment.Bottom,
     ) {
         Avatar(
-            initials = contactInitials,
+            initials = contact.initials,
             size = 28.dp,
+            imageUrl = contact.avatarUrl,
         )
         Spacer(Modifier.width(8.dp))
         Surface(

@@ -43,7 +43,7 @@ import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.formatInboxTime
 import com.goldrift.instadm.ui.chat.sampleConversations
-import com.goldrift.instadm.ui.components.Avatar
+import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -246,8 +246,10 @@ private fun ConversationRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(
-            initials = conversation.contact.initials,
+        ConversationAvatar(
+            contact = conversation.contact,
+            isGroup = conversation.isGroup,
+            participants = conversation.participants,
             size = 50.dp,
         )
         Spacer(Modifier.width(12.dp))

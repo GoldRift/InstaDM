@@ -13,6 +13,16 @@ data class Contact(
     val id: String,
     val name: String,
     val initials: String,
+    /** Profile picture URL; empty when Instagram has none. */
+    val avatarUrl: String = "",
+)
+
+/** A group member whose picture can appear in the conversation avatar. */
+data class ConversationParticipant(
+    val fbid: Long,
+    val name: String,
+    val initials: String,
+    val avatarUrl: String = "",
 )
 
 /** A single DM thread shown in the inbox. */
@@ -23,6 +33,8 @@ data class Conversation(
     val lastActivityMs: Long = 0,
     val preview: String = "",
     val isGroup: Boolean = false,
+    /** Other members, excluding the viewer; used for the group avatar collage. */
+    val participants: List<ConversationParticipant> = emptyList(),
     val messagesLoaded: Boolean = false,
     val threadFbid: String = "",
     /** Instagram's long thread ID (`thread_id`), needed for read receipts. */
@@ -46,6 +58,10 @@ data class ChatMessage(
     val seen: Boolean = false,
     val pending: Boolean = false,
     val failed: Boolean = false,
+    /** FBID of the participant who sent an incoming message (0 for the viewer). */
+    val senderFbid: Long = 0,
+    /** Display name of an incoming sender, for the bubble avatar fallback. */
+    val senderName: String = "",
     val media: List<MessageMedia> = emptyList(),
     val reactions: List<MessageReaction> = emptyList(),
     /** Local preview for media that has not reached the server yet. */
@@ -172,3 +188,10 @@ private fun timeLabel(now: Long, minutesAgo: Int): String =
 
 fun currentTimeLabel(): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+
+/** Two-letter initials used by avatars, or "?" for an empty name. */
+fun initialsOf(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (parts.isEmpty()) return "?"
+    return parts.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "?" }
+}

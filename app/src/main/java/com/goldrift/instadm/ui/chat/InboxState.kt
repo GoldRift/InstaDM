@@ -603,6 +603,8 @@ class InboxState(
                 if (message.media.isEmpty()) messagePlaceholder(message.kind) else ""
             },
             sender = if (message.isFromViewer) MessageSender.Me else MessageSender.Them,
+            senderFbid = message.senderFbid,
+            senderName = message.senderName,
             timestamp = formatMessageTime(timestamp),
             timestampMs = timestamp,
             media = message.media,
