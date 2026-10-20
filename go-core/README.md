@@ -2,11 +2,10 @@
 
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
 Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
-adds/removes reactions, marks threads read, downloads attachments, and watches the DGW
-realtime stream.
+adds/removes reactions, marks threads read, downloads attachments, persists pending
+sends in a local outbox, and watches the DGW realtime stream.
 
-It does **not** create new DMs, persist a durable outbox, or touch the Android app.
-Those are later levels.
+It does **not** create new DMs or touch the Android app. Those are later levels.
 
 ## Upstream dependency
 
@@ -111,6 +110,12 @@ go run ./cmd/igcli send <thread-id> "hello" --otid 1792364344000123 --cookies ~/
 # Retry transient failures with the same OTID
 go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instadm/cookies.json
 
+# Persist a send in the outbox, then retry pending sends later
+go run ./cmd/igcli send <thread-id> "hello" --outbox ~/.cache/instadm/outbox.json --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli outbox list --path ~/.cache/instadm/outbox.json
+go run ./cmd/igcli outbox retry --path ~/.cache/instadm/outbox.json --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli outbox remove --path ~/.cache/instadm/outbox.json --id <otid>
+
 # Edit one of your own text messages
 go run ./cmd/igcli edit <thread-id> <message-id> "updated text" --cookies ~/.config/instadm/cookies.json
 
@@ -160,6 +165,9 @@ Flags:
 | `--reply-to <message-id>` | `send`, `send-media`: reply to an existing message |
 | `--otid <otid>` | `send`, `send-media`, `edit`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
+| `--outbox <path>` | `send`, `send-media`: persist pending sends in this JSON file |
+| `--path <path>` | `outbox`: outbox JSON file |
+| `--id <otid>` | `outbox retry`/`remove`: select one pending OTID |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
 | `--save <path>` | `media`: download the selected attachment to this file |
@@ -205,8 +213,21 @@ The `send` result includes the thread ID, canonical message ID, OTID, timestamp,
 sent text. Keep the OTID if a send times out; re-running with the same `--otid` is safer
 than generating a new one. `--retry` retries transient failures with that same OTID.
 Permanent errors (expired session, challenge, checkpoint, rate limit) are not retried.
-A durable cross-process outbox belongs to the Android/Room stage, not this CLI. `send`
-only targets existing threads; new-DM creation via `recipient_igids` is deferred.
+`send` only targets existing threads; new-DM creation via `recipient_igids` is deferred.
+
+`send` and `send-media` accept `--outbox <path>`. The command writes a pending record
+before any network I/O, removes it after a successful send, and leaves it in place on
+failure with an incremented attempt count and the last error. The record keeps the same
+OTID, so `outbox retry` is safe to run after a timeout or process death. Media records
+store an absolute file path rather than copying the file; keep that file in place until
+the pending send is resolved. The outbox JSON contains message text and file paths, is
+written with mode `0600`, and uses an advisory lock plus atomic replace. It is intended
+for Unix hosts; the Android app will use Room instead.
+
+`outbox list` prints pending sends, `outbox retry` tries them in creation order (or one
+with `--id`), and `outbox remove` discards one. A failed retry stays in the outbox and
+the command exits non-zero after processing the rest. The same OTID is reused on every
+retry, so a send that reached Instagram before the local failure should not duplicate.
 
 `send-media` uploads a local file through the web upload endpoint, then sends the
 resulting attachment ID to an existing thread. It prints the message ID, attachment
@@ -323,6 +344,10 @@ itself is covered by host tests.
     matching `message.edit` delta;
   - `unsend` removed that message for everyone, `watch` reported a matching
     `message.delete` delta, and a later thread query no longer contained it;
+  - a text send forced past its timeout left a pending outbox record; `outbox retry`
+    reused its OTID, matched the `message.new` watch delta, and cleared the outbox;
+  - the same forced-timeout and retry flow worked for a pending image send, including
+    the stored absolute path and OTID match;
   - the `mobile` wrapper's real-account `MailboxJSON` and `ThreadJSON` calls returned
     valid JSON with the pinned protocol version.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode

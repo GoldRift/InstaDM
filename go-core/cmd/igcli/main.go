@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,9 @@ Usage:
   igcli mark-read <thread-id> --cookies <path> [flags]
   igcli react <thread-id> <message-id> <emoji> --cookies <path> [flags]
   igcli media <thread-id> <message-id> --cookies <path> [flags]
+  igcli outbox list --path <outbox.json> [flags]
+  igcli outbox retry --path <outbox.json> [--id <otid>] [flags]
+  igcli outbox remove --path <outbox.json> --id <otid> [flags]
   igcli watch --cookies <path> [flags]
   igcli help
 
@@ -47,6 +51,7 @@ Commands:
   mark-read  Mark a thread read up to the newest or a specific message
   react      Add or remove a reaction on a message
   media      List or download media attachments from a message
+  outbox     List, retry, or remove pending sends
   watch      Connect to DGW and print realtime events until interrupted
 
 Common flags:
@@ -64,10 +69,12 @@ Send flags:
   --reply-to <message-id> Reply to a message ID
   --otid <otid>           Reuse a specific offline threading ID
   --retry <n>             Retry transient failures with the same OTID (default: 0)
+  --outbox <path>         Record pending sends and remove them on success
 
 Send-media flags:
   --reply-to <message-id> Reply to a message ID
   --otid <otid>           Reuse a specific offline threading ID
+  --outbox <path>         Record pending sends and remove them on success
 
 Edit flags:
   --otid <otid>           Reuse a specific offline threading ID
@@ -81,6 +88,10 @@ React flags:
 Media flags:
   --save <path>           Download the selected attachment to this file
   --part <n>              Attachment index to download, default 0
+
+Outbox flags:
+  --path <path>           Outbox JSON file
+  --id <otid>             Only retry or remove this pending OTID
 
 Watch flags:
   --duration <duration>   Stop after this duration (0 = until interrupted)
@@ -128,6 +139,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runReact(args[1:], stdout, stderr)
 	case "media":
 		return runMedia(args[1:], stdout, stderr)
+	case "outbox":
+		return runOutbox(args[1:], stdout, stderr)
 	case "watch":
 		return runWatch(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -277,6 +290,7 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 	replyTo := flags.String("reply-to", "", "message ID to reply to")
 	otid := flags.String("otid", "", "reuse a specific offline threading ID")
 	retries := flags.Int("retry", 0, "retry transient send failures with the same OTID")
+	outbox := flags.String("outbox", "", "record pending sends and remove them on success")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -316,8 +330,28 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 		otidValue = igcore.NewOTID()
 	}
 
+	outboxFile := ""
+	if strings.TrimSpace(*outbox) != "" {
+		var err error
+		outboxFile, err = outboxPath(*outbox)
+		if err != nil {
+			return err
+		}
+		if err := addOutboxRecord(outboxFile, outboxRecord{
+			OTID:      otidValue,
+			Kind:      "text",
+			ThreadID:  threadID,
+			Text:      text,
+			ReplyTo:   strings.TrimSpace(*replyTo),
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+	}
+
 	client, err := newClient(options, stderr, nil)
 	if err != nil {
+		markOutboxFailed(outboxFile, otidValue, err)
 		return err
 	}
 	defer client.Close()
@@ -332,6 +366,7 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 			break
 		}
 		if attempt >= *retries || httpclient.IsPermanentRequestError(err) {
+			markOutboxFailed(outboxFile, otidValue, err)
 			return fmt.Errorf("%w (otid %s)", describeError(err), otidValue)
 		}
 
@@ -339,8 +374,15 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "send failed (attempt %d); retrying with otid %s in %s: %v\n", attempt+1, otidValue, delay, err)
 		select {
 		case <-ctx.Done():
+			markOutboxFailed(outboxFile, otidValue, ctx.Err())
 			return fmt.Errorf("%w (otid %s)", describeError(ctx.Err()), otidValue)
 		case <-time.After(delay):
+		}
+	}
+
+	if outboxFile != "" {
+		if _, err := removeOutboxRecord(outboxFile, otidValue); err != nil {
+			fmt.Fprintf(stderr, "warning: remove outbox record: %v\n", err)
 		}
 	}
 
@@ -364,6 +406,7 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 	addCommonFlags(flags, &options)
 	replyTo := flags.String("reply-to", "", "message ID to reply to")
 	otid := flags.String("otid", "", "reuse a specific offline threading ID")
+	outbox := flags.String("outbox", "", "record pending sends and remove them on success")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -386,9 +429,11 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 	if filePath == "" {
 		return errors.New("file path is empty")
 	}
-	if info, err := os.Stat(filePath); err != nil {
+	info, err := os.Stat(filePath)
+	if err != nil {
 		return fmt.Errorf("media file: %w", err)
-	} else if info.IsDir() {
+	}
+	if info.IsDir() {
 		return errors.New("media path is a directory")
 	}
 	if *otid != "" {
@@ -402,8 +447,33 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 		otidValue = igcore.NewOTID()
 	}
 
+	outboxFile := ""
+	if strings.TrimSpace(*outbox) != "" {
+		absolutePath, err := filepath.Abs(filePath)
+		if err != nil {
+			return fmt.Errorf("resolve media path: %w", err)
+		}
+		outboxFile, err = outboxPath(*outbox)
+		if err != nil {
+			return err
+		}
+		if err := addOutboxRecord(outboxFile, outboxRecord{
+			OTID:      otidValue,
+			Kind:      "media",
+			ThreadID:  threadID,
+			ReplyTo:   strings.TrimSpace(*replyTo),
+			FilePath:  absolutePath,
+			Filename:  filepath.Base(absolutePath),
+			SizeBytes: info.Size(),
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+	}
+
 	client, err := newClient(options, stderr, nil)
 	if err != nil {
+		markOutboxFailed(outboxFile, otidValue, err)
 		return err
 	}
 	defer client.Close()
@@ -413,7 +483,14 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 
 	result, err := client.SendMedia(ctx, threadID, filePath, *replyTo, otidValue)
 	if err != nil {
-		return describeError(err)
+		markOutboxFailed(outboxFile, otidValue, err)
+		return fmt.Errorf("%w (otid %s)", describeError(err), otidValue)
+	}
+
+	if outboxFile != "" {
+		if _, err := removeOutboxRecord(outboxFile, otidValue); err != nil {
+			fmt.Fprintf(stderr, "warning: remove outbox record: %v\n", err)
+		}
 	}
 
 	if options.jsonOutput {
