@@ -315,7 +315,10 @@ func (c *Client) ReactJSON(threadID, messageID, emoji string, remove bool, timeo
 	return encode(result)
 }
 
-func (c *Client) MarkReadJSON(threadID, messageID string, timeoutSeconds int32) (string, error) {
+// MarkReadJSON marks a thread read up to messageID. When longThreadID and
+// timestampMS are provided (both come from the normalized thread view), no
+// extra thread query is needed; otherwise the core resolves them itself.
+func (c *Client) MarkReadJSON(threadID, messageID, longThreadID string, timestampMS int64, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
 		return "", err
@@ -323,7 +326,12 @@ func (c *Client) MarkReadJSON(threadID, messageID string, timeoutSeconds int32) 
 	ctx, cancel := timeoutContext(timeoutSeconds)
 	defer cancel()
 
-	result, err := client.MarkThreadRead(ctx, threadID, messageID)
+	var result *igcore.MarkReadResult
+	if longThreadID != "" && timestampMS > 0 {
+		result, err = client.MarkThreadReadAt(ctx, threadID, longThreadID, messageID, timestampMS)
+	} else {
+		result, err = client.MarkThreadRead(ctx, threadID, messageID)
+	}
 	if err != nil {
 		return "", err
 	}

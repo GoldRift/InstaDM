@@ -334,25 +334,31 @@ func TestDownloadMediaPartRefreshesForbiddenURL(t *testing.T) {
 	loads := 0
 	loader := func(ctx context.Context, threadID, messageID string) (*MessageView, error) {
 		loads++
-		path := "/old"
-		if loads > 1 {
-			path = "/new"
-		}
 		return &MessageView{
 			ID: messageID,
 			Media: []MediaView{
-				{Type: "image", URL: server.URL + path},
+				{Type: "image", URL: server.URL + "/old"},
+			},
+		}, nil
+	}
+	refreshes := 0
+	refresh := func(ctx context.Context, threadID, messageID string) (*MessageView, error) {
+		refreshes++
+		return &MessageView{
+			ID: messageID,
+			Media: []MediaView{
+				{Type: "image", URL: server.URL + "/new"},
 			},
 		}, nil
 	}
 
 	dest := filepath.Join(t.TempDir(), "refreshed.png")
-	result, err := (&Client{}).downloadMediaPart(context.Background(), "thread-id", "message-id", 0, dest, loader)
+	result, err := (&Client{}).downloadMediaPart(context.Background(), "thread-id", "message-id", 0, dest, loader, refresh)
 	if err != nil {
 		t.Fatalf("downloadMediaPart: %v", err)
 	}
-	if loads != 2 {
-		t.Errorf("loads = %d, want 2", loads)
+	if loads != 1 || refreshes != 1 {
+		t.Errorf("loads/refreshes = %d/%d, want 1/1", loads, refreshes)
 	}
 	if oldHits.Load() != 1 || newHits.Load() != 1 {
 		t.Errorf("hits old/new = %d/%d, want 1/1", oldHits.Load(), newHits.Load())

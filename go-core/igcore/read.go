@@ -22,7 +22,8 @@ type MarkReadResult struct {
 
 // MarkThreadRead marks a thread read up to messageID, or up to the newest
 // message when messageID is empty. Instagram requires the long thread ID for
-// read receipts, so the short ID is resolved through IGDThreadDetailQuery.
+// read receipts. A recently loaded thread page is reused when it contains the
+// target; otherwise the short ID is resolved through IGDThreadDetailQuery.
 func (c *Client) MarkThreadRead(ctx context.Context, threadID, messageID string) (*MarkReadResult, error) {
 	if c == nil || c.inner == nil {
 		return nil, errors.New("client is not initialized")
@@ -33,6 +34,12 @@ func (c *Client) MarkThreadRead(ctx context.Context, threadID, messageID string)
 		return nil, errors.New("thread ID is required")
 	}
 	messageID = strings.TrimSpace(messageID)
+
+	if messageID != "" {
+		if longThreadID, target, ok := c.cachedMarkReadTarget(threadID, messageID); ok {
+			return c.markThreadReadAt(ctx, threadID, longThreadID, target.ID, target.TimestampMS)
+		}
+	}
 
 	limit := 20
 	if messageID != "" {
@@ -52,11 +59,42 @@ func (c *Client) MarkThreadRead(ctx context.Context, threadID, messageID string)
 	if err != nil {
 		return nil, err
 	}
-	if target.TimestampMS == 0 {
+	return c.markThreadReadAt(ctx, threadID, longThreadID, target.ID, target.TimestampMS)
+}
+
+// MarkThreadReadAt marks a known message read without re-querying the thread.
+// longThreadID and timestampMS come from a previously loaded ThreadDetailView.
+// Callers that already have the message metadata should prefer this over
+// MarkThreadRead.
+func (c *Client) MarkThreadReadAt(ctx context.Context, threadID, longThreadID, messageID string, timestampMS int64) (*MarkReadResult, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
+	}
+
+	threadID = strings.TrimSpace(threadID)
+	longThreadID = strings.TrimSpace(longThreadID)
+	messageID = strings.TrimSpace(messageID)
+	if threadID == "" {
+		return nil, errors.New("thread ID is required")
+	}
+	if longThreadID == "" {
+		return nil, errors.New("long thread ID is required")
+	}
+	if messageID == "" {
+		return nil, errors.New("message ID is required")
+	}
+	if timestampMS <= 0 {
+		return nil, errors.New("message timestamp is required")
+	}
+	return c.markThreadReadAt(ctx, threadID, longThreadID, messageID, timestampMS)
+}
+
+func (c *Client) markThreadReadAt(ctx context.Context, threadID, longThreadID, messageID string, timestampMS int64) (*MarkReadResult, error) {
+	if timestampMS == 0 {
 		return nil, errors.New("target message has no timestamp; cannot mark read")
 	}
 
-	first, validation := buildMarkReadRequests(longThreadID, target.ID, target.TimestampMS)
+	first, validation := buildMarkReadRequests(longThreadID, messageID, timestampMS)
 	if _, err := c.inner.MarkRead(ctx, first); err != nil {
 		return nil, err
 	}
@@ -70,8 +108,8 @@ func (c *Client) MarkThreadRead(ctx context.Context, threadID, messageID string)
 		ProtocolVersion: ProtocolVersion,
 		ThreadID:        threadID,
 		LongThreadID:    longThreadID,
-		MessageID:       target.ID,
-		TimestampMS:     target.TimestampMS,
+		MessageID:       messageID,
+		TimestampMS:     timestampMS,
 		Validated:       validated,
 	}, nil
 }

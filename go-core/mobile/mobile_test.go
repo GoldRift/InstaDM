@@ -64,7 +64,7 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.ReactJSON("thread-id", "message-id", "", false, 1); err == nil || !strings.Contains(err.Error(), "emoji is required") {
 		t.Errorf("react error = %v", err)
 	}
-	if _, err := client.MarkReadJSON("", "", 1); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
+	if _, err := client.MarkReadJSON("", "", "", 0, 1); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
 		t.Errorf("mark read error = %v", err)
 	}
 	if _, err := client.DownloadMediaJSON("thread-id", "", 0, "/tmp/out.png", 1); err == nil || !strings.Contains(err.Error(), "message ID is required") {

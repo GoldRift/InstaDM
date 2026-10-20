@@ -9,7 +9,7 @@ import (
 const (
 	// watchFlapWindow and watchFlapThreshold bound how many post-subscribe
 	// disconnects may happen in a short period before the watchdog brakes.
-	watchFlapWindow    = 60 * time.Second
+	watchFlapWindow    = 2 * time.Minute
 	watchFlapThreshold = 5
 
 	// A flapping server gets a much longer cool-down than an ordinary

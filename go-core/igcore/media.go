@@ -271,7 +271,8 @@ type DownloadResult struct {
 
 // LoadMessage fetches the newest page and returns one message by IG message ID.
 // It is used by the media commands because attachment URLs are not available
-// without a thread query.
+// without a thread query. A message from a recently loaded thread page is
+// served from the short-lived cache.
 func (c *Client) LoadMessage(ctx context.Context, threadID, messageID string) (*MessageView, error) {
 	if c == nil || c.inner == nil {
 		return nil, errors.New("client is not initialized")
@@ -285,6 +286,17 @@ func (c *Client) LoadMessage(ctx context.Context, threadID, messageID string) (*
 		return nil, errors.New("message ID is required")
 	}
 
+	if c.cache != nil {
+		if message, ok := c.cache.lookupMessage(threadID, messageID, threadCacheTTL); ok {
+			return &message, nil
+		}
+	}
+	return c.loadMessageFresh(ctx, threadID, messageID)
+}
+
+// loadMessageFresh bypasses the cache. The downloader uses it when the CDN
+// rejects a cached URL, because the retry needs a newly signed URL.
+func (c *Client) loadMessageFresh(ctx context.Context, threadID, messageID string) (*MessageView, error) {
 	detail, err := c.LoadThread(ctx, threadID, 100)
 	if err != nil {
 		return nil, err
@@ -298,15 +310,16 @@ func (c *Client) LoadMessage(ctx context.Context, threadID, messageID string) (*
 
 // DownloadMediaPart downloads one attachment from a message to destPath. The
 // attachment URL comes from a fresh thread query, so it has the current expiry.
-// If the CDN rejects the URL with 403, the thread is queried once more and the
-// download is retried with the refreshed URL.
+// If the CDN rejects the URL with 403, the thread is queried once more,
+// bypassing the message cache, and the download is retried with the refreshed
+// URL.
 func (c *Client) DownloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string) (*DownloadResult, error) {
-	return c.downloadMediaPart(ctx, threadID, messageID, partIndex, destPath, c.LoadMessage)
+	return c.downloadMediaPart(ctx, threadID, messageID, partIndex, destPath, c.LoadMessage, c.loadMessageFresh)
 }
 
 type messageLoader func(ctx context.Context, threadID, messageID string) (*MessageView, error)
 
-func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string, load messageLoader) (*DownloadResult, error) {
+func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string, load, refresh messageLoader) (*DownloadResult, error) {
 	message, err := load(ctx, threadID, messageID)
 	if err != nil {
 		return nil, err
@@ -321,8 +334,8 @@ func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID stri
 	}
 
 	result, err := downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
-	if errors.Is(err, ErrMediaForbidden) {
-		refreshed, refreshErr := load(ctx, threadID, messageID)
+	if errors.Is(err, ErrMediaForbidden) && refresh != nil {
+		refreshed, refreshErr := refresh(ctx, threadID, messageID)
 		if refreshErr != nil {
 			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
 		}

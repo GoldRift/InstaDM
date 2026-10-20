@@ -35,7 +35,8 @@ type Client struct {
 	bootstrapped bool
 	ownFBID      int64
 
-	flap *flapDetector
+	flap  *flapDetector
+	cache *threadCache
 }
 
 // New creates a read-only protocol client. LoadMailbox performs the inbox page
@@ -66,6 +67,7 @@ func New(cs *cookies.Cookies, options Options) (*Client, error) {
 		log:     logger,
 		onEvent: options.OnEvent,
 		flap:    newFlapDetector(watchFlapWindow, watchFlapThreshold),
+		cache:   newThreadCache(),
 	}
 	inner.SetEventHandler(func(_ context.Context, event slidetypes.ClientEvent) error {
 		client.handleEvent(event)
@@ -135,7 +137,9 @@ func (c *Client) LoadThread(ctx context.Context, threadID string, limit int) (*T
 		ownFBID = thread.Viewer.InteropMessagingUserFBID
 	}
 
-	return newThreadDetailView(thread, ownFBID, limit), nil
+	detail := newThreadDetailView(thread, ownFBID, limit)
+	c.cacheLoadedThread(threadID, detail)
+	return detail, nil
 }
 
 // LoadOlderMessages fetches the page after afterCursor using
@@ -176,13 +180,15 @@ func (c *Client) LoadOlderMessages(ctx context.Context, threadID, afterCursor st
 
 	page := response.ThreadInfo.AsIGDirectThread
 	messages, hasMoreOlder, oldestCursor := normalizeMessagePage(page.Messages, ownFBID, nil, limit)
-	return &ThreadPageView{
+	view := &ThreadPageView{
 		ProtocolVersion: ProtocolVersion,
 		ThreadID:        threadID,
 		Messages:        messages,
 		HasMoreOlder:    hasMoreOlder,
 		OldestCursor:    oldestCursor,
-	}, nil
+	}
+	c.cacheOlderMessages(threadID, view)
+	return view, nil
 }
 
 func buildPaginateMessagesRequest(threadID, afterCursor string, limit int) *slidetypes.PaginateMessagesRequest {
