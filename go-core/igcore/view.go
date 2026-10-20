@@ -179,9 +179,10 @@ type ThreadPageView struct {
 }
 
 type ReactionView struct {
-	Emoji       string `json:"emoji"`
-	SenderFBID  int64  `json:"sender_fbid"`
-	TimestampMS int64  `json:"timestamp_ms,omitempty"`
+	Emoji        string `json:"emoji"`
+	SenderFBID   int64  `json:"sender_fbid"`
+	IsFromViewer bool   `json:"is_from_viewer"`
+	TimestampMS  int64  `json:"timestamp_ms,omitempty"`
 }
 
 type MediaView struct {
@@ -356,9 +357,10 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 			reactionTS = reaction.ReactionTimestampMS.UnixMilli()
 		}
 		reactions = append(reactions, ReactionView{
-			Emoji:       reaction.Reaction,
-			SenderFBID:  reaction.SenderFBID,
-			TimestampMS: reactionTS,
+			Emoji:        reaction.Reaction,
+			SenderFBID:   reaction.SenderFBID,
+			IsFromViewer: ownFBID != 0 && reaction.SenderFBID == ownFBID,
+			TimestampMS:  reactionTS,
 		})
 	}
 

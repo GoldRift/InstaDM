@@ -88,10 +88,12 @@ func (c *Client) handleDelta(delta *slidetypes.Delta) {
 		event.Type = "reaction.add"
 		event.Message = &MessageView{ID: data.MessageID}
 		event.Reaction = data.Reaction.Reaction
+		c.attachReaction(&event, data.Reaction)
 	case *slidetypes.DeleteReactionEvent:
 		event.Type = "reaction.remove"
 		event.Message = &MessageView{ID: data.MessageID}
 		event.Reaction = data.Reaction.Reaction
+		c.attachReaction(&event, data.Reaction)
 	case *slidetypes.MarkReadEvent:
 		event.Type = "mark.read"
 		if !data.ReadTimestampMS.IsZero() {
@@ -128,6 +130,21 @@ func (c *Client) attachMessage(event *Event, message *slidetypes.Message) {
 	}
 	if !message.TimestampMS.IsZero() {
 		event.TimestampMS = message.TimestampMS.UnixMilli()
+	}
+}
+
+// attachReaction records who reacted. Clients need the sender to replace that
+// person's previous reaction and to ignore their own optimistic echo.
+func (c *Client) attachReaction(event *Event, reaction slidetypes.Reaction) {
+	event.ParticipantFBID = reaction.SenderFBID
+
+	c.mu.Lock()
+	ownFBID := c.ownFBID
+	c.mu.Unlock()
+	event.FromViewer = ownFBID != 0 && reaction.SenderFBID == ownFBID
+
+	if !reaction.ReactionTimestampMS.IsZero() {
+		event.TimestampMS = reaction.ReactionTimestampMS.UnixMilli()
 	}
 }
 

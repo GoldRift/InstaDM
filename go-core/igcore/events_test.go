@@ -113,7 +113,10 @@ func TestHandleDeltaReactionAndDelete(t *testing.T) {
 		ThreadIGID: "thread-1",
 		Data: &slidetypes.CreateReactionEvent{
 			MessageID: "message-1",
-			Reaction:  slidetypes.Reaction{Reaction: "❤"},
+			Reaction: slidetypes.Reaction{
+				Reaction:   "❤",
+				SenderFBID: 222,
+			},
 		},
 	})
 	client.handleEvent(&slidetypes.Delta{
@@ -128,8 +131,34 @@ func TestHandleDeltaReactionAndDelete(t *testing.T) {
 	if (*events)[0].Type != "reaction.add" || (*events)[0].Reaction != "❤" || (*events)[0].Message.ID != "message-1" {
 		t.Errorf("reaction event = %+v", (*events)[0])
 	}
+	if (*events)[0].ParticipantFBID != 222 || (*events)[0].FromViewer {
+		t.Errorf("reaction sender = %+v", (*events)[0])
+	}
 	if (*events)[1].Type != "message.delete" || (*events)[1].Message.ID != "message-2" {
 		t.Errorf("delete event = %+v", (*events)[1])
+	}
+}
+
+func TestHandleDeltaViewerReactionRemove(t *testing.T) {
+	client, events := newEventCapture()
+	client.handleEvent(&slidetypes.Delta{
+		TypeName:   "SlideUQPPDeleteReaction",
+		ThreadIGID: "thread-1",
+		Data: &slidetypes.DeleteReactionEvent{
+			MessageID: "message-1",
+			Reaction:  slidetypes.Reaction{Reaction: "👍", SenderFBID: 111},
+		},
+	})
+
+	if len(*events) != 1 {
+		t.Fatalf("emitted %d events, want 1", len(*events))
+	}
+	event := (*events)[0]
+	if event.Type != "reaction.remove" || event.Reaction != "👍" || event.Message.ID != "message-1" {
+		t.Errorf("reaction event = %+v", event)
+	}
+	if event.ParticipantFBID != 111 || !event.FromViewer {
+		t.Errorf("viewer reaction attribution = %+v", event)
 	}
 }
 

@@ -313,8 +313,14 @@ func TestNewMessageViewReactions(t *testing.T) {
 	if view.Reactions[0].Emoji != "❤" || view.Reactions[0].SenderFBID != 111 || view.Reactions[0].TimestampMS != 1_700_000_000_000 {
 		t.Errorf("first reaction = %+v", view.Reactions[0])
 	}
+	if !view.Reactions[0].IsFromViewer {
+		t.Errorf("viewer reaction not attributed: %+v", view.Reactions[0])
+	}
 	if view.Reactions[1].Emoji != "👍" || view.Reactions[1].SenderFBID != 222 {
 		t.Errorf("second reaction = %+v", view.Reactions[1])
+	}
+	if view.Reactions[1].IsFromViewer {
+		t.Errorf("other reaction marked as viewer: %+v", view.Reactions[1])
 	}
 }
 
