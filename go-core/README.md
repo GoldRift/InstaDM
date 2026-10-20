@@ -1,11 +1,11 @@
 # go-core — Instagram protocol lab
 
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
-Instagram cookies, lists DM threads, reads recent messages, sends text, and watches the
-DGW realtime stream.
+Instagram cookies, lists DM threads, reads recent messages, sends text, adds/removes
+reactions, marks threads read, and watches the DGW realtime stream.
 
-It does **not** upload or download media, implement reactions/edits/unsend, create new
-DMs, or touch the Android app. Those are later levels.
+It does **not** upload or download media, implement edits/unsend, create new DMs, or
+touch the Android app. Those are later levels.
 
 ## Upstream dependency
 
@@ -116,6 +116,10 @@ go run ./cmd/igcli mark-read <thread-id> --cookies ~/.config/instadm/cookies.jso
 # Mark read up to a specific message
 go run ./cmd/igcli mark-read <thread-id> --message-id <message-id> --cookies ~/.config/instadm/cookies.json
 
+# Add and remove a reaction
+go run ./cmd/igcli react <thread-id> <message-id> "❤" --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli react <thread-id> <message-id> "❤" --remove --cookies ~/.config/instadm/cookies.json
+
 # Watch DGW events until Ctrl-C
 go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
 
@@ -138,6 +142,7 @@ Flags:
 | `--otid <otid>` | `send`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
+| `--remove` | `react`: remove the reaction instead of adding it |
 | `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
 | `--thread <thread-id>` | `watch`: only print events for this thread |
 
@@ -188,6 +193,12 @@ short and long thread IDs, message ID, timestamp, and whether Instagram validate
 read. The CLI is stateless, so it does not persist a local read watermark; the Android
 app will do that. A specific `--message-id` must be within the newest 100 messages.
 
+`react` adds or removes one reaction on a message. Instagram allows one reaction per
+sender per message, so adding a different emoji replaces the previous one. The target
+message ID is the IG message ID from `thread --json`. Message JSON now also includes a
+`reactions` array with emoji, sender FBID, and timestamp. Reaction removal deltas may omit
+the emoji; the CLI always sends the emoji you provide.
+
 The `watch` human output prints connection state, new messages, edits, deletes,
 reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). Message
 text is included in both forms, so treat watch output as sensitive. `seq_id` events are
@@ -207,7 +218,9 @@ included in JSON but omitted from the human output to avoid noise.
     arrived as `message.new` with matching message ID and OTID;
   - `mark-read` returned `validated=true` for the newest message;
   - `thread --after` returned the previous page's older messages, ordered
-    oldest-to-newest, with the next cursor and no overlap.
+    oldest-to-newest, with the next cursor and no overlap;
+  - `react` added and removed a reaction, and `watch` reported matching
+    `reaction.add`/`reaction.remove` deltas.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,

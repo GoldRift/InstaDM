@@ -168,18 +168,25 @@ type ThreadPageView struct {
 	OldestCursor    string        `json:"oldest_cursor,omitempty"`
 }
 
+type ReactionView struct {
+	Emoji       string `json:"emoji"`
+	SenderFBID  int64  `json:"sender_fbid"`
+	TimestampMS int64  `json:"timestamp_ms,omitempty"`
+}
+
 type MessageView struct {
-	ID                 string `json:"id"`
-	OfflineThreadingID string `json:"offline_threading_id,omitempty"`
-	SenderFBID         int64  `json:"sender_fbid"`
-	SenderName         string `json:"sender_name,omitempty"`
-	IsFromViewer       bool   `json:"is_from_viewer"`
-	TimestampMS        int64  `json:"timestamp_ms"`
-	Kind               string `json:"kind"`
-	ContentType        string `json:"content_type,omitempty"`
-	Text               string `json:"text,omitempty"`
-	MediaCount         int    `json:"media_count,omitempty"`
-	RepliedToMessageID string `json:"replied_to_message_id,omitempty"`
+	ID                 string         `json:"id"`
+	OfflineThreadingID string         `json:"offline_threading_id,omitempty"`
+	SenderFBID         int64          `json:"sender_fbid"`
+	SenderName         string         `json:"sender_name,omitempty"`
+	IsFromViewer       bool           `json:"is_from_viewer"`
+	TimestampMS        int64          `json:"timestamp_ms"`
+	Kind               string         `json:"kind"`
+	ContentType        string         `json:"content_type,omitempty"`
+	Text               string         `json:"text,omitempty"`
+	MediaCount         int            `json:"media_count,omitempty"`
+	RepliedToMessageID string         `json:"replied_to_message_id,omitempty"`
+	Reactions          []ReactionView `json:"reactions,omitempty"`
 }
 
 func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int) *ThreadDetailView {
@@ -269,6 +276,22 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		contentType = message.Typename
 	}
 
+	reactions := make([]ReactionView, 0, len(message.Reactions))
+	for _, reaction := range message.Reactions {
+		if reaction == nil || reaction.Reaction == "" {
+			continue
+		}
+		var reactionTS int64
+		if !reaction.ReactionTimestampMS.IsZero() {
+			reactionTS = reaction.ReactionTimestampMS.UnixMilli()
+		}
+		reactions = append(reactions, ReactionView{
+			Emoji:       reaction.Reaction,
+			SenderFBID:  reaction.SenderFBID,
+			TimestampMS: reactionTS,
+		})
+	}
+
 	return MessageView{
 		ID:                 id,
 		OfflineThreadingID: message.OfflineThreadingID,
@@ -281,6 +304,7 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		Text:               text,
 		MediaCount:         mediaCount,
 		RepliedToMessageID: message.RepliedToMessageID,
+		Reactions:          reactions,
 	}
 }
 

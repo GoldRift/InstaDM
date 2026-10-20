@@ -190,6 +190,66 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintReactionResult(t *testing.T) {
+	added := &igcore.ReactionResult{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		MessageID:       "message-1",
+		Emoji:           "❤",
+		TimestampMS:     1_700_000_000_000,
+	}
+	var addedOutput bytes.Buffer
+	printReactionResult(&addedOutput, added)
+	for _, want := range []string{"Reaction added", "thread-1", "message-1", "❤"} {
+		if !strings.Contains(addedOutput.String(), want) {
+			t.Errorf("added output does not contain %q:\n%s", want, addedOutput.String())
+		}
+	}
+
+	removed := &igcore.ReactionResult{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		MessageID:       "message-1",
+		Emoji:           "❤",
+		Removed:         true,
+	}
+	var removedOutput bytes.Buffer
+	printReactionResult(&removedOutput, removed)
+	if !strings.Contains(removedOutput.String(), "Reaction removed") {
+		t.Errorf("removed output = %q", removedOutput.String())
+	}
+}
+
+func TestRunReactValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runReact(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli react") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty thread", args: []string{"", "message-1", "❤", "--cookie-header", fakeCookies}, want: "thread ID is empty"},
+		{name: "empty message", args: []string{"thread-1", "", "❤", "--cookie-header", fakeCookies}, want: "message ID is empty"},
+		{name: "empty emoji", args: []string{"thread-1", "message-1", "", "--cookie-header", fakeCookies}, want: "emoji is empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runReact(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintMarkReadResult(t *testing.T) {
 	result := &igcore.MarkReadResult{
 		ProtocolVersion: "test",

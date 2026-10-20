@@ -147,6 +147,32 @@ func TestNormalizeMessagePageNil(t *testing.T) {
 	}
 }
 
+func TestNewMessageViewReactions(t *testing.T) {
+	message := textMessage("message-1", 222, "hello")
+	message.Reactions = []*slidetypes.Reaction{
+		{
+			Reaction:            "❤",
+			SenderFBID:          111,
+			ReactionTimestampMS: jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_000)},
+		},
+		{
+			Reaction:   "👍",
+			SenderFBID: 222,
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if len(view.Reactions) != 2 {
+		t.Fatalf("reactions = %d, want 2", len(view.Reactions))
+	}
+	if view.Reactions[0].Emoji != "❤" || view.Reactions[0].SenderFBID != 111 || view.Reactions[0].TimestampMS != 1_700_000_000_000 {
+		t.Errorf("first reaction = %+v", view.Reactions[0])
+	}
+	if view.Reactions[1].Emoji != "👍" || view.Reactions[1].SenderFBID != 222 {
+		t.Errorf("second reaction = %+v", view.Reactions[1])
+	}
+}
+
 func TestDescribeMessageContent(t *testing.T) {
 	tests := []struct {
 		name      string
