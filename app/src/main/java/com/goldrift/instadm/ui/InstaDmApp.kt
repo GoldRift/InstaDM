@@ -70,7 +70,7 @@ fun InstaDmApp() {
                 signIn = { cookies -> application.repository.signIn(cookies) },
                 onSignedIn = { mailbox ->
                     inboxState.applyMailbox(mailbox)
-                    RealtimeService.start(context)
+                    RealtimeService.restart(context)
                     navController.navigate(Routes.Inbox) {
                         popUpTo(Routes.Login) { inclusive = true }
                         launchSingleTop = true
