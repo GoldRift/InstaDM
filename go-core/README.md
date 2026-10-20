@@ -2,8 +2,9 @@
 
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
 Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
-adds/removes reactions, marks threads read, downloads attachments, persists pending
-sends in a local outbox, and watches the DGW realtime stream.
+adds/removes reactions, edits and unsends messages, marks threads read, downloads
+attachments, mutes/pins threads, persists pending sends in a local outbox, and watches
+the DGW realtime stream.
 
 It does **not** create new DMs or touch the Android app. Those are later levels.
 
@@ -144,6 +145,14 @@ go run ./cmd/igcli mark-read <thread-id> --message-id <message-id> --cookies ~/.
 go run ./cmd/igcli react <thread-id> <message-id> "❤" --cookies ~/.config/instadm/cookies.json
 go run ./cmd/igcli react <thread-id> <message-id> "❤" --remove --cookies ~/.config/instadm/cookies.json
 
+# Mute forever, then unmute
+go run ./cmd/igcli mute <thread-id> --seconds -1 --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli mute <thread-id> --seconds 0 --cookies ~/.config/instadm/cookies.json
+
+# Pin and unpin
+go run ./cmd/igcli pin <thread-id> --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli pin <thread-id> --off --cookies ~/.config/instadm/cookies.json
+
 # Watch DGW events until Ctrl-C
 go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
 
@@ -170,6 +179,8 @@ Flags:
 | `--id <otid>` | `outbox retry`/`remove`: select one pending OTID |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
+| `--seconds <n>` | `mute`: -1 forever, 0 unmute, or a positive duration, default `-1` |
+| `--off` | `pin`: unpin instead of pin |
 | `--save <path>` | `media`: download the selected attachment to this file |
 | `--part <n>` | `media`: attachment index to download, default `0` |
 | `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
@@ -268,6 +279,12 @@ Inbound deletes arrive as `message.delete` deltas. The CLI does not keep local r
 Android app should mark the row deleted and keep a tombstone so a late delta or backfill
 does not resurrect it. Unsend only applies to your own messages.
 
+`mute` sets the thread's mute state using `mute_seconds`: `-1` mutes forever, `0`
+unmutes, and a positive value mutes for that many seconds. `pin` pins the thread, and
+`pin --off` unpins it. Both use the short thread ID and report the state returned by the
+server. The mailbox output exposes the same state as `is_muted` and `is_pinned`, which
+is useful for verifying the mutation.
+
 `react` adds or removes one reaction on a message. Instagram allows one reaction per
 sender per message, so adding a different emoji replaces the previous one. The target
 message ID is the IG message ID from `thread --json`. Message JSON now also includes a
@@ -305,6 +322,8 @@ threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
 | `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
 | `UnsendJSON(threadID, messageID, timeoutSeconds)` | Unsend result JSON |
+| `MuteJSON(threadID, muteSeconds, timeoutSeconds)` | Mute/unmute result JSON |
+| `PinJSON(threadID, pin, timeoutSeconds)` | Pin/unpin result JSON |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
 | `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
@@ -348,6 +367,8 @@ itself is covered by host tests.
     matching `message.edit` delta;
   - `unsend` removed that message for everyone, `watch` reported a matching
     `message.delete` delta, and a later thread query no longer contained it;
+  - `mute` and `pin` changed the mailbox `is_muted`/`is_pinned` flags on and off, and
+    the mutation results matched the requested state;
   - a text send forced past its timeout left a pending outbox record; `outbox retry`
     reused its OTID, matched the `message.new` watch delta, and cleared the outbox;
   - the same forced-timeout and retry flow worked for a pending image send, including

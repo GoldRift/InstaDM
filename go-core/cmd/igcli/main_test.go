@@ -190,6 +190,86 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintMuteResult(t *testing.T) {
+	result := &igcore.MuteResult{
+		ProtocolVersion:    "test",
+		ThreadID:           "thread-1",
+		MuteSeconds:        -1,
+		IsMuted:            true,
+		MuteUntilMS:        -1,
+		OfflineThreadingID: "otid-1",
+	}
+	var output bytes.Buffer
+	printMuteResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Thread mute updated", "thread-1", "muted: true", "seconds: -1", "permanent", "otid-1"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestPrintPinResult(t *testing.T) {
+	result := &igcore.PinResult{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		Pinned:          true,
+	}
+	var output bytes.Buffer
+	printPinResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Thread pin updated", "thread-1", "pinned: true"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunMuteValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMute(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli mute") {
+			t.Errorf("error = %v", err)
+		}
+	})
+	t.Run("empty thread", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMute([]string{"", "--cookie-header", fakeCookies}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "thread ID is empty") {
+			t.Errorf("error = %v", err)
+		}
+	})
+	t.Run("negative seconds", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMute([]string{"thread-id", "--seconds", "-2", "--cookie-header", fakeCookies}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "--seconds must be") {
+			t.Errorf("error = %v", err)
+		}
+	})
+}
+
+func TestRunPinValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runPin(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli pin") {
+			t.Errorf("error = %v", err)
+		}
+	})
+	t.Run("empty thread", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runPin([]string{"", "--cookie-header", fakeCookies}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "thread ID is empty") {
+			t.Errorf("error = %v", err)
+		}
+	})
+}
+
 func TestPrintUnsendResult(t *testing.T) {
 	result := &igcore.UnsendResult{
 		ProtocolVersion: "test",

@@ -46,6 +46,12 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.UnsendJSON("thread-id", "", 1); err == nil || !strings.Contains(err.Error(), "message ID is required") {
 		t.Errorf("unsend error = %v", err)
 	}
+	if _, err := client.MuteJSON("thread-id", -2, 1); err == nil || !strings.Contains(err.Error(), "mute seconds") {
+		t.Errorf("mute error = %v", err)
+	}
+	if _, err := client.PinJSON("", true, 1); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
+		t.Errorf("pin error = %v", err)
+	}
 	if _, err := client.ReactJSON("thread-id", "message-id", "", false, 1); err == nil || !strings.Contains(err.Error(), "emoji is required") {
 		t.Errorf("react error = %v", err)
 	}

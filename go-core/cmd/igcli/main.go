@@ -38,6 +38,8 @@ Usage:
   igcli outbox list --path <outbox.json> [flags]
   igcli outbox retry --path <outbox.json> [--id <otid>] [flags]
   igcli outbox remove --path <outbox.json> --id <otid> [flags]
+  igcli mute <thread-id> --cookies <path> [flags]
+  igcli pin <thread-id> --cookies <path> [flags]
   igcli watch --cookies <path> [flags]
   igcli help
 
@@ -52,6 +54,8 @@ Commands:
   react      Add or remove a reaction on a message
   media      List or download media attachments from a message
   outbox     List, retry, or remove pending sends
+  mute       Mute or unmute a thread
+  pin        Pin or unpin a thread
   watch      Connect to DGW and print realtime events until interrupted
 
 Common flags:
@@ -93,6 +97,12 @@ Outbox flags:
   --path <path>           Outbox JSON file
   --id <otid>             Only retry or remove this pending OTID
 
+Mute flags:
+  --seconds <n>           -1 forever, 0 unmute, positive seconds (default: -1)
+
+Pin flags:
+  --off                   Unpin instead of pin
+
 Watch flags:
   --duration <duration>   Stop after this duration (0 = until interrupted)
   --thread <thread-id>    Only print events for this thread
@@ -103,8 +113,9 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, edit, unsend, mark-read, react, and media, put all flags
-before or after the positional arguments; do not split them across both positions.
+For thread, send, send-media, edit, unsend, mark-read, react, media, mute, and pin, put
+all flags before or after the positional arguments; do not split them across both
+positions.
 `
 
 func main() {
@@ -141,6 +152,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runMedia(args[1:], stdout, stderr)
 	case "outbox":
 		return runOutbox(args[1:], stdout, stderr)
+	case "mute":
+		return runMute(args[1:], stdout, stderr)
+	case "pin":
+		return runPin(args[1:], stdout, stderr)
 	case "watch":
 		return runWatch(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -829,6 +844,105 @@ func runMedia(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+func runMute(args []string, stdout, stderr io.Writer) error {
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		args = append(append([]string{}, args[1:]...), args[0])
+	}
+
+	flags := flag.NewFlagSet("mute", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	seconds := flags.Int("seconds", -1, "mute duration: -1 forever, 0 unmute, positive seconds")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: igcli mute <thread-id> --cookies <path>")
+	}
+	threadID := strings.TrimSpace(flags.Arg(0))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+	if *seconds < -1 {
+		return errors.New("--seconds must be -1, 0, or a positive number")
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.SetMuted(ctx, threadID, *seconds)
+	if err != nil {
+		return describeError(err)
+	}
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printMuteResult(stdout, result)
+	return nil
+}
+
+func runPin(args []string, stdout, stderr io.Writer) error {
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		args = append(append([]string{}, args[1:]...), args[0])
+	}
+
+	flags := flag.NewFlagSet("pin", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	off := flags.Bool("off", false, "unpin instead of pin")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: igcli pin <thread-id> --cookies <path>")
+	}
+	threadID := strings.TrimSpace(flags.Arg(0))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.SetPinned(ctx, threadID, !*off)
+	if err != nil {
+		return describeError(err)
+	}
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printPinResult(stdout, result)
+	return nil
+}
+
 func runWatch(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1158,6 +1272,30 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+func printMuteResult(w io.Writer, result *igcore.MuteResult) {
+	fmt.Fprintln(w, "Thread mute updated")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  muted: %t\n", result.IsMuted)
+	fmt.Fprintf(w, "  seconds: %d\n", result.MuteSeconds)
+	muteUntil := "-"
+	if result.IsMuted {
+		switch {
+		case result.MuteUntilMS > 0:
+			muteUntil = formatMessageTimestamp(result.MuteUntilMS)
+		case result.MuteUntilMS == -1:
+			muteUntil = "permanent"
+		}
+	}
+	fmt.Fprintf(w, "  mute until: %s\n", muteUntil)
+	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
+}
+
+func printPinResult(w io.Writer, result *igcore.PinResult) {
+	fmt.Fprintln(w, "Thread pin updated")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  pinned: %t\n", result.Pinned)
 }
 
 func printUnsendResult(w io.Writer, result *igcore.UnsendResult) {

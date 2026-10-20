@@ -126,6 +126,36 @@ func (c *Client) UnsendJSON(threadID, messageID string, timeoutSeconds int32) (s
 	return encode(result)
 }
 
+func (c *Client) MuteJSON(threadID string, muteSeconds int32, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.SetMuted(ctx, threadID, int(muteSeconds))
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
+func (c *Client) PinJSON(threadID string, pin bool, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.SetPinned(ctx, threadID, pin)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte, replyTo, otid string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
