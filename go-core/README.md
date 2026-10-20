@@ -2,10 +2,11 @@
 
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
 Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
-adds/removes reactions, marks threads read, and watches the DGW realtime stream.
+adds/removes reactions, marks threads read, downloads attachments, and watches the DGW
+realtime stream.
 
-It does **not** download media yet, implement edits/unsend, create new DMs, or touch the
-Android app. Those are later levels.
+It does **not** implement edits/unsend, create new DMs, persist a durable outbox, or
+touch the Android app. Those are later levels.
 
 ## Upstream dependency
 
@@ -113,6 +114,15 @@ go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instad
 # Upload and send an image or file
 go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
 
+# List the attachments on a message
+go run ./cmd/igcli media <thread-id> <message-id> --cookies ~/.config/instadm/cookies.json
+
+# Download the first attachment
+go run ./cmd/igcli media <thread-id> <message-id> --save /tmp/photo.png --cookies ~/.config/instadm/cookies.json
+
+# Download a specific attachment from a multi-media message
+go run ./cmd/igcli media <thread-id> <message-id> --part 1 --save /tmp/video.mp4 --cookies ~/.config/instadm/cookies.json
+
 # Mark a thread read up to its newest message
 go run ./cmd/igcli mark-read <thread-id> --cookies ~/.config/instadm/cookies.json
 
@@ -146,6 +156,8 @@ Flags:
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
+| `--save <path>` | `media`: download the selected attachment to this file |
+| `--part <n>` | `media`: attachment index to download, default `0` |
 | `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
 | `--thread <thread-id>` | `watch`: only print events for this thread |
 
@@ -169,9 +181,10 @@ them out of version control unless they have been redacted.
 The `thread` table shows the thread metadata followed by one row per message: local
 timestamp, sender (`me` for your own messages), content kind, and text. Messages are
 printed oldest-to-newest. Media is represented as `[image]`, `[video]`, `[sticker]`, and
-so on; Level 3 does not download attachments or print CDN URLs. `--json` adds message
-IDs, offline threading IDs, sender FBIDs, and `has_more_older`/`oldest_cursor` for the
-next pagination step.
+so on. `--json` adds message IDs, offline threading IDs, sender FBIDs, and
+`has_more_older`/`oldest_cursor` for the next pagination step. Media messages also get a
+`media` array with attachment FBIDs, full and preview CDN URLs, dimensions, and duration
+where available. CDN URLs are sensitive and expire; do not put them in shared fixtures.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
 messages. The older-page output uses the same message table and prints the next cursor.
@@ -196,7 +209,16 @@ to 8 MiB and other files to 25 MiB; these are client-side limits. MIME type is d
 from the file contents, with an extension fallback. The upload path is image/file first;
 the Android-only video fallback for accounts that reject web video uploads is not
 implemented. Captions are not supported, matching the send mutation; send text
-separately. The `send-media` command does not download media or return CDN URLs yet.
+separately.
+
+`media` lists the attachments on one message. With `--save`, it downloads the selected
+`--part` (default `0`) to a file. The command re-queries the message first, so the CDN
+URL is fresh; download URLs expire, so re-run the command instead of storing a URL
+long-term. Downloads are capped at 25 MiB and written with mode `0600`. It supports
+images, video, audio, GIFs, stickers, and multi-media messages. The source bytes may be
+recompressed by the CDN, so compare decoded pixels rather than file hashes. Both listing
+and downloading search the newest 100 messages; older media messages need a paginated
+lookup in a later pass.
 
 `mark-read` resolves the short thread ID to the long thread ID required by read
 receipts, selects the newest message (or `--message-id`), sends the initial read
@@ -235,7 +257,11 @@ included in JSON but omitted from the human output to avoid noise.
     `reaction.add`/`reaction.remove` deltas;
   - `send-media` uploaded a generated PNG and sent it; the returned message ID and OTID
     matched the `message.new` watch delta, which reported `kind=image` and
-    `media_count=1`.
+    `media_count=1`;
+  - `thread --json` exposed the uploaded attachment's FBID, CDN URLs, preview URL, and
+    64×64 dimensions;
+  - `media` listed the attachment and downloaded it; the PNG decoded to identical
+    pixels, although the CDN recompressed the file.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,

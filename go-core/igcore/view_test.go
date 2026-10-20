@@ -147,6 +147,73 @@ func TestNormalizeMessagePageNil(t *testing.T) {
 	}
 }
 
+func TestNewMessageViewMedia(t *testing.T) {
+	message := textMessage("message-1", 222, "")
+	message.Content = slidetypes.MessageContentWrapper{
+		TypeName: "SlideMessageImageContent",
+		Content: &slidetypes.MessageContentImage{
+			Attachments: []*slidetypes.Attachment{
+				{
+					AttachmentFBID:           "fbid-1",
+					AttachmentCDNURL:         "https://cdn.example/full.jpg",
+					AttachmentCDNFallbackURL: "https://cdn.example/full-fallback.jpg",
+					PreviewCDNURL:            "https://cdn.example/preview.jpg",
+					PreviewCDNFallbackURL:    "https://cdn.example/preview-fallback.jpg",
+					PreviewWidth:             640,
+					PreviewHeight:            480,
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "image" || view.MediaCount != 1 {
+		t.Errorf("kind/media count = %q/%d", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 1 {
+		t.Fatalf("media = %d, want 1", len(view.Media))
+	}
+	media := view.Media[0]
+	if media.Type != "image" || media.AttachmentFBID != "fbid-1" {
+		t.Errorf("media identity = %+v", media)
+	}
+	if media.URL != "https://cdn.example/full.jpg" || media.FallbackURL != "https://cdn.example/full-fallback.jpg" {
+		t.Errorf("media URLs = %+v", media)
+	}
+	if media.PreviewURL != "https://cdn.example/preview.jpg" || media.PreviewFallbackURL != "https://cdn.example/preview-fallback.jpg" {
+		t.Errorf("preview URLs = %+v", media)
+	}
+	if media.Width != 640 || media.Height != 480 {
+		t.Errorf("dimensions = %dx%d", media.Width, media.Height)
+	}
+}
+
+func TestNewMessageViewAnimatedMedia(t *testing.T) {
+	message := textMessage("message-1", 222, "")
+	message.Content = slidetypes.MessageContentWrapper{
+		TypeName: "SlideMessageAnimatedMediaContent",
+		Content: &slidetypes.MessageContentAnimatedMedia{
+			AnimatedMedia: []*slidetypes.AnimatedAttachment{
+				{
+					IsSticker:         true,
+					AttachmentWebpURL: "https://cdn.example/sticker.webp",
+					PreviewCDNURL:     "https://cdn.example/sticker-preview.jpg",
+					PreviewWidth:      128,
+					PreviewHeight:     128,
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "sticker" || len(view.Media) != 1 {
+		t.Fatalf("kind/media = %q/%d", view.Kind, len(view.Media))
+	}
+	if view.Media[0].Type != "sticker" || view.Media[0].URL != "https://cdn.example/sticker.webp" {
+		t.Errorf("sticker media = %+v", view.Media[0])
+	}
+}
+
 func TestNewMessageViewReactions(t *testing.T) {
 	message := textMessage("message-1", 222, "hello")
 	message.Reactions = []*slidetypes.Reaction{

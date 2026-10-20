@@ -1,10 +1,13 @@
 package igcore
 
 import (
+	"bytes"
 	"context"
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +88,34 @@ func TestReadMediaFile(t *testing.T) {
 	}
 }
 
+func TestValidateMediaType(t *testing.T) {
+	for _, mimeType := range []string{
+		"image/jpeg", "image/png", "image/gif", "image/webp",
+		"video/mp4", "video/quicktime", "video/webm", "video/ogg",
+		"audio/mpeg", "audio/mp4", "audio/wav", "audio/x-wav",
+		"application/pdf", "application/octet-stream",
+	} {
+		if err := validateMediaType(mimeType); err != nil {
+			t.Errorf("validateMediaType(%q) = %v", mimeType, err)
+		}
+	}
+	for _, mimeType := range []string{"text/html", "image/svg+xml"} {
+		if err := validateMediaType(mimeType); err == nil {
+			t.Errorf("validateMediaType(%q) accepted unsupported type", mimeType)
+		}
+	}
+}
+
+func TestReadMediaFileUnsupported(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(path, []byte("<!doctype html><title>test</title>"), 0o600); err != nil {
+		t.Fatalf("write HTML: %v", err)
+	}
+	if _, err := readMediaFile(path); err == nil || !strings.Contains(err.Error(), "unsupported media type") {
+		t.Errorf("error = %v, want unsupported media type", err)
+	}
+}
+
 func TestReadMediaFileValidation(t *testing.T) {
 	if _, err := readMediaFile(""); err == nil || !strings.Contains(err.Error(), "file path is required") {
 		t.Errorf("empty path error = %v", err)
@@ -118,18 +149,124 @@ func TestSendMediaValidation(t *testing.T) {
 func writeTestPNG(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.png")
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("create PNG: %v", err)
+	if err := os.WriteFile(path, encodeTestPNG(t), 0o600); err != nil {
+		t.Fatalf("write PNG: %v", err)
 	}
-	defer file.Close()
+	return path
+}
 
+func encodeTestPNG(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.Set(0, 0, color.RGBA{R: 255, A: 255})
 	img.Set(1, 0, color.RGBA{G: 255, A: 255})
 	img.Set(0, 1, color.RGBA{B: 255, A: 255})
-	if err := png.Encode(file, img); err != nil {
+	if err := png.Encode(&buffer, img); err != nil {
 		t.Fatalf("encode PNG: %v", err)
 	}
-	return path
+	return buffer.Bytes()
+}
+
+func TestLoadMessageValidation(t *testing.T) {
+	client := &Client{inner: &instameow.Client{}}
+	if _, err := client.LoadMessage(context.Background(), "", "message-id"); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
+		t.Errorf("empty thread error = %v", err)
+	}
+	if _, err := client.LoadMessage(context.Background(), "thread-id", ""); err == nil || !strings.Contains(err.Error(), "message ID is required") {
+		t.Errorf("empty message error = %v", err)
+	}
+}
+
+func TestDownloadMediaPartValidation(t *testing.T) {
+	var nilClient *Client
+	if _, err := nilClient.DownloadMediaPart(context.Background(), "thread-id", "message-id", 0, "out.png"); err == nil || !strings.Contains(err.Error(), "client is not initialized") {
+		t.Errorf("nil client error = %v", err)
+	}
+
+	client := &Client{inner: &instameow.Client{}}
+	if _, err := client.DownloadMediaPart(context.Background(), "thread-id", "", 0, "out.png"); err == nil || !strings.Contains(err.Error(), "message ID is required") {
+		t.Errorf("empty message error = %v", err)
+	}
+}
+
+func TestDownloadMediaURL(t *testing.T) {
+	pngData := encodeTestPNG(t)
+	var fetchDestination string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchDestination = r.Header.Get("Sec-Fetch-Dest")
+		if r.Header.Get("User-Agent") == "" {
+			t.Error("download request has no user agent")
+		}
+		if !strings.Contains(r.Header.Get("Accept"), "image/") {
+			t.Errorf("accept header = %q", r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngData)
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "downloaded.png")
+	result, err := downloadMediaURL(context.Background(), server.URL, "image", "fbid-1", dest, MaxMediaBytes)
+	if err != nil {
+		t.Fatalf("downloadMediaURL: %v", err)
+	}
+	if result.Type != "image" || result.AttachmentFBID != "fbid-1" || result.MimeType != "image/png" {
+		t.Errorf("result = %+v", result)
+	}
+	if result.SizeBytes != int64(len(pngData)) {
+		t.Errorf("size = %d, want %d", result.SizeBytes, len(pngData))
+	}
+	if fetchDestination != "image" {
+		t.Errorf("sec-fetch-dest = %q, want image", fetchDestination)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if !bytes.Equal(data, pngData) {
+		t.Error("downloaded bytes differ from source")
+	}
+}
+
+func TestDownloadMediaURLDetectMIME(t *testing.T) {
+	pngData := encodeTestPNG(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(pngData)
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "downloaded.bin")
+	result, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, MaxMediaBytes)
+	if err != nil {
+		t.Fatalf("downloadMediaURL: %v", err)
+	}
+	if result.MimeType != "image/png" {
+		t.Errorf("mime type = %q, want image/png", result.MimeType)
+	}
+}
+
+func TestDownloadMediaURLLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, 32))
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "too-large.bin")
+	if _, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, 16); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error = %v, want size limit", err)
+	}
+}
+
+func TestDownloadMediaURLHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "forbidden.bin")
+	if _, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, MaxMediaBytes); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+		t.Errorf("error = %v, want HTTP 403", err)
+	}
 }

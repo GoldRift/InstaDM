@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
 	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
 	"go.mau.fi/mautrix-meta/pkg/messagix/methods"
+	"go.mau.fi/mautrix-meta/pkg/messagix/useragent"
 )
 
 const (
@@ -158,6 +161,9 @@ func readMediaFile(path string) (*mediaFile, error) {
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
+	if err := validateMediaType(mimeType); err != nil {
+		return nil, err
+	}
 
 	limit := maxMediaBytes(mimeType)
 	if info.Size() > limit {
@@ -183,9 +189,171 @@ func readMediaFile(path string) (*mediaFile, error) {
 	}, nil
 }
 
+func validateMediaType(mimeType string) error {
+	switch mimeType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp",
+		"video/mp4", "video/quicktime", "video/webm", "video/ogg",
+		"audio/mpeg", "audio/mp4", "audio/wav", "audio/x-wav":
+		return nil
+	}
+	if strings.HasPrefix(mimeType, "application/") {
+		return nil
+	}
+	return fmt.Errorf("unsupported media type %q", mimeType)
+}
+
 func maxMediaBytes(mimeType string) int64 {
 	if strings.HasPrefix(mimeType, "image/") {
 		return MaxImageBytes
 	}
 	return MaxMediaBytes
+}
+
+type DownloadResult struct {
+	ProtocolVersion string `json:"protocol_version"`
+	ThreadID        string `json:"thread_id"`
+	MessageID       string `json:"message_id"`
+	PartIndex       int    `json:"part_index"`
+	Type            string `json:"type"`
+	AttachmentFBID  string `json:"attachment_fbid,omitempty"`
+	MimeType        string `json:"mime_type"`
+	Path            string `json:"path"`
+	SizeBytes       int64  `json:"size_bytes"`
+	URL             string `json:"url"`
+}
+
+// LoadMessage fetches the newest page and returns one message by IG message ID.
+// It is used by the media commands because attachment URLs are not available
+// without a thread query.
+func (c *Client) LoadMessage(ctx context.Context, threadID, messageID string) (*MessageView, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
+	}
+	threadID = strings.TrimSpace(threadID)
+	messageID = strings.TrimSpace(messageID)
+	if threadID == "" {
+		return nil, errors.New("thread ID is required")
+	}
+	if messageID == "" {
+		return nil, errors.New("message ID is required")
+	}
+
+	detail, err := c.LoadThread(ctx, threadID, 100)
+	if err != nil {
+		return nil, err
+	}
+	message, err := selectMessage(detail.Messages, messageID)
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+// DownloadMediaPart downloads one attachment from a message to destPath. The
+// attachment URL comes from a fresh thread query, so it has the current expiry.
+func (c *Client) DownloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string) (*DownloadResult, error) {
+	message, err := c.LoadMessage(ctx, threadID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if len(message.Media) == 0 {
+		return nil, errors.New("message has no downloadable media")
+	}
+	if partIndex < 0 || partIndex >= len(message.Media) {
+		return nil, fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
+	}
+
+	media := message.Media[partIndex]
+	mediaURL := firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
+	if mediaURL == "" {
+		return nil, errors.New("media attachment has no download URL")
+	}
+	destPath = strings.TrimSpace(destPath)
+	if destPath == "" {
+		return nil, errors.New("destination path is required")
+	}
+
+	result, err := downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
+	if err != nil {
+		return nil, err
+	}
+	result.ThreadID = strings.TrimSpace(threadID)
+	result.MessageID = strings.TrimSpace(messageID)
+	result.PartIndex = partIndex
+	return result, nil
+}
+
+func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, destPath string, maxBytes int64) (*DownloadResult, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("prepare media download: %w", err)
+	}
+	setDownloadHeaders(request, mediaType)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("download media: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("media download returned HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > maxBytes {
+		return nil, fmt.Errorf("media is %d bytes; the download limit is %d bytes", response.ContentLength, maxBytes)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read media response: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("media exceeds the %d byte download limit", maxBytes)
+	}
+	if len(data) == 0 {
+		return nil, errors.New("media response is empty")
+	}
+
+	mimeType := response.Header.Get("Content-Type")
+	if index := strings.IndexByte(mimeType, ';'); index >= 0 {
+		mimeType = mimeType[:index]
+	}
+	mimeType = strings.TrimSpace(mimeType)
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		mimeType = http.DetectContentType(data)
+	}
+
+	if err := os.WriteFile(destPath, data, 0o600); err != nil {
+		return nil, fmt.Errorf("write media file: %w", err)
+	}
+
+	return &DownloadResult{
+		ProtocolVersion: ProtocolVersion,
+		Type:            mediaType,
+		AttachmentFBID:  attachmentFBID,
+		MimeType:        mimeType,
+		Path:            destPath,
+		SizeBytes:       int64(len(data)),
+		URL:             rawURL,
+	}, nil
+}
+
+func setDownloadHeaders(request *http.Request, mediaType string) {
+	request.Header.Set("Accept", "*/*")
+	destination := "empty"
+	switch mediaType {
+	case "image":
+		request.Header.Set("Accept", "image/avif,image/webp,*/*")
+		destination = "image"
+	case "video":
+		destination = "video"
+	case "audio":
+		destination = "audio"
+	}
+	request.Header.Set("Sec-Fetch-Dest", destination)
+	request.Header.Set("Sec-Fetch-Mode", "no-cors")
+	request.Header.Set("Sec-Fetch-Site", "cross-site")
+	request.Header.Set("User-Agent", useragent.UserAgent)
+	request.Header.Set("sec-ch-ua", useragent.SecCHUserAgent)
+	request.Header.Set("sec-ch-ua-platform", useragent.SecCHPlatform)
 }

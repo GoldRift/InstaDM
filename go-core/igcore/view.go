@@ -174,6 +174,18 @@ type ReactionView struct {
 	TimestampMS int64  `json:"timestamp_ms,omitempty"`
 }
 
+type MediaView struct {
+	Type               string `json:"type"`
+	AttachmentFBID     string `json:"attachment_fbid,omitempty"`
+	URL                string `json:"url,omitempty"`
+	FallbackURL        string `json:"fallback_url,omitempty"`
+	PreviewURL         string `json:"preview_url,omitempty"`
+	PreviewFallbackURL string `json:"preview_fallback_url,omitempty"`
+	Width              int    `json:"width,omitempty"`
+	Height             int    `json:"height,omitempty"`
+	DurationMS         int    `json:"duration_ms,omitempty"`
+}
+
 type MessageView struct {
 	ID                 string         `json:"id"`
 	OfflineThreadingID string         `json:"offline_threading_id,omitempty"`
@@ -185,6 +197,7 @@ type MessageView struct {
 	ContentType        string         `json:"content_type,omitempty"`
 	Text               string         `json:"text,omitempty"`
 	MediaCount         int            `json:"media_count,omitempty"`
+	Media              []MediaView    `json:"media,omitempty"`
 	RepliedToMessageID string         `json:"replied_to_message_id,omitempty"`
 	Reactions          []ReactionView `json:"reactions,omitempty"`
 }
@@ -303,9 +316,94 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		ContentType:        contentType,
 		Text:               text,
 		MediaCount:         mediaCount,
+		Media:              messageMedia(message),
 		RepliedToMessageID: message.RepliedToMessageID,
 		Reactions:          reactions,
 	}
+}
+
+func messageMedia(message *slidetypes.Message) []MediaView {
+	var media []MediaView
+	switch content := message.Content.Content.(type) {
+	case *slidetypes.MessageContentImage:
+		for _, attachment := range content.Attachments {
+			if view, ok := attachmentView(attachment, "image"); ok {
+				media = append(media, view)
+			}
+		}
+	case *slidetypes.MessageContentVideo:
+		for _, attachment := range content.Videos {
+			if view, ok := attachmentView(attachment, "video"); ok {
+				media = append(media, view)
+			}
+		}
+	case *slidetypes.MessageContentMultiMedia:
+		for _, attachment := range content.Attachments {
+			if view, ok := attachmentView(attachment, "media"); ok {
+				media = append(media, view)
+			}
+		}
+	case *slidetypes.MessageContentRavenImage:
+		if view, ok := attachmentView(content.Attachment, "image"); ok {
+			media = append(media, view)
+		}
+	case *slidetypes.MessageContentRavenVideo:
+		if view, ok := attachmentView(content.Attachment, "video"); ok {
+			media = append(media, view)
+		}
+	case *slidetypes.MessageContentAudio:
+		for _, attachment := range content.AudioAttachments {
+			if attachment == nil {
+				continue
+			}
+			media = append(media, MediaView{
+				Type:           "audio",
+				AttachmentFBID: attachment.AttachmentFBID,
+				URL:            attachment.AttachmentCDNURL,
+				DurationMS:     attachment.PlayableDurationMS,
+			})
+		}
+	case *slidetypes.MessageContentAnimatedMedia:
+		for _, attachment := range content.AnimatedMedia {
+			if attachment == nil {
+				continue
+			}
+			kind := "gif"
+			mediaURL := attachment.PreviewCDNURL
+			if attachment.IsSticker {
+				kind = "sticker"
+				if attachment.AttachmentWebpURL != "" {
+					mediaURL = attachment.AttachmentWebpURL
+				}
+			} else if attachment.AttachmentMP4URL != "" {
+				mediaURL = attachment.AttachmentMP4URL
+			}
+			media = append(media, MediaView{
+				Type:       kind,
+				URL:        mediaURL,
+				PreviewURL: attachment.PreviewCDNURL,
+				Width:      attachment.PreviewWidth,
+				Height:     attachment.PreviewHeight,
+			})
+		}
+	}
+	return media
+}
+
+func attachmentView(attachment *slidetypes.Attachment, kind string) (MediaView, bool) {
+	if attachment == nil {
+		return MediaView{}, false
+	}
+	return MediaView{
+		Type:               kind,
+		AttachmentFBID:     attachment.AttachmentFBID,
+		URL:                attachment.AttachmentCDNURL,
+		FallbackURL:        attachment.AttachmentCDNFallbackURL,
+		PreviewURL:         attachment.PreviewCDNURL,
+		PreviewFallbackURL: attachment.PreviewCDNFallbackURL,
+		Width:              attachment.PreviewWidth,
+		Height:             attachment.PreviewHeight,
+	}, true
 }
 
 func participantNames(thread *slidetypes.ThreadInfo) map[int64]string {

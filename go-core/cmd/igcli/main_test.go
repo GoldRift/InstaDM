@@ -190,6 +190,89 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintMediaList(t *testing.T) {
+	message := &igcore.MessageView{
+		ID:         "message-1",
+		Kind:       "image",
+		MediaCount: 2,
+		Media: []igcore.MediaView{
+			{
+				Type:           "image",
+				AttachmentFBID: "fbid-1",
+				URL:            "https://cdn.example/full.jpg",
+				PreviewURL:     "https://cdn.example/preview.jpg",
+				Width:          640,
+				Height:         480,
+			},
+			{Type: "video", DurationMS: 12_000},
+		},
+	}
+
+	var output bytes.Buffer
+	printMediaList(&output, "thread-1", message)
+	rendered := output.String()
+	for _, want := range []string{"Thread: thread-1", "Message: message-1", "Media: 2", "#0", "image", "640x480", "fbid-1", "url:", "#1", "video", "12000 ms", "Tip:"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestPrintDownloadResult(t *testing.T) {
+	result := &igcore.DownloadResult{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		MessageID:       "message-1",
+		PartIndex:       0,
+		Type:            "image",
+		AttachmentFBID:  "fbid-1",
+		MimeType:        "image/png",
+		Path:            "/tmp/photo.png",
+		SizeBytes:       1234,
+	}
+
+	var output bytes.Buffer
+	printDownloadResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Downloaded media", "thread-1", "message-1", "part: 0 (image)", "fbid-1", "/tmp/photo.png", "image/png", "1234 bytes"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunMediaValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMedia(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli media") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	saveDir := t.TempDir()
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty thread", args: []string{"", "message-1", "--cookie-header", fakeCookies}, want: "thread ID is empty"},
+		{name: "empty message", args: []string{"thread-1", "", "--cookie-header", fakeCookies}, want: "message ID is empty"},
+		{name: "negative part", args: []string{"thread-1", "message-1", "--part", "-1", "--cookie-header", fakeCookies}, want: "--part must be zero or greater"},
+		{name: "save is a directory", args: []string{"thread-1", "message-1", "--save", saveDir, "--cookie-header", fakeCookies}, want: "--save must be a file path"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runMedia(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintMediaSendResult(t *testing.T) {
 	result := &igcore.MediaSendResult{
 		ProtocolVersion:    "test",

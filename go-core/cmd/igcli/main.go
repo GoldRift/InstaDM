@@ -31,6 +31,7 @@ Usage:
   igcli send-media <thread-id> <file> --cookies <path> [flags]
   igcli mark-read <thread-id> --cookies <path> [flags]
   igcli react <thread-id> <message-id> <emoji> --cookies <path> [flags]
+  igcli media <thread-id> <message-id> --cookies <path> [flags]
   igcli watch --cookies <path> [flags]
   igcli help
 
@@ -41,6 +42,7 @@ Commands:
   send-media Upload and send a file to an existing thread
   mark-read  Mark a thread read up to the newest or a specific message
   react      Add or remove a reaction on a message
+  media      List or download media attachments from a message
   watch      Connect to DGW and print realtime events until interrupted
 
 Common flags:
@@ -69,6 +71,10 @@ Mark-read flags:
 React flags:
   --remove                Remove the reaction instead of adding it
 
+Media flags:
+  --save <path>           Download the selected attachment to this file
+  --part <n>              Attachment index to download, default 0
+
 Watch flags:
   --duration <duration>   Stop after this duration (0 = until interrupted)
   --thread <thread-id>    Only print events for this thread
@@ -79,8 +85,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, mark-read, and react, put all flags before or after the
-positional arguments; do not split them across both positions.
+For thread, send, send-media, mark-read, react, and media, put all flags before or after
+the positional arguments; do not split them across both positions.
 `
 
 func main() {
@@ -109,6 +115,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runMarkRead(args[1:], stdout, stderr)
 	case "react":
 		return runReact(args[1:], stdout, stderr)
+	case "media":
+		return runMedia(args[1:], stdout, stderr)
 	case "watch":
 		return runWatch(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -519,6 +527,89 @@ func runReact(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+func runMedia(args []string, stdout, stderr io.Writer) error {
+	// Accept "media <thread> <message> --flags" by moving the two leading
+	// positionals after the flags.
+	if len(args) > 2 && !strings.HasPrefix(args[0], "-") && !strings.HasPrefix(args[1], "-") {
+		args = append(append([]string{}, args[2:]...), args[0], args[1])
+	}
+
+	flags := flag.NewFlagSet("media", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	save := flags.String("save", "", "download the selected attachment to this file")
+	part := flags.Int("part", 0, "attachment index to download")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 2 {
+		return errors.New("usage: igcli media <thread-id> <message-id> --cookies <path>")
+	}
+
+	threadID := strings.TrimSpace(flags.Arg(0))
+	messageID := strings.TrimSpace(flags.Arg(1))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+	if messageID == "" {
+		return errors.New("message ID is empty")
+	}
+	if *part < 0 {
+		return errors.New("--part must be zero or greater")
+	}
+	if *save != "" {
+		if info, err := os.Stat(*save); err == nil && info.IsDir() {
+			return errors.New("--save must be a file path, not a directory")
+		}
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	if strings.TrimSpace(*save) == "" {
+		message, err := client.LoadMessage(ctx, threadID, messageID)
+		if err != nil {
+			return describeError(err)
+		}
+		if len(message.Media) == 0 {
+			return errors.New("message has no downloadable media")
+		}
+		if options.jsonOutput {
+			return encodeJSON(stdout, mediaListView{
+				ProtocolVersion: igcore.ProtocolVersion,
+				ThreadID:        threadID,
+				Message:         *message,
+			})
+		}
+		printMediaList(stdout, threadID, message)
+		return nil
+	}
+
+	result, err := client.DownloadMediaPart(ctx, threadID, messageID, *part, *save)
+	if err != nil {
+		return describeError(err)
+	}
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printDownloadResult(stdout, result)
+	return nil
+}
+
 func runWatch(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -848,6 +939,55 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+type mediaListView struct {
+	ProtocolVersion string             `json:"protocol_version"`
+	ThreadID        string             `json:"thread_id"`
+	Message         igcore.MessageView `json:"message"`
+}
+
+func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
+	fmt.Fprintf(w, "Thread: %s   Message: %s   Kind: %s   Media: %d\n",
+		valueOrDash(threadID),
+		valueOrDash(message.ID),
+		valueOrDash(message.Kind),
+		len(message.Media),
+	)
+	for index, media := range message.Media {
+		fmt.Fprintf(w, "\n#%d  %s", index, valueOrDash(media.Type))
+		if media.Width > 0 || media.Height > 0 {
+			fmt.Fprintf(w, "  %dx%d", media.Width, media.Height)
+		}
+		if media.DurationMS > 0 {
+			fmt.Fprintf(w, "  %d ms", media.DurationMS)
+		}
+		fmt.Fprintln(w)
+		if media.AttachmentFBID != "" {
+			fmt.Fprintf(w, "    fbid: %s\n", media.AttachmentFBID)
+		}
+		if media.URL != "" {
+			fmt.Fprintf(w, "    url: %s\n", truncate(media.URL, 180))
+		}
+		if media.PreviewURL != "" {
+			fmt.Fprintf(w, "    preview: %s\n", truncate(media.PreviewURL, 180))
+		}
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Tip: use --save <path> --part <n> to download. Attachment URLs are sensitive and expire.")
+}
+
+func printDownloadResult(w io.Writer, result *igcore.DownloadResult) {
+	fmt.Fprintln(w, "Downloaded media")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  message: %s\n", valueOrDash(result.MessageID))
+	fmt.Fprintf(w, "  part: %d (%s)\n", result.PartIndex, valueOrDash(result.Type))
+	if result.AttachmentFBID != "" {
+		fmt.Fprintf(w, "  attachment: %s\n", result.AttachmentFBID)
+	}
+	fmt.Fprintf(w, "  file: %s\n", valueOrDash(result.Path))
+	fmt.Fprintf(w, "  mime: %s\n", valueOrDash(result.MimeType))
+	fmt.Fprintf(w, "  size: %d bytes\n", result.SizeBytes)
 }
 
 func printMediaSendResult(w io.Writer, result *igcore.MediaSendResult) {
