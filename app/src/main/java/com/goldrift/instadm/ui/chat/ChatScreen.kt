@@ -35,6 +35,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +46,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
@@ -56,36 +60,46 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.emoji2.emojipicker.EmojiPickerView
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.service.AppVisibility
@@ -130,11 +144,12 @@ fun ChatScreen(
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var editMessageId by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
+    var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
-    val actionMessage = actionMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
+    val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
 
     fun sendMessage() {
         val text = draft.trim()
@@ -242,6 +257,30 @@ fun ChatScreen(
                             viewerTarget = MediaViewerTarget(messageId, media)
                         },
                         onLongPress = { actionMessageId = it.id },
+                        actionMessageId = actionMessageId,
+                        onDismissActions = { actionMessageId = null },
+                        onReactAt = { messageId, emoji ->
+                            actionMessageId = null
+                            onReact(messageId, emoji)
+                        },
+                        onCopyAt = { messageId ->
+                            actionMessageId = null
+                            messages.firstOrNull { it.id == messageId }?.let {
+                                copyToClipboard(context, it.text)
+                            }
+                        },
+                        onMoreEmojiAt = { messageId ->
+                            actionMessageId = null
+                            emojiPickerMessageId = messageId
+                        },
+                        onEditAt = { messageId ->
+                            actionMessageId = null
+                            editMessageId = messageId
+                        },
+                        onUnsendAt = { messageId ->
+                            actionMessageId = null
+                            unsendMessageId = messageId
+                        },
                         onLoadMedia = onLoadMedia,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -259,26 +298,13 @@ fun ChatScreen(
         )
     }
 
-    actionMessage?.let { message ->
-        MessageActionsSheet(
-            message = message,
-            onReact = { emoji ->
-                actionMessageId = null
+    emojiPickerMessage?.let { message ->
+        EmojiPickerDialog(
+            onPick = { emoji ->
+                emojiPickerMessageId = null
                 onReact(message.id, emoji)
             },
-            onCopy = {
-                actionMessageId = null
-                copyToClipboard(context, message.text)
-            },
-            onEdit = {
-                actionMessageId = null
-                editMessageId = message.id
-            },
-            onUnsend = {
-                actionMessageId = null
-                unsendMessageId = message.id
-            },
-            onDismiss = { actionMessageId = null },
+            onDismiss = { emojiPickerMessageId = null },
         )
     }
 
@@ -369,6 +395,13 @@ private fun MessageList(
     onRetryOlder: () -> Unit,
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     onLongPress: (ChatMessage) -> Unit,
+    actionMessageId: String?,
+    onDismissActions: () -> Unit,
+    onReactAt: (messageId: String, emoji: String) -> Unit,
+    onCopyAt: (messageId: String) -> Unit,
+    onMoreEmojiAt: (messageId: String) -> Unit,
+    onEditAt: (messageId: String) -> Unit,
+    onUnsendAt: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
@@ -434,6 +467,13 @@ private fun MessageList(
                 isVisible = message.id in visibleMessageIds,
                 onOpenMedia = { media -> onOpenMedia(message.id, media) },
                 onLongPress = { onLongPress(message) },
+                actionsExpanded = actionMessageId == message.id,
+                onDismissActions = onDismissActions,
+                onReact = { emoji -> onReactAt(message.id, emoji) },
+                onCopy = { onCopyAt(message.id) },
+                onMoreEmoji = { onMoreEmojiAt(message.id) },
+                onEdit = { onEditAt(message.id) },
+                onUnsend = { onUnsendAt(message.id) },
                 onLoadMedia = onLoadMedia,
                 modifier = Modifier.animateItem(),
             )
@@ -464,6 +504,13 @@ private fun MessageRow(
     isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
+    actionsExpanded: Boolean,
+    onDismissActions: () -> Unit,
+    onReact: (String) -> Unit,
+    onCopy: () -> Unit,
+    onMoreEmoji: () -> Unit,
+    onEdit: () -> Unit,
+    onUnsend: () -> Unit,
     onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
@@ -491,34 +538,49 @@ private fun MessageRow(
             modifier = Modifier.widthIn(max = 300.dp),
         ) {
             val interactionSource = remember { MutableInteractionSource() }
-            Surface(
-                modifier = Modifier.combinedClickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onLongClickLabel = stringResource(R.string.chat_message_actions),
-                    onLongClick = onLongPress,
-                    onClick = {},
-                ),
-                shape = if (isMine) OutgoingBubbleShape else IncomingBubbleShape,
-                color = if (isMine) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                contentColor = if (isMine) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            ) {
-                MessageBubbleContent(
-                    message = message,
-                    threadId = threadId,
-                    isVisible = isVisible,
-                    onOpenMedia = onOpenMedia,
-                    onLongPress = onLongPress,
-                    onLoadMedia = onLoadMedia,
-                )
+            Box {
+                Surface(
+                    modifier = Modifier.combinedClickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onLongClickLabel = stringResource(R.string.chat_message_actions),
+                        onLongClick = onLongPress,
+                        onClick = {},
+                    ),
+                    shape = if (isMine) OutgoingBubbleShape else IncomingBubbleShape,
+                    color = if (isMine) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    contentColor = if (isMine) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                ) {
+                    MessageBubbleContent(
+                        message = message,
+                        threadId = threadId,
+                        isVisible = isVisible,
+                        onOpenMedia = onOpenMedia,
+                        onLongPress = onLongPress,
+                        onLoadMedia = onLoadMedia,
+                    )
+                }
+
+                if (actionsExpanded) {
+                    MessageActionsPopup(
+                        message = message,
+                        isMine = isMine,
+                        onDismiss = onDismissActions,
+                        onReact = onReact,
+                        onCopy = onCopy,
+                        onMoreEmoji = onMoreEmoji,
+                        onEdit = onEdit,
+                        onUnsend = onUnsend,
+                    )
+                }
             }
 
             ReactionPills(message)
@@ -636,67 +698,138 @@ private fun ReactionPills(message: ChatMessage) {
     }
 }
 
-private val QuickReactions = listOf("❤️", "😂", "😮", "😢", "👍", "🔥")
+private val QuickReactions = listOf("❤️", "😂", "😮", "😢", "😡", "👍")
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Instagram-style actions popup: a floating reaction pill above a menu card,
+ * anchored to the long-pressed bubble. The menu starts at the bubble's top
+ * edge, so the card overlays the message instead of the composer.
+ */
 @Composable
-private fun MessageActionsSheet(
+private fun MessageActionsPopup(
     message: ChatMessage,
+    isMine: Boolean,
+    onDismiss: () -> Unit,
     onReact: (String) -> Unit,
+    onCopy: () -> Unit,
+    onMoreEmoji: () -> Unit,
+    onEdit: () -> Unit,
+    onUnsend: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val reactionBarHeight = with(density) { 56.dp.roundToPx() }
+    val margin = with(density) { 8.dp.roundToPx() }
+    val gap = with(density) { 6.dp.roundToPx() }
+    val positionProvider = remember(isMine, reactionBarHeight, margin, gap) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset {
+                val maxX = (windowSize.width - popupContentSize.width - margin)
+                    .coerceAtLeast(margin)
+                val x = if (isMine) {
+                    (anchorBounds.right - popupContentSize.width).coerceIn(margin, maxX)
+                } else {
+                    anchorBounds.left.coerceIn(margin, maxX)
+                }
+                val maxY = (windowSize.height - popupContentSize.height - margin)
+                    .coerceAtLeast(margin)
+                val y = (anchorBounds.top - reactionBarHeight - gap).coerceIn(margin, maxY)
+                return IntOffset(x, y)
+            }
+        }
+    }
+
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnClickOutside = true,
+            dismissOnBackPress = true,
+        ),
+    ) {
+        Column(
+            horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
+        ) {
+            ReactionBar(onReact = onReact, onMoreEmoji = onMoreEmoji)
+            Spacer(Modifier.height(6.dp))
+            MessageMenu(
+                message = message,
+                onCopy = onCopy,
+                onEdit = onEdit,
+                onUnsend = onUnsend,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReactionBar(
+    onReact: (String) -> Unit,
+    onMoreEmoji: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            QuickReactions.forEach { emoji ->
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .clickable { onReact(emoji) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = emoji, fontSize = 26.sp)
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onMoreEmoji),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = stringResource(R.string.chat_more_reactions),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageMenu(
+    message: ChatMessage,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
+    val showCopy = message.text.isNotBlank()
+    val showEdit = message.canEdit()
+    val showUnsend = message.canUnsend()
+    if (!showCopy && !showEdit && !showUnsend) return
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+        modifier = Modifier.widthIn(min = 210.dp, max = 280.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 8.dp),
-        ) {
-            val mine = message.reactions.firstOrNull { it.isFromViewer }?.emoji
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                QuickReactions.forEach { emoji ->
-                    Surface(
-                        onClick = { onReact(emoji) },
-                        shape = CircleShape,
-                        color = if (mine == emoji) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            Color.Transparent
-                        },
-                        modifier = Modifier.size(46.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(text = emoji, fontSize = 26.sp)
-                        }
-                    }
-                }
-            }
-
-            val showCopy = message.text.isNotBlank()
-            val showEdit = message.canEdit()
-            val showUnsend = message.canUnsend()
-            if (showCopy || showEdit || showUnsend) {
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
-            }
-
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
             if (showCopy) {
                 MessageActionRow(
                     icon = Icons.Rounded.ContentCopy,
@@ -719,6 +852,38 @@ private fun MessageActionsSheet(
                     destructive = true,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun EmojiPickerDialog(
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val currentOnPick by rememberUpdatedState(onPick)
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+            shadowElevation = 12.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .height(420.dp),
+        ) {
+            AndroidView(
+                factory = { context ->
+                    EmojiPickerView(context).apply {
+                        setOnEmojiPickedListener { item -> currentOnPick(item.emoji) }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

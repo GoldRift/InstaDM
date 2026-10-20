@@ -17,6 +17,7 @@
     <string name="chat_older_error">Couldn\'t load older messages</string>
     <string name="chat_older_retry">Retry</string>
     <string name="chat_message_actions">Message actions</string>
+    <string name="chat_more_reactions">More reactions</string>
     <string name="chat_action_copy">Copy</string>
     <string name="chat_action_edit">Edit</string>
     <string name="chat_action_unsend">Unsend</string>
