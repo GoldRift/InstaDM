@@ -162,6 +162,34 @@ func TestPrintSendResult(t *testing.T) {
 	}
 }
 
+func TestPrintThreadPage(t *testing.T) {
+	page := &igcore.ThreadPageView{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		Messages: []igcore.MessageView{
+			{
+				ID:          "message-1",
+				SenderFBID:  222,
+				SenderName:  "Other Person",
+				TimestampMS: 1_700_000_000_000,
+				Kind:        "text",
+				Text:        "an older message",
+			},
+		},
+		HasMoreOlder: true,
+		OldestCursor: "cursor-2",
+	}
+
+	var output bytes.Buffer
+	printThreadPage(&output, page)
+	rendered := output.String()
+	for _, want := range []string{"Thread: thread-1 (older page)", "Messages: 1", "an older message", "Next cursor: cursor-2"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestPrintMarkReadResult(t *testing.T) {
 	result := &igcore.MarkReadResult{
 		ProtocolVersion: "test",

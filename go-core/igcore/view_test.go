@@ -140,6 +140,13 @@ func TestNewThreadDetailView(t *testing.T) {
 	}
 }
 
+func TestNormalizeMessagePageNil(t *testing.T) {
+	messages, hasMoreOlder, oldestCursor := normalizeMessagePage(nil, 111, nil, 20)
+	if len(messages) != 0 || hasMoreOlder || oldestCursor != "" {
+		t.Errorf("normalizeMessagePage(nil) = (%d, %v, %q)", len(messages), hasMoreOlder, oldestCursor)
+	}
+}
+
 func TestDescribeMessageContent(t *testing.T) {
 	tests := []struct {
 		name      string

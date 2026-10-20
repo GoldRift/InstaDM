@@ -158,6 +158,16 @@ type ThreadDetailView struct {
 	OldestCursor    string        `json:"oldest_cursor,omitempty"`
 }
 
+// ThreadPageView is a page fetched with IGDMessageListOffMsysQuery. It has no
+// thread metadata beyond the short thread ID.
+type ThreadPageView struct {
+	ProtocolVersion string        `json:"protocol_version"`
+	ThreadID        string        `json:"thread_id"`
+	Messages        []MessageView `json:"messages"`
+	HasMoreOlder    bool          `json:"has_more_older"`
+	OldestCursor    string        `json:"oldest_cursor,omitempty"`
+}
+
 type MessageView struct {
 	ID                 string `json:"id"`
 	OfflineThreadingID string `json:"offline_threading_id,omitempty"`
@@ -173,20 +183,25 @@ type MessageView struct {
 }
 
 func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int) *ThreadDetailView {
+	view := &ThreadDetailView{
+		ProtocolVersion: ProtocolVersion,
+		Thread:          newThreadView(thread, ownFBID),
+	}
+	view.Messages, view.HasMoreOlder, view.OldestCursor = normalizeMessagePage(
+		thread.SlideMessages, ownFBID, participantNames(thread), limit,
+	)
+	return view
+}
+
+func normalizeMessagePage(page *slidetypes.SlideMessages, ownFBID int64, participants map[int64]string, limit int) ([]MessageView, bool, string) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
-
-	view := &ThreadDetailView{
-		ProtocolVersion: ProtocolVersion,
-		Thread:          newThreadView(thread, ownFBID),
-		Messages:        make([]MessageView, 0, limit),
-	}
-	if thread.SlideMessages == nil {
-		return view
+	if page == nil {
+		return []MessageView{}, false, ""
 	}
 
 	type candidate struct {
@@ -194,9 +209,8 @@ func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int
 		cursor  string
 	}
 
-	participants := participantNames(thread)
-	candidates := make([]candidate, 0, len(thread.SlideMessages.Edges))
-	for _, edge := range thread.SlideMessages.Edges {
+	candidates := make([]candidate, 0, len(page.Edges))
+	for _, edge := range page.Edges {
 		if edge.Node != nil {
 			candidates = append(candidates, candidate{message: edge.Node, cursor: edge.Cursor})
 		}
@@ -206,20 +220,20 @@ func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int
 		candidates = candidates[:limit]
 	}
 
-	view.Messages = make([]MessageView, 0, len(candidates))
+	messages := make([]MessageView, 0, len(candidates))
 	for i := len(candidates) - 1; i >= 0; i-- {
-		view.Messages = append(view.Messages, newMessageView(candidates[i].message, ownFBID, participants))
+		messages = append(messages, newMessageView(candidates[i].message, ownFBID, participants))
 	}
 
-	view.HasMoreOlder = thread.SlideMessages.PageInfo.HasNextPage || truncated
-	view.OldestCursor = thread.SlideMessages.PageInfo.EndCursor
+	hasMoreOlder := page.PageInfo.HasNextPage || truncated
+	oldestCursor := page.PageInfo.EndCursor
 	if truncated && len(candidates) > 0 && candidates[len(candidates)-1].cursor != "" {
 		// The page cursor points past every returned message. When the caller
 		// asked for a smaller page, use the oldest displayed message's cursor
 		// so the next request does not skip the messages in between.
-		view.OldestCursor = candidates[len(candidates)-1].cursor
+		oldestCursor = candidates[len(candidates)-1].cursor
 	}
-	return view
+	return messages, hasMoreOlder, oldestCursor
 }
 
 func newMessageView(message *slidetypes.Message, ownFBID int64, participants map[int64]string) MessageView {

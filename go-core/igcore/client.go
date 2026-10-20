@@ -130,6 +130,63 @@ func (c *Client) LoadThread(ctx context.Context, threadID string, limit int) (*T
 	return newThreadDetailView(thread, ownFBID, limit), nil
 }
 
+// LoadOlderMessages fetches the page after afterCursor using
+// IGDMessageListOffMsysQuery. The cursor is the oldest_cursor returned by a
+// previous thread page.
+func (c *Client) LoadOlderMessages(ctx context.Context, threadID, afterCursor string, limit int) (*ThreadPageView, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
+	}
+
+	threadID = strings.TrimSpace(threadID)
+	afterCursor = strings.TrimSpace(afterCursor)
+	if threadID == "" {
+		return nil, errors.New("thread ID is required")
+	}
+	if afterCursor == "" {
+		return nil, errors.New("after cursor is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	ownFBID, err := c.bootstrap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := c.inner.PaginateMessages(ctx, buildPaginateMessagesRequest(threadID, afterCursor, limit))
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.ThreadInfo.AsIGDirectThread == nil {
+		return nil, errors.New("Instagram returned an empty message page")
+	}
+
+	page := response.ThreadInfo.AsIGDirectThread
+	messages, hasMoreOlder, oldestCursor := normalizeMessagePage(page.Messages, ownFBID, nil, limit)
+	return &ThreadPageView{
+		ProtocolVersion: ProtocolVersion,
+		ThreadID:        threadID,
+		Messages:        messages,
+		HasMoreOlder:    hasMoreOlder,
+		OldestCursor:    oldestCursor,
+	}, nil
+}
+
+func buildPaginateMessagesRequest(threadID, afterCursor string, limit int) *slidetypes.PaginateMessagesRequest {
+	after := afterCursor
+	return &slidetypes.PaginateMessagesRequest{
+		AfterCursor:             &after,
+		FirstN:                  limit,
+		ThreadID:                threadID,
+		InitialMessagePageCount: limit,
+	}
+}
+
 // bootstrap validates the cookies and parses the inbox page once per client.
 // LoadMailbox does this implicitly; LoadThread calls it so a standalone thread
 // command does not rely on empty bootstrap configs.

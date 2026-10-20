@@ -98,6 +98,9 @@ go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json -
 # Machine-readable thread output
 go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json --json > /tmp/thread.json
 
+# Load an older page using the oldest_cursor from the previous page
+go run ./cmd/igcli thread <thread-id> --after <cursor> --limit 20 --cookies ~/.config/instadm/cookies.json
+
 # Send a text message to an existing thread
 go run ./cmd/igcli send <thread-id> "hello from igcli" --cookies ~/.config/instadm/cookies.json
 
@@ -130,6 +133,7 @@ Flags:
 | `--log-level <level>` | `error`, `warn` (default), `info`, `debug` |
 | `--timeout <duration>` | Network timeout, default `90s`; bootstrap timeout for `watch` |
 | `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
+| `--after <cursor>` | `thread`: load older messages after this cursor |
 | `--reply-to <message-id>` | `send`: reply to an existing message |
 | `--otid <otid>` | `send`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
@@ -157,9 +161,14 @@ them out of version control unless they have been redacted.
 The `thread` table shows the thread metadata followed by one row per message: local
 timestamp, sender (`me` for your own messages), content kind, and text. Messages are
 printed oldest-to-newest. Media is represented as `[image]`, `[video]`, `[sticker]`, and
-so on; Level 2 does not download attachments or print CDN URLs. `--json` adds message
+so on; Level 3 does not download attachments or print CDN URLs. `--json` adds message
 IDs, offline threading IDs, sender FBIDs, and `has_more_older`/`oldest_cursor` for the
 next pagination step.
+
+Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
+messages. The older-page output uses the same message table and prints the next cursor.
+The page is returned oldest-to-newest, and all messages are older than the previous
+page's oldest message.
 
 One ID detail: the viewer's `fbid` in the mailbox is the profile ID from
 `PolarisViewer`, while message senders use the internal EIMU ID. `is_from_viewer` uses
@@ -196,7 +205,9 @@ included in JSON but omitted from the human output to avoid noise.
   - `watch` connected to DGW and reported `connected` with a sequence ID;
   - `send` returned a canonical message ID, OTID, and timestamp, and the DGW echo
     arrived as `message.new` with matching message ID and OTID;
-  - `mark-read` returned `validated=true` for the newest message.
+  - `mark-read` returned `validated=true` for the newest message;
+  - `thread --after` returned the previous page's older messages, ordered
+    oldest-to-newest, with the next cursor and no overlap.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,

@@ -47,7 +47,8 @@ Common flags:
   --timeout <duration>    Network timeout (default: 90s); bootstrap timeout for watch
 
 Thread flags:
-  --limit <n>             Recent messages to fetch, 1-100 (default: 20)
+  --limit <n>             Messages to fetch, 1-100 (default: 20)
+  --after <cursor>        Load older messages after this cursor
 
 Send flags:
   --reply-to <message-id> Reply to a message ID
@@ -173,6 +174,7 @@ func runThread(args []string, stdout, stderr io.Writer) error {
 	var options commonOptions
 	addCommonFlags(flags, &options)
 	limit := flags.Int("limit", 20, "recent messages to fetch (1-100)")
+	after := flags.String("after", "", "load older messages after this cursor")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -202,6 +204,18 @@ func runThread(args []string, stdout, stderr io.Writer) error {
 
 	ctx, cancel := commandContext(options.timeout)
 	defer cancel()
+
+	if strings.TrimSpace(*after) != "" {
+		page, err := client.LoadOlderMessages(ctx, threadID, *after, *limit)
+		if err != nil {
+			return describeError(err)
+		}
+		if options.jsonOutput {
+			return encodeJSON(stdout, page)
+		}
+		printThreadPage(stdout, page)
+		return nil
+	}
 
 	detail, err := client.LoadThread(ctx, threadID, *limit)
 	if err != nil {
@@ -629,9 +643,39 @@ func printThread(w io.Writer, detail *igcore.ThreadDetailView) {
 		return
 	}
 
+	printMessageTable(w, detail.Messages)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Tip: use --json for message IDs and full metadata. Message text is sensitive.")
+}
+
+func printThreadPage(w io.Writer, page *igcore.ThreadPageView) {
+	fmt.Fprintf(w, "Thread: %s (older page)\n", valueOrDash(page.ThreadID))
+	fmt.Fprintf(w, "Messages: %d", len(page.Messages))
+	if page.HasMoreOlder {
+		fmt.Fprint(w, " (older messages available)")
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w)
+
+	if len(page.Messages) == 0 {
+		fmt.Fprintln(w, "No messages returned.")
+		return
+	}
+
+	printMessageTable(w, page.Messages)
+
+	fmt.Fprintln(w)
+	if page.OldestCursor != "" {
+		fmt.Fprintf(w, "Next cursor: %s\n", page.OldestCursor)
+	}
+	fmt.Fprintln(w, "Tip: use --json for message IDs and full metadata. Message text is sensitive.")
+}
+
+func printMessageTable(w io.Writer, messages []igcore.MessageView) {
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(table, "TIME\tFROM\tTYPE\tTEXT")
-	for _, message := range detail.Messages {
+	for _, message := range messages {
 		fmt.Fprintf(
 			table,
 			"%s\t%s\t%s\t%s\n",
@@ -642,9 +686,6 @@ func printThread(w io.Writer, detail *igcore.ThreadDetailView) {
 		)
 	}
 	_ = table.Flush()
-
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Tip: use --json for message IDs and full metadata. Message text is sensitive.")
 }
 
 func printSendResult(w io.Writer, result *igcore.SendResult) {

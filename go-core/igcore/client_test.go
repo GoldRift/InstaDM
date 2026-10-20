@@ -1,11 +1,13 @@
 package igcore
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"go.mau.fi/mautrix-meta/pkg/instameow"
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
 	"go.mau.fi/util/jsontime"
 )
@@ -66,6 +68,34 @@ func TestBuildSendTextRequestValidation(t *testing.T) {
 	}
 	if _, err := buildSendTextRequest("thread-id", strings.Repeat("a", MaxTextLength), "", ""); err != nil {
 		t.Errorf("text at limit rejected: %v", err)
+	}
+}
+
+func TestBuildPaginateMessagesRequest(t *testing.T) {
+	request := buildPaginateMessagesRequest("thread-id", "cursor-1", 5)
+
+	if request.AfterCursor == nil || *request.AfterCursor != "cursor-1" {
+		t.Errorf("after cursor = %v", request.AfterCursor)
+	}
+	if request.ThreadID != "thread-id" {
+		t.Errorf("thread ID = %q", request.ThreadID)
+	}
+	if request.FirstN != 5 || request.InitialMessagePageCount != 5 {
+		t.Errorf("limits = %d / %d, want 5 / 5", request.FirstN, request.InitialMessagePageCount)
+	}
+	if request.BeforeCursor != nil || request.LastN != nil || request.NewerThanMessageID != nil || request.OlderThanMessageID != nil {
+		t.Errorf("unexpected cursor fields: %+v", request)
+	}
+}
+
+func TestLoadOlderMessagesValidation(t *testing.T) {
+	client := &Client{inner: &instameow.Client{}}
+
+	if _, err := client.LoadOlderMessages(context.Background(), "", "cursor", 20); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
+		t.Errorf("empty thread ID error = %v", err)
+	}
+	if _, err := client.LoadOlderMessages(context.Background(), "thread-id", "", 20); err == nil || !strings.Contains(err.Error(), "after cursor is required") {
+		t.Errorf("empty cursor error = %v", err)
 	}
 }
 
