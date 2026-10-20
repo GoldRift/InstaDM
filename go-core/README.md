@@ -303,8 +303,10 @@ is useful for verifying the mutation.
 `react` adds or removes one reaction on a message. Instagram allows one reaction per
 sender per message, so adding a different emoji replaces the previous one. The target
 message ID is the IG message ID from `thread --json`. Message JSON now also includes a
-`reactions` array with emoji, sender FBID, and timestamp. Reaction removal deltas may omit
-the emoji; the CLI always sends the emoji you provide.
+`reactions` array with emoji, sender FBID, timestamp, and `is_from_viewer`. Reaction
+deltas carry `reaction`, `participant_fbid`, and `from_viewer` so a client can replace
+the same sender's previous emoji and ignore its own optimistic echo. Removal deltas may
+omit the emoji; the CLI always sends the emoji you provide.
 
 The `watch` human output prints connection state, new messages, edits, deletes,
 reactions, and read receipts. Read receipts include the participant FBID in human
