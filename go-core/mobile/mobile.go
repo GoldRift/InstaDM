@@ -111,6 +111,21 @@ func (c *Client) EditJSON(threadID, messageID, text, otid string, timeoutSeconds
 	return encode(result)
 }
 
+func (c *Client) UnsendJSON(threadID, messageID string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.UnsendMessage(ctx, threadID, messageID)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte, replyTo, otid string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {

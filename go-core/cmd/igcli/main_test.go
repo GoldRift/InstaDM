@@ -190,6 +190,54 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintUnsendResult(t *testing.T) {
+	result := &igcore.UnsendResult{
+		ProtocolVersion: "test",
+		ThreadID:        "thread-1",
+		LongThreadID:    "long-thread-1",
+		MessageID:       "message-1",
+		Unsent:          true,
+	}
+
+	var output bytes.Buffer
+	printUnsendResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Unsent message", "thread-1", "long-thread-1", "message-1", "unsent: true"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunUnsendValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runUnsend(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli unsend") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty thread", args: []string{"", "message-1", "--cookie-header", fakeCookies}, want: "thread ID is empty"},
+		{name: "empty message", args: []string{"thread-1", "", "--cookie-header", fakeCookies}, want: "message ID is empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runUnsend(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintEditResult(t *testing.T) {
 	result := &igcore.EditResult{
 		ProtocolVersion:    "test",

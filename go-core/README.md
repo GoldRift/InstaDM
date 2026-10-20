@@ -5,8 +5,8 @@ Instagram cookies, lists DM threads, reads recent messages, sends text and image
 adds/removes reactions, marks threads read, downloads attachments, and watches the DGW
 realtime stream.
 
-It does **not** implement unsend, create new DMs, persist a durable outbox, or touch the
-Android app. Those are later levels.
+It does **not** create new DMs, persist a durable outbox, or touch the Android app.
+Those are later levels.
 
 ## Upstream dependency
 
@@ -113,6 +113,9 @@ go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instad
 
 # Edit one of your own text messages
 go run ./cmd/igcli edit <thread-id> <message-id> "updated text" --cookies ~/.config/instadm/cookies.json
+
+# Remove one of your own messages for everyone
+go run ./cmd/igcli unsend <thread-id> <message-id> --cookies ~/.config/instadm/cookies.json
 
 # Upload and send an image or file
 go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
@@ -237,6 +240,13 @@ mutation sends `target_item_id: ""`, the new body, a new OTID, and the target IG
 ID. The result includes the thread, message, OTID, timestamp, and new text. Inbound
 edits arrive as `message.edit` deltas.
 
+`unsend` removes one of your own messages for everyone. Instagram requires the long
+thread ID for the unsend mutation, so the command resolves the short ID through a thread
+query first. It prints both thread IDs, the message ID, and the server's `unsent` flag.
+Inbound deletes arrive as `message.delete` deltas. The CLI does not keep local rows; the
+Android app should mark the row deleted and keep a tombstone so a late delta or backfill
+does not resurrect it. Unsend only applies to your own messages.
+
 `react` adds or removes one reaction on a message. Instagram allows one reaction per
 sender per message, so adding a different emoji replaces the previous one. The target
 message ID is the IG message ID from `thread --json`. Message JSON now also includes a
@@ -270,6 +280,7 @@ threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
 | `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
+| `UnsendJSON(threadID, messageID, timeoutSeconds)` | Unsend result JSON |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
 | `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
@@ -310,6 +321,8 @@ itself is covered by host tests.
     recompressed the image bytes, so file hashes are not stable;
   - `edit` changed a fresh text message within the edit window, and `watch` reported a
     matching `message.edit` delta;
+  - `unsend` removed that message for everyone, `watch` reported a matching
+    `message.delete` delta, and a later thread query no longer contained it;
   - the `mobile` wrapper's real-account `MailboxJSON` and `ThreadJSON` calls returned
     valid JSON with the pinned protocol version.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode

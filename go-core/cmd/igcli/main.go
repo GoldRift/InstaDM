@@ -30,6 +30,7 @@ Usage:
   igcli send <thread-id> "<text>" --cookies <path> [flags]
   igcli send-media <thread-id> <file> --cookies <path> [flags]
   igcli edit <thread-id> <message-id> "<text>" --cookies <path> [flags]
+  igcli unsend <thread-id> <message-id> --cookies <path> [flags]
   igcli mark-read <thread-id> --cookies <path> [flags]
   igcli react <thread-id> <message-id> <emoji> --cookies <path> [flags]
   igcli media <thread-id> <message-id> --cookies <path> [flags]
@@ -42,6 +43,7 @@ Commands:
   send       Send a text message to an existing thread
   send-media Upload and send a file to an existing thread
   edit       Edit one of your own text messages
+  unsend     Remove one of your own messages for everyone
   mark-read  Mark a thread read up to the newest or a specific message
   react      Add or remove a reaction on a message
   media      List or download media attachments from a message
@@ -90,8 +92,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, edit, mark-read, react, and media, put all flags before or
-after the positional arguments; do not split them across both positions.
+For thread, send, send-media, edit, unsend, mark-read, react, and media, put all flags
+before or after the positional arguments; do not split them across both positions.
 `
 
 func main() {
@@ -118,6 +120,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runSendMedia(args[1:], stdout, stderr)
 	case "edit":
 		return runEdit(args[1:], stdout, stderr)
+	case "unsend":
+		return runUnsend(args[1:], stdout, stderr)
 	case "mark-read":
 		return runMarkRead(args[1:], stdout, stderr)
 	case "react":
@@ -492,6 +496,61 @@ func runEdit(args []string, stdout, stderr io.Writer) error {
 		return encodeJSON(stdout, result)
 	}
 	printEditResult(stdout, result)
+	return nil
+}
+
+func runUnsend(args []string, stdout, stderr io.Writer) error {
+	// Accept "unsend <thread> <message> --flags" by moving the two leading
+	// positionals after the flags.
+	if len(args) > 2 && !strings.HasPrefix(args[0], "-") && !strings.HasPrefix(args[1], "-") {
+		args = append(append([]string{}, args[2:]...), args[0], args[1])
+	}
+
+	flags := flag.NewFlagSet("unsend", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 2 {
+		return errors.New("usage: igcli unsend <thread-id> <message-id> --cookies <path>")
+	}
+
+	threadID := strings.TrimSpace(flags.Arg(0))
+	messageID := strings.TrimSpace(flags.Arg(1))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+	if messageID == "" {
+		return errors.New("message ID is empty")
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.UnsendMessage(ctx, threadID, messageID)
+	if err != nil {
+		return describeError(err)
+	}
+
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printUnsendResult(stdout, result)
 	return nil
 }
 
@@ -1022,6 +1081,14 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+func printUnsendResult(w io.Writer, result *igcore.UnsendResult) {
+	fmt.Fprintln(w, "Unsent message")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  long thread: %s\n", valueOrDash(result.LongThreadID))
+	fmt.Fprintf(w, "  message: %s\n", valueOrDash(result.MessageID))
+	fmt.Fprintf(w, "  unsent: %t\n", result.Unsent)
 }
 
 func printEditResult(w io.Writer, result *igcore.EditResult) {
