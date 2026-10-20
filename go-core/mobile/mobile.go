@@ -327,7 +327,7 @@ func (c *Client) MarkReadJSON(threadID, messageID, longThreadID string, timestam
 	defer cancel()
 
 	var result *igcore.MarkReadResult
-	if longThreadID != "" && timestampMS > 0 {
+	if messageID != "" && longThreadID != "" && timestampMS > 0 {
 		result, err = client.MarkThreadReadAt(ctx, threadID, longThreadID, messageID, timestampMS)
 	} else {
 		result, err = client.MarkThreadRead(ctx, threadID, messageID)
