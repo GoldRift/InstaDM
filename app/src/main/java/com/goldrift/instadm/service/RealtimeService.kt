@@ -168,7 +168,9 @@ class RealtimeService : Service() {
 
     private fun handleEvent(raw: String) {
         val event = RealtimeEvent.fromJson(raw) ?: return
-        Log.i(TAG, "event ${event.type} thread=${event.threadId}")
+        if (event.type != "seq_id") {
+            Log.i(TAG, "event ${event.type} thread=${event.threadId}")
+        }
 
         when (event.type) {
             "connected" -> {
@@ -194,10 +196,14 @@ class RealtimeService : Service() {
                 stopSelf()
             }
 
-            else -> {
-                RealtimeBus.publish(event)
-                if (event.type == "message.new" || event.type == "message.admin") {
+            else -> when (event.type) {
+                "message.new", "message.admin" -> {
+                    RealtimeBus.publish(event)
                     maybeNotify(event)
+                }
+
+                "message.edit", "message.delete", "read.receipt" -> {
+                    RealtimeBus.publish(event)
                 }
             }
         }
@@ -218,7 +224,8 @@ class RealtimeService : Service() {
             .ifBlank { getString(R.string.notification_message) }
             .take(500)
         val title = message.senderName.ifBlank { getString(R.string.notification_new_message) }
-        val notificationId = event.threadId.ifBlank { message.id }.hashCode()
+        val notificationId = MESSAGE_NOTIFICATION_BASE +
+            (event.threadId.ifBlank { message.id }.hashCode() and 0x7FFFFFFF) % 1_000_000
         val notification = NotificationCompat.Builder(this, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -333,6 +340,7 @@ class RealtimeService : Service() {
         private const val CHANNEL_MESSAGES = "messages"
         private const val FOREGROUND_ID = 1001
         private const val STOP_REQUEST_CODE = 1002
+        private const val MESSAGE_NOTIFICATION_BASE = 2000
 
         fun start(context: Context) {
             val intent = Intent(context, RealtimeService::class.java).setAction(ACTION_START)
