@@ -17,6 +17,9 @@ class GoClient(cookiesJson: String) : Closeable {
 
     fun version(): String = Mobile.version()
 
+    /** Returns the cookie jar, including values Instagram rotated in responses. */
+    fun exportCookiesJson(): String = client.exportCookiesJSON()
+
     fun mailbox(timeoutSeconds: Int = 90): JSONObject =
         JSONObject(client.mailboxJSON(timeoutSeconds))
 

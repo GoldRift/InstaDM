@@ -23,6 +23,32 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         sessionStore.readCookies() != null
     }
 
+    /**
+     * Validates [cookiesJson] through the inbox bootstrap and only then persists
+     * it. The returned mailbox feeds the first inbox render without another
+     * fetch. A failed candidate leaves any existing session untouched.
+     */
+    suspend fun signIn(cookiesJson: String): JSONObject = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val candidate = GoClient(cookiesJson)
+            try {
+                val mailbox = candidate.mailbox()
+                val persisted = runCatching { candidate.exportCookiesJson() }
+                    .getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: cookiesJson
+                sessionStore.saveCookies(persisted)
+                client?.close()
+                client = candidate
+                clientCookies = persisted
+                mailbox
+            } catch (error: Throwable) {
+                candidate.close()
+                throw error
+            }
+        }
+    }
+
     /** Drops the client even when the cookie file is unchanged. */
     suspend fun reloadSession() {
         mutex.withLock {
@@ -140,8 +166,22 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
                     clientCookies = cookies
                 }
             }
-            block(active)
+            val result = block(active)
+            persistRotatedCookies(active)
+            result
         }
+    }
+
+    /**
+     * Instagram rotates routing cookies on responses. Persist a changed jar so
+     * the next process uses the same values; an incomplete export is refused by
+     * the Go side and never replaces the stored session.
+     */
+    private fun persistRotatedCookies(active: GoClient) {
+        val exported = runCatching { active.exportCookiesJson() }.getOrNull() ?: return
+        if (exported.isBlank() || exported == clientCookies) return
+        runCatching { sessionStore.saveCookies(exported) }
+            .onSuccess { clientCookies = exported }
     }
 
     private fun cachedMedia(directory: File, baseName: String): File? =
