@@ -1,98 +1,151 @@
 package com.goldrift.instadm.ui.chat
 
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.goldrift.instadm.data.ProtocolRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.UUID
+
+enum class InboxStatus { Loading, Ready, NoSession, Error }
 
 /**
- * In-memory source of truth for the inbox and every DM thread.
- *
- * Held above the navigation host so sent messages and the demo auto-replies
- * survive moving between the inbox and a conversation.
+ * Compose state for the inbox and open threads. Network and Go calls run in
+ * [ProtocolRepository]; this class only applies the JSON results to UI state.
  */
 @Stable
 class InboxState(
-    initialConversations: List<Conversation>,
+    private val repository: ProtocolRepository,
     private val scope: CoroutineScope,
 ) {
-    private val items = mutableStateListOf<Conversation>().apply {
-        addAll(initialConversations)
-    }
-    private val typing = mutableStateMapOf<String, Boolean>()
-    private val replyIndexes = mutableMapOf<String, Int>()
-    private val replyJobs = mutableMapOf<String, Job>()
-    private var nextMessageId = (initialConversations.flatMap { it.messages }.maxOfOrNull { it.id } ?: 0L) + 1
+    private val items = mutableStateListOf<Conversation>()
+    private val loadingThreads = mutableStateMapOf<String, Boolean>()
+
+    var status by mutableStateOf(InboxStatus.Loading)
+        private set
+    var errorMessage by mutableStateOf<String?>(null)
+        private set
 
     val conversations: List<Conversation>
         get() = items
 
-    fun conversation(contactId: String): Conversation? =
-        items.firstOrNull { it.contact.id == contactId }
+    fun conversation(threadId: String): Conversation? =
+        items.firstOrNull { it.id == threadId }
 
-    fun isTyping(contactId: String): Boolean = typing[contactId] == true
+    fun isLoading(threadId: String): Boolean = loadingThreads[threadId] == true
 
-    fun send(contactId: String, rawText: String) {
+    fun clearError() {
+        errorMessage = null
+    }
+
+    fun refresh() {
+        scope.launch {
+            status = InboxStatus.Loading
+            errorMessage = null
+            repository.reloadSession()
+
+            if (!repository.hasCookies()) {
+                items.clear()
+                status = InboxStatus.NoSession
+                return@launch
+            }
+
+            runCatching { repository.loadMailbox() }
+                .onSuccess { mailbox ->
+                    val existing = items.associateBy { it.id }
+                    val updated = mapMailbox(mailbox, existing)
+                    items.clear()
+                    items.addAll(updated)
+                    status = InboxStatus.Ready
+                }
+                .onFailure { error ->
+                    status = InboxStatus.Error
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    fun loadThread(threadId: String) {
+        val conversation = conversation(threadId) ?: return
+        if (conversation.messages.isNotEmpty() || isLoading(threadId)) return
+
+        loadingThreads[threadId] = true
+        scope.launch {
+            runCatching { repository.loadThread(threadId) }
+                .onSuccess { json ->
+                    update(threadId) { conversation ->
+                        val loaded = mapThread(json, conversation)
+                        val loadedIDs = loaded.messages.mapTo(HashSet()) { it.id }
+                        val inFlight = conversation.messages.filter { it.id !in loadedIDs }
+                        loaded.copy(messages = loaded.messages + inFlight)
+                    }
+                }
+                .onFailure { error ->
+                    errorMessage = describeError(error)
+                }
+            loadingThreads.remove(threadId)
+        }
+    }
+
+    fun send(threadId: String, rawText: String) {
         val text = rawText.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() || conversation(threadId) == null) return
 
-        val sent = ChatMessage(
-            id = nextMessageId++,
+        val localID = "local-${UUID.randomUUID()}"
+        val local = ChatMessage(
+            id = localID,
             text = text,
             sender = MessageSender.Me,
             timestamp = currentTimeLabel(),
+            pending = true,
         )
-        append(contactId, sent)
-        typing[contactId] = false
-        replyJobs.remove(contactId)?.cancel()
+        update(threadId) { it.copy(messages = it.messages + local) }
+        errorMessage = null
 
-        // Local canned reply: mark the sent message as seen, show typing, then answer.
-        replyJobs[contactId] = scope.launch {
-            delay(650)
-            updateMessage(contactId, sent.id) { it.copy(seen = true) }
-
-            delay(450)
-            typing[contactId] = true
-            delay(1_500)
-
-            val index = replyIndexes.getOrDefault(contactId, 0)
-            append(
-                contactId,
-                ChatMessage(
-                    id = nextMessageId++,
-                    text = CannedReplies[index % CannedReplies.size],
-                    sender = MessageSender.Them,
-                    timestamp = currentTimeLabel(),
-                ),
-            )
-            replyIndexes[contactId] = index + 1
-            typing[contactId] = false
+        scope.launch {
+            runCatching { repository.sendText(threadId, text) }
+                .onSuccess { result ->
+                    val serverID = result.optString("message_id")
+                        .ifBlank { result.optString("id") }
+                    val timestamp = formatMessageTime(result.optLong("timestamp_ms"))
+                    update(threadId) { conversation ->
+                        conversation.copy(
+                            messages = conversation.messages.map { message ->
+                                if (message.id == localID) {
+                                    message.copy(
+                                        id = serverID.ifBlank { localID },
+                                        timestamp = timestamp,
+                                        pending = false,
+                                    )
+                                } else {
+                                    message
+                                }
+                            },
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    update(threadId) { conversation ->
+                        conversation.copy(
+                            messages = conversation.messages.filterNot { it.id == localID },
+                        )
+                    }
+                    errorMessage = describeError(error)
+                }
         }
     }
 
-    private fun append(contactId: String, message: ChatMessage) {
-        update(contactId) { it.copy(messages = it.messages + message) }
-    }
-
-    private fun updateMessage(
-        contactId: String,
-        messageId: Long,
-        transform: (ChatMessage) -> ChatMessage,
-    ) {
-        update(contactId) { conversation ->
-            conversation.copy(
-                messages = conversation.messages.map { message ->
-                    if (message.id == messageId) transform(message) else message
-                },
-            )
+    private fun update(threadId: String, transform: (Conversation) -> Conversation) {
+        val index = items.indexOfFirst { it.id == threadId }
+        if (index >= 0) {
+            items[index] = transform(items[index])
         }
     }
 
-    private fun update(contactId: String, transform: (Conversation) -> Conversation) {
-        val index = items.indexOfFirst { it.contact.id == contactId }
-        if (index >= 0) items[index] = transform(items[index])
-    }
+    private fun describeError(error: Throwable): String =
+        error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
 }

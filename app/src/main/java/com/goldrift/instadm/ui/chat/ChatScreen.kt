@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -84,9 +85,11 @@ private val IncomingBubbleShape = RoundedCornerShape(
 @Composable
 fun ChatScreen(
     conversation: Conversation,
-    isTyping: Boolean,
     onSend: (String) -> Unit,
     onBack: () -> Unit,
+    isTyping: Boolean = false,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val messages = conversation.messages
@@ -103,7 +106,9 @@ fun ChatScreen(
 
     // Keep the newest bubble (bottom, index 0 in a reverse layout) in view.
     LaunchedEffect(messages.size, isTyping) {
-        listState.animateScrollToItem(0)
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(0)
+        }
     }
 
     Scaffold(
@@ -123,13 +128,58 @@ fun ChatScreen(
             )
         },
     ) { innerPadding ->
-        MessageList(
-            messages = messages,
-            contactInitials = conversation.contact.initials,
-            isTyping = isTyping,
-            listState = listState,
-            modifier = Modifier.padding(innerPadding),
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            if (errorMessage != null) {
+                Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                    Text(
+                        text = errorMessage,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            when {
+                isLoading && messages.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                messages.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.chat_no_messages),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                else -> {
+                    MessageList(
+                        messages = messages,
+                        contactInitials = conversation.contact.initials,
+                        isTyping = isTyping,
+                        listState = listState,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -156,9 +206,9 @@ private fun ChatTopSection(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(R.string.chat_active_now),
+                            text = stringResource(R.string.chat_direct_message),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -295,18 +345,26 @@ private fun MessageRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Rounded.DoneAll,
-                        contentDescription = stringResource(
-                            if (message.seen) R.string.chat_seen else R.string.chat_sent,
-                        ),
-                        tint = if (message.seen) {
-                            MaterialTheme.colorScheme.tertiary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(14.dp),
-                    )
+                    if (message.pending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.DoneAll,
+                            contentDescription = stringResource(
+                                if (message.seen) R.string.chat_seen else R.string.chat_sent,
+                            ),
+                            tint = if (message.seen) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
         }

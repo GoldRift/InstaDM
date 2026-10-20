@@ -25,16 +25,28 @@ on `PATH`.
 The debug APK currently includes all four gomobile ABIs and is about 129 MB.
 ABI filters can trim that once the emulator/device targets are fixed.
 
-## Runtime smoke test
+## First run
 
-With the API 37 emulator running, install the debug app and push the cookie file
-to the app's external files directory:
+The debug app reads the session from the app-specific external files directory.
+With an emulator or device connected:
 
 ```bash
 adb shell mkdir -p /sdcard/Android/data/com.goldrift.instadm/files
 adb push ~/.config/instadm/cookies.json \
   /sdcard/Android/data/com.goldrift.instadm/files/cookies.json
 
+./gradlew :app:installDebug
+adb shell am start -n com.goldrift.instadm/.MainActivity
+```
+
+The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
+20 messages; sending text appends the server message after the mutation succeeds.
+Use the refresh button after replacing the cookie file. If the file is missing, the
+app shows the exact path it expects.
+
+## Runtime smoke test
+
+```bash
 ./gradlew :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.goldrift.instadm.GoBindingSmokeTest
 ```
@@ -46,9 +58,8 @@ mailbox, and fetches the first thread.
 
 The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read, mute/pin, new DMs, reconnect backoff, and a durable send outbox. The
-AAR builds, the Kotlin wrapper compiles, and the instrumented mailbox/thread smoke
-test passes on the `Medium_Phone_API_37.0` emulator. Wiring the demo inbox and chat
-screens to the JSON client is the next step.
+Android inbox and chat now load real mailbox/thread JSON and send text through the
+AAR. Media rendering, realtime updates, and an in-app session screen are next.
 
 ## License
 

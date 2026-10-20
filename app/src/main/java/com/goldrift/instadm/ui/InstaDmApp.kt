@@ -2,33 +2,46 @@ package com.goldrift.instadm.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.SessionStore
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.InboxState
-import com.goldrift.instadm.ui.chat.sampleConversations
 import com.goldrift.instadm.ui.inbox.InboxScreen
 
 private object Routes {
     const val Inbox = "inbox"
     const val Chat = "chat"
-    const val ContactIdArg = "contactId"
-    const val ChatRoute = "$Chat/{$ContactIdArg}"
+    const val ThreadIdArg = "threadId"
+    const val ChatRoute = "$Chat/{$ThreadIdArg}"
 
-    fun chat(contactId: String): String = "$Chat/${Uri.encode(contactId)}"
+    fun chat(threadId: String): String = "$Chat/${Uri.encode(threadId)}"
 }
 
 @Composable
 fun InstaDmApp() {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val inboxState = remember(scope) { InboxState(sampleConversations(), scope) }
+    val sessionStore = remember(context) { SessionStore(context) }
+    val repository = remember(sessionStore) { ProtocolRepository(sessionStore) }
+    val inboxState = remember(repository, scope) { InboxState(repository, scope) }
     val navController = rememberNavController()
+
+    DisposableEffect(repository) {
+        onDispose { repository.close() }
+    }
+    LaunchedEffect(inboxState) {
+        inboxState.refresh()
+    }
 
     NavHost(
         navController = navController,
@@ -37,8 +50,13 @@ fun InstaDmApp() {
         composable(Routes.Inbox) {
             InboxScreen(
                 conversations = inboxState.conversations,
-                onConversationClick = { contactId ->
-                    navController.navigate(Routes.chat(contactId))
+                status = inboxState.status,
+                errorMessage = inboxState.errorMessage,
+                cookiePath = sessionStore.cookieFile.absolutePath,
+                onRefresh = { inboxState.refresh() },
+                onConversationClick = { threadId ->
+                    inboxState.clearError()
+                    navController.navigate(Routes.chat(threadId))
                 },
             )
         }
@@ -46,23 +64,30 @@ fun InstaDmApp() {
         composable(
             route = Routes.ChatRoute,
             arguments = listOf(
-                navArgument(Routes.ContactIdArg) { type = NavType.StringType },
+                navArgument(Routes.ThreadIdArg) { type = NavType.StringType },
             ),
         ) { backStackEntry ->
-            val contactId = backStackEntry.arguments
-                ?.getString(Routes.ContactIdArg)
+            val threadId = backStackEntry.arguments
+                ?.getString(Routes.ThreadIdArg)
                 .orEmpty()
-            val conversation = inboxState.conversation(contactId)
+            val conversation = inboxState.conversation(threadId)
 
             if (conversation == null) {
-                // Unknown contact (for example after process restoration); return to the inbox.
-                LaunchedEffect(contactId) { navController.popBackStack() }
+                // Unknown thread (for example after a process restart); return to the inbox.
+                LaunchedEffect(threadId) { navController.popBackStack() }
             } else {
+                LaunchedEffect(threadId) {
+                    inboxState.loadThread(threadId)
+                }
                 ChatScreen(
                     conversation = conversation,
-                    isTyping = inboxState.isTyping(contactId),
-                    onSend = { text -> inboxState.send(contactId, text) },
-                    onBack = { navController.popBackStack() },
+                    onSend = { text -> inboxState.send(threadId, text) },
+                    onBack = {
+                        inboxState.clearError()
+                        navController.popBackStack()
+                    },
+                    isLoading = inboxState.isLoading(threadId),
+                    errorMessage = inboxState.errorMessage,
                 )
             }
         }
