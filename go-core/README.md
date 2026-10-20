@@ -363,7 +363,8 @@ defer client.StopWatch()
 `ExportCookiesJSON` returns the values the upstream HTTP client updates from
 `Set-Cookie` responses and refuses incomplete sessions, so a failed request cannot
 overwrite a valid stored session. It is the only mobile method that returns cookies;
-bootstrap tokens are never exposed.
+bootstrap tokens are never exposed. `x-ig-www-claim` is not a cookie and stays in
+memory, where the next bootstrap re-derives it.
 
 A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes bytes
 rather than a path so Android can pass the result of reading a content URI; the Go side
