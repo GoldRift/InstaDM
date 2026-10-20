@@ -16,6 +16,16 @@
     <string name="chat_loading_older">Loading older messages</string>
     <string name="chat_older_error">Couldn\'t load older messages</string>
     <string name="chat_older_retry">Retry</string>
+    <string name="chat_message_actions">Message actions</string>
+    <string name="chat_action_copy">Copy</string>
+    <string name="chat_action_edit">Edit</string>
+    <string name="chat_action_unsend">Unsend</string>
+    <string name="chat_copied">Copied</string>
+    <string name="chat_cancel">Cancel</string>
+    <string name="chat_edit_title">Edit message</string>
+    <string name="chat_edit_save">Save</string>
+    <string name="chat_unsend_title">Unsend message?</string>
+    <string name="chat_unsend_body">This removes the message for everyone.</string>
     <string name="inbox_you_prefix">You: %1$s</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_refresh">Refresh</string>

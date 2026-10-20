@@ -5,6 +5,7 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -74,8 +75,10 @@ fun MediaThumbnail(
     active: Boolean,
     loadMedia: MediaLoader?,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val longClickLabel = stringResource(R.string.chat_message_actions)
     Box(
         modifier = modifier
             .widthIn(max = 260.dp)
@@ -83,7 +86,11 @@ fun MediaThumbnail(
             .aspectRatio(media.aspectRatio)
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (media.type == "gif") {
@@ -99,7 +106,11 @@ fun MediaThumbnail(
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .clickable(onClick = onClick),
+                    .combinedClickable(
+                        onLongClickLabel = longClickLabel,
+                        onLongClick = onLongClick,
+                        onClick = onClick,
+                    ),
             )
         } else {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())

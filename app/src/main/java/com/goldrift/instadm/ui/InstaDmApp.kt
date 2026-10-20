@@ -103,6 +103,15 @@ fun InstaDmApp() {
                     onMarkRead = { messageId -> inboxState.markRead(threadId, messageId) },
                     onLoadOlder = { inboxState.loadOlder(threadId) },
                     onRetryOlder = { inboxState.retryOlder(threadId) },
+                    onReact = { messageId, emoji ->
+                        inboxState.react(threadId, messageId, emoji)
+                    },
+                    onEdit = { messageId, text ->
+                        inboxState.edit(threadId, messageId, text)
+                    },
+                    onUnsend = { messageId ->
+                        inboxState.unsend(threadId, messageId)
+                    },
                 )
             }
         }
