@@ -405,6 +405,9 @@ directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
   - `send` returned a canonical message ID, OTID, and timestamp, and the DGW echo
     arrived as `message.new` with matching message ID and OTID;
   - `mark-read` returned `validated=true` for the newest message;
+  - `thread --json` returned `read_receipts` with the other participant's watermark,
+    marked the viewer's own receipt `from_viewer`, and flagged the viewer's messages up
+    to the other participant's watermark as `seen=true`;
   - `thread --after` returned the previous page's older messages, ordered
     oldest-to-newest, with the next cursor and no overlap;
   - `react` added and removed a reaction, and `watch` reported matching
