@@ -19,7 +19,9 @@ data class MessageMedia(
     val partIndex: Int = 0,
 ) {
     val isVideo: Boolean
-        get() = type == "video" || (type != "audio" && fullUrl.isVideoUrl())
+        get() = type == "video" ||
+            type == "gif" ||
+            (type != "audio" && fullUrl.isVideoUrl())
 
     /** Attachments the chat bubble can render inline. */
     val isVisual: Boolean

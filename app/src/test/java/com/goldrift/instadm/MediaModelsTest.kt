@@ -8,6 +8,19 @@ import org.junit.Test
 
 class MediaModelsTest {
     @Test
+    fun treatsGifTypeAsVideoEvenWithoutAnMp4Suffix() {
+        val media = MessageMedia(
+            type = "gif",
+            url = "https://cdn.example/animated",
+            previewUrl = "https://cdn.example/animated-preview.jpg",
+        )
+
+        assertTrue(media.isVideo)
+        assertTrue(media.isVisual)
+        assertEquals("https://cdn.example/animated-preview.jpg", media.thumbnailUrl)
+    }
+
+    @Test
     fun treatsMp4FallbackUrlAsVideo() {
         val media = MessageMedia(
             type = "media",
