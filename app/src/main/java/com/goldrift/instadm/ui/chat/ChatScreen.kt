@@ -1,18 +1,23 @@
 package com.goldrift.instadm.ui.chat
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.MediaStore
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -46,19 +51,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -74,6 +80,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,10 +108,12 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.emoji2.emojipicker.EmojiPickerView
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import java.io.File
 
 private val OutgoingBubbleShape = RoundedCornerShape(
     topStart = 24.dp,
@@ -126,6 +135,8 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onSendMedia: (Uri) -> Unit = {},
+    onRetryMedia: (String) -> Unit = {},
     isTyping: Boolean = false,
     isLoading: Boolean = false,
     errorMessage: String? = null,
@@ -145,7 +156,46 @@ fun ChatScreen(
     var editMessageId by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
+    var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var capturePath by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        TakePictureWithWritePermission(),
+    ) { success ->
+        val uri = captureUri
+        val path = capturePath
+        captureUri = null
+        capturePath = null
+        if (success && uri != null) {
+            onSendMedia(Uri.parse(uri))
+        } else if (path != null) {
+            runCatching { File(path).delete() }
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) onSendMedia(uri)
+    }
+
+    fun takePhoto() {
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        if (intent.resolveActivity(context.packageManager) == null) {
+            Toast.makeText(context, R.string.chat_camera_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val target = CameraCapture.newTarget(context)
+        captureUri = target.uri.toString()
+        capturePath = target.file.absolutePath
+        cameraLauncher.launch(target.uri)
+    }
+
+    fun pickMedia() {
+        galleryLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+        )
+    }
 
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -197,6 +247,8 @@ fun ChatScreen(
                 draft = draft,
                 onDraftChange = { draft = it },
                 onSend = ::sendMessage,
+                onCamera = ::takePhoto,
+                onPickMedia = ::pickMedia,
             )
         },
     ) { innerPadding ->
@@ -281,6 +333,7 @@ fun ChatScreen(
                             actionMessageId = null
                             unsendMessageId = messageId
                         },
+                        onRetryMedia = onRetryMedia,
                         onLoadMedia = onLoadMedia,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -402,6 +455,7 @@ private fun MessageList(
     onMoreEmojiAt: (messageId: String) -> Unit,
     onEditAt: (messageId: String) -> Unit,
     onUnsendAt: (messageId: String) -> Unit,
+    onRetryMedia: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
@@ -466,7 +520,7 @@ private fun MessageList(
                 threadId = threadId,
                 isVisible = message.id in visibleMessageIds,
                 onOpenMedia = { media -> onOpenMedia(message.id, media) },
-                onLongPress = { onLongPress(message) },
+                onLongPress = { if (message.isServerMessage()) onLongPress(message) },
                 actionsExpanded = actionMessageId == message.id,
                 onDismissActions = onDismissActions,
                 onReact = { emoji -> onReactAt(message.id, emoji) },
@@ -474,6 +528,7 @@ private fun MessageList(
                 onMoreEmoji = { onMoreEmojiAt(message.id) },
                 onEdit = { onEditAt(message.id) },
                 onUnsend = { onUnsendAt(message.id) },
+                onRetry = { onRetryMedia(message.id) },
                 onLoadMedia = onLoadMedia,
                 modifier = Modifier.animateItem(),
             )
@@ -511,6 +566,7 @@ private fun MessageRow(
     onMoreEmoji: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
+    onRetry: () -> Unit,
     onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
@@ -596,14 +652,35 @@ private fun MessageRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(4.dp))
-                    if (message.pending) {
-                        CircularProgressIndicator(
+                    when {
+                        message.failed -> Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onRetry)
+                                .padding(horizontal = 3.dp, vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = stringResource(R.string.chat_media_failed),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        message.pending -> CircularProgressIndicator(
                             modifier = Modifier.size(12.dp),
                             strokeWidth = 1.5.dp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    } else {
-                        Icon(
+
+                        else -> Icon(
                             imageVector = Icons.Rounded.DoneAll,
                             contentDescription = stringResource(
                                 if (message.seen) R.string.chat_seen else R.string.chat_sent,
@@ -632,10 +709,12 @@ private fun MessageBubbleContent(
     onLoadMedia: MediaLoader?,
 ) {
     val media = message.media.filter { it.isVisual }
+    val localMedia = message.localMedia
+    val hasVisual = media.isNotEmpty() || localMedia != null
     Column(
         modifier = Modifier.padding(
-            horizontal = if (media.isEmpty()) 14.dp else 4.dp,
-            vertical = if (media.isEmpty()) 9.dp else 4.dp,
+            horizontal = if (hasVisual) 4.dp else 14.dp,
+            vertical = if (hasVisual) 4.dp else 9.dp,
         ),
     ) {
         media.forEachIndexed { index, item ->
@@ -651,13 +730,20 @@ private fun MessageBubbleContent(
             )
         }
 
+        if (media.isEmpty() && localMedia != null) {
+            LocalMediaThumbnail(
+                media = localMedia,
+                onLongClick = onLongPress,
+            )
+        }
+
         if (message.text.isNotBlank()) {
             Text(
                 text = message.text,
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.padding(
-                    horizontal = if (media.isEmpty()) 0.dp else 10.dp,
-                    vertical = if (media.isEmpty()) 0.dp else 6.dp,
+                    horizontal = if (hasVisual) 10.dp else 0.dp,
+                    vertical = if (hasVisual) 6.dp else 0.dp,
                 ),
             )
         }
@@ -1118,9 +1204,11 @@ private fun MessageComposer(
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    onCamera: () -> Unit,
+    onPickMedia: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motion = MaterialTheme.motionScheme
+    val showActions = draft.isBlank()
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -1135,19 +1223,40 @@ private fun MessageComposer(
         ) {
             Surface(
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Row(
                     modifier = Modifier
-                        .heightIn(min = 46.dp)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .heightIn(min = 52.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (showActions) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .clickable(onClick = onCamera),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.PhotoCamera,
+                                contentDescription = stringResource(R.string.chat_attach_camera),
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    }
+
                     BasicTextField(
                         value = draft,
                         onValueChange = onDraftChange,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = if (showActions) 0.dp else 12.dp, end = 8.dp),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,
                         ),
@@ -1168,42 +1277,36 @@ private fun MessageComposer(
                             }
                         },
                     )
-                }
-            }
 
-            Spacer(Modifier.width(6.dp))
-
-            Box(
-                modifier = Modifier.size(48.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                // A Column gives AnimatedVisibility its own scope, avoiding the RowScope overload.
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    AnimatedVisibility(
-                        visible = draft.isNotBlank(),
-                        enter = scaleIn(
-                            initialScale = 0.5f,
-                            animationSpec = motion.fastSpatialSpec(),
-                        ),
-                        exit = scaleOut(
-                            targetScale = 0.5f,
-                            animationSpec = motion.fastEffectsSpec(),
-                        ),
-                    ) {
-                        FilledIconButton(
-                            onClick = onSend,
-                            modifier = Modifier.size(44.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
+                    if (showActions) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onPickMedia),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Image,
+                                contentDescription = stringResource(R.string.chat_attach_gallery),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .width(56.dp)
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                                .clickable(onClick = onSend),
+                            contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.Send,
                                 contentDescription = stringResource(R.string.chat_send),
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(20.dp),
                             )
                         }
@@ -1244,4 +1347,21 @@ private fun ChatScreenDarkPreview() {
             onBack = {},
         )
     }
+}
+
+/**
+ * `TakePicture` does not grant the camera app write access to the output URI, so
+ * the FileProvider target fails on some devices. Add both flags explicitly.
+ */
+private class TakePictureWithWritePermission : ActivityResultContract<Uri, Boolean>() {
+    override fun createIntent(context: Context, input: Uri): Intent =
+        Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            .putExtra(MediaStore.EXTRA_OUTPUT, input)
+            .addFlags(
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Boolean =
+        resultCode == Activity.RESULT_OK
 }

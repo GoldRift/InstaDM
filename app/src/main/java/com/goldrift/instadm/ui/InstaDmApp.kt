@@ -99,6 +99,8 @@ fun InstaDmApp() {
                         inboxState.clearError()
                         navController.popBackStack()
                     },
+                    onSendMedia = { uri -> inboxState.sendMedia(threadId, uri) },
+                    onRetryMedia = { messageId -> inboxState.retryMedia(threadId, messageId) },
                     isLoading = inboxState.isLoading(threadId),
                     errorMessage = inboxState.errorMessage,
                     onLoadMedia = { mediaThreadId, messageId, partIndex, mediaType ->

@@ -7,18 +7,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,6 +47,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -268,6 +275,152 @@ private fun MediaPlaceholder(isLoading: Boolean) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(28.dp),
             )
+        }
+    }
+}
+
+/**
+ * Optimistic preview for an attachment that is still uploading. Images load
+ * straight from the picked content URI; videos show a play card until the
+ * server representation replaces the bubble.
+ */
+@Composable
+fun LocalMediaThumbnail(
+    media: PendingMedia,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    when (media.kind) {
+        "image", "video" -> LocalVisualThumbnail(
+            media = media,
+            onLongClick = onLongClick,
+            modifier = modifier,
+        )
+
+        else -> LocalFileCard(
+            media = media,
+            onLongClick = onLongClick,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun LocalVisualThumbnail(
+    media: PendingMedia,
+    onLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val longClickLabel = stringResource(R.string.chat_message_actions)
+    Box(
+        modifier = modifier
+            .widthIn(max = 260.dp)
+            .heightIn(max = 320.dp)
+            .aspectRatio(media.aspectRatio)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = {},
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (media.kind == "image") {
+            SubcomposeAsyncImage(
+                model = Uri.parse(media.uri),
+                contentDescription = stringResource(R.string.chat_media_open),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = { MediaPlaceholder(isLoading = true) },
+                error = { MediaPlaceholder(isLoading = false) },
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = stringResource(R.string.chat_video_play),
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+                if (media.durationMs > 0) {
+                    Text(
+                        text = formatMediaDuration(media.durationMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(6.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalFileCard(
+    media: PendingMedia,
+    onLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val longClickLabel = stringResource(R.string.chat_message_actions)
+    Row(
+        modifier = modifier
+            .widthIn(min = 170.dp, max = 260.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = {},
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (media.kind == "audio") {
+                Icons.Rounded.MusicNote
+            } else {
+                Icons.Rounded.AttachFile
+            },
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(28.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                text = media.fileName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (media.durationMs > 0) {
+                Text(
+                    text = formatMediaDuration(media.durationMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
