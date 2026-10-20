@@ -342,6 +342,7 @@ defer client.StopWatch()
 | Method | Purpose |
 |---|---|
 | `New(cookiesJSON)` | Parse cookies and create a client |
+| `ExportCookiesJSON()` | Current cookie jar as flat JSON, for encrypted session persistence |
 | `Version()` | Pinned protocol version |
 | `MailboxJSON(timeoutSeconds)` | Inbox and viewer JSON |
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
@@ -358,6 +359,11 @@ defer client.StopWatch()
 | `StartWatch(callback)` | Start the DGW watcher; `callback.OnEvent(eventJSON)` receives normalized events |
 | `StopWatch()` | Cancel the watcher and wait briefly for the socket loop |
 | `Close()` | Stop watching and release the client |
+
+`ExportCookiesJSON` returns the values the upstream HTTP client updates from
+`Set-Cookie` responses and refuses incomplete sessions, so a failed request cannot
+overwrite a valid stored session. It is the only mobile method that returns cookies;
+bootstrap tokens are never exposed.
 
 A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes bytes
 rather than a path so Android can pass the result of reading a content URI; the Go side

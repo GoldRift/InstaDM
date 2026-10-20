@@ -28,8 +28,16 @@ ABI filters can trim that once the emulator/device targets are fixed.
 
 ## First run
 
-The debug app reads the session from the app-specific external files directory.
-With an emulator or device connected:
+On a fresh install the app opens an in-app Instagram login. The page is
+Instagram's own login UI inside a WebView, so 2FA, challenges, consent, and
+checkpoints all happen there; the app never handles the password. When the
+required cookies appear, the Go core validates them by loading the inbox, then
+the session is encrypted with a non-exportable Android Keystore key and stored
+in the app's no-backup directory.
+
+For development and the runtime smoke test, debuggable builds still accept a
+cookie file at the app-specific external path. It is only read when no encrypted
+session exists, so replacing it after login requires clearing app data first:
 
 ```bash
 adb shell mkdir -p /sdcard/Android/data/com.goldrift.instadm/files
@@ -39,6 +47,9 @@ adb push ~/.config/instadm/cookies.json \
 ./gradlew :app:installDebug
 adb shell am start -n com.goldrift.instadm/.MainActivity
 ```
+
+The debug `cookies.json` is excluded from Android backup. The encrypted session
+is kept only in `noBackupFilesDir`.
 
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
 30 messages, and scrolling to the oldest bubble pages in older messages until the
@@ -53,8 +64,10 @@ autoplay while their row is visible. Tapping an attachment opens a full-screen
 viewer; it downloads the original through the Go core into the app cache (so expired
 thumbnail URLs still work) and plays videos with the platform player, including
 looping GIFs.
-Use the refresh button after replacing the cookie file. If the file is missing, the
-app shows the exact path it expects.
+The refresh button reloads the inbox and reconnects realtime when the stored
+session changed. Instagram rotates routing cookies on responses; the Go core
+exports the updated jar after successful calls and the app re-encrypts it when
+it differs. If no usable session exists, the inbox offers a `Log in` action.
 
 The app starts a `dataSync`/`remoteMessaging` foreground service that keeps the DGW
 watch connected while the UI is in the background. The status under the app name shows
@@ -105,12 +118,36 @@ Uploads reach a live account, so verify the composer and the pickers before send
 
 The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff with a
-post-subscribe flap brake, and a durable send outbox. The Android inbox and chat load
-real mailbox/thread JSON, send text and media (camera or gallery) through the AAR with
-optimistic bubbles and retry, apply realtime events from a foreground watch service,
-mark open threads read with coalesced receipts, and render inline media with full-screen
-image and video viewers and seen ticks driven by real read receipts. Older-message paging
-in the UI and an in-app session screen are next.
+post-subscribe flap brake, a durable send outbox, and cookie-jar export for
+session persistence. The Android app adds in-app WebView login with encrypted
+session storage, loads real mailbox/thread JSON, sends text and media (camera or
+gallery) through the AAR with optimistic bubbles and retry, applies realtime
+events from a foreground watch service, marks open threads read with coalesced
+receipts, and renders inline media with full-screen image and video viewers and
+seen ticks driven by real read receipts.
+
+### Planned session lifecycle
+
+Login is the only session UI in v1. The follow-up work is:
+
+- **Logout**: an inbox overflow action clears the encrypted blob and legacy debug
+  file, clears WebView cookies and web storage, closes the Go client, stops the
+  foreground realtime service, and returns to the login screen.
+  `SessionStore.clearCookies()` and `clearWebViewSession()` are already in place.
+- **Session expiry**: recognize the Go core's invalid-viewer/auth failures, clear
+  the stored session, stop the realtime service, and route to login instead of
+  retrying the same expired cookies. Until then the inbox error state offers a
+  manual `Log in again` action.
+- **Account switching** stays out of scope: WebView cookie storage and the
+  realtime socket are single-account.
+
+Instagram can still challenge or block an embedded browser. The login uses a
+desktop Chrome user agent because Instagram's mobile Bloks login page renders
+with a zero-height root in Android WebView; at phone widths the desktop page
+shows a short "Log in" landing before the normal username/password form. The
+WebView enables third-party cookies and DOM storage and never injects scripts
+into the page. If an account is challenged in the WebView, the native
+web/password flow remains the fallback.
 
 ## License
 
