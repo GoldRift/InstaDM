@@ -1,6 +1,8 @@
 package com.goldrift.instadm.ui.chat
 
 import android.net.Uri
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -23,9 +25,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,11 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.goldrift.instadm.R
@@ -267,37 +264,33 @@ private fun ImageViewer(
     )
 }
 
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun VideoPlayer(
     file: File,
     loop: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val player = remember(file, loop) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-            repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-            prepare()
-            playWhenReady = true
-        }
+    key(file, loop) {
+        AndroidView(
+            factory = { viewContext ->
+                VideoView(viewContext).apply {
+                    setVideoURI(Uri.fromFile(file))
+                    setMediaController(
+                        MediaController(viewContext).also { controller ->
+                            controller.setAnchorView(this)
+                        },
+                    )
+                    setOnPreparedListener { mediaPlayer ->
+                        mediaPlayer.isLooping = loop
+                        start()
+                    }
+                    requestFocus()
+                }
+            },
+            modifier = modifier,
+            onRelease = { view -> view.stopPlayback() },
+        )
     }
-
-    DisposableEffect(player) {
-        onDispose { player.release() }
-    }
-
-    AndroidView(
-        factory = { viewContext ->
-            PlayerView(viewContext).apply {
-                this.player = player
-                useController = true
-                setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            }
-        },
-        modifier = modifier,
-    )
 }
 
 private sealed interface MediaLoadState {
