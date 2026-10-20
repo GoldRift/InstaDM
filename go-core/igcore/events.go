@@ -21,6 +21,15 @@ type Event struct {
 }
 
 func (c *Client) handleEvent(event slidetypes.ClientEvent) {
+	// A Disconnected with FailureCount == 0 means the stream had already
+	// subscribed before it dropped. instameow reconnects those immediately, so
+	// feed the watchdog even when no caller is listening for events.
+	if disconnected, ok := event.(*slidetypes.Disconnected); ok && disconnected.FailureCount == 0 {
+		if c.flap != nil {
+			c.flap.recordDrop()
+		}
+	}
+
 	if c.onEvent == nil {
 		return
 	}

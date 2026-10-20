@@ -34,6 +34,8 @@ type Client struct {
 	mu           sync.Mutex
 	bootstrapped bool
 	ownFBID      int64
+
+	flap *flapDetector
 }
 
 // New creates a read-only protocol client. LoadMailbox performs the inbox page
@@ -59,7 +61,12 @@ func New(cs *cookies.Cookies, options Options) (*Client, error) {
 		DisableTyping: true,
 	})
 
-	client := &Client{inner: inner, log: logger, onEvent: options.OnEvent}
+	client := &Client{
+		inner:   inner,
+		log:     logger,
+		onEvent: options.OnEvent,
+		flap:    newFlapDetector(watchFlapWindow, watchFlapThreshold),
+	}
 	inner.SetEventHandler(func(_ context.Context, event slidetypes.ClientEvent) error {
 		client.handleEvent(event)
 		return nil
@@ -261,12 +268,18 @@ const (
 // clean socket closes and re-bootstraps if Instagram requests a resnapshot.
 // Transient bootstrap failures are retried with exponential backoff; permanent
 // session failures are returned instead of retried forever.
+//
+// Instagram sometimes accepts the stream and then closes it immediately. The
+// underlying client reconnects such streams without delay, so Watch installs a
+// flap detector that cancels the inner connect after repeated short-lived
+// sessions and applies a much longer cool-down.
 func (c *Client) Watch(ctx context.Context) error {
 	if c == nil || c.inner == nil {
 		return errors.New("client is not initialized")
 	}
 
 	backoff := initialWatchBackoff
+	flapBackoff := watchFlapBackoff
 	for {
 		if _, err := c.bootstrap(ctx); err != nil {
 			if ctx.Err() != nil {
@@ -283,12 +296,32 @@ func (c *Client) Watch(ctx context.Context) error {
 		}
 
 		started := time.Now()
-		c.inner.Connect(ctx)
+		connectCtx, cancelConnect := context.WithCancel(ctx)
+		if c.flap != nil {
+			c.flap.begin(cancelConnect)
+		}
+		c.inner.Connect(connectCtx)
+		cancelConnect()
+		tripped := c.flap != nil && c.flap.finish()
 		if ctx.Err() != nil {
 			return nil
 		}
+
+		// The stream subscribed and then dropped repeatedly. Wait longer than
+		// the normal transient-failure backoff before trying again.
+		if tripped {
+			c.markUnbootstrapped()
+			if err := sleepContext(ctx, flapBackoff); err != nil {
+				return nil
+			}
+			flapBackoff = nextFlapBackoff(flapBackoff)
+			backoff = initialWatchBackoff
+			continue
+		}
+
 		if time.Since(started) >= stableWatchConnection {
 			backoff = initialWatchBackoff
+			flapBackoff = watchFlapBackoff
 		}
 
 		// Connect returns on a clean close or after a resnapshot request.
