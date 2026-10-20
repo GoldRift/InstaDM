@@ -104,12 +104,13 @@ Uploads reach a live account, so verify the composer and the pickers before send
 ## Status
 
 The Go core implements text and media send/download, reactions, edits, unsend,
-mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff, and a durable
-send outbox. The Android inbox and chat load real mailbox/thread JSON, send text and
-media (camera or gallery) through the AAR with optimistic bubbles and retry, apply
-realtime events from a foreground watch service, mark open threads read, and render
-inline media with full-screen image and video viewers and seen ticks driven by real
-read receipts. Older-message paging in the UI and an in-app session screen are next.
+mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff with a
+post-subscribe flap brake, and a durable send outbox. The Android inbox and chat load
+real mailbox/thread JSON, send text and media (camera or gallery) through the AAR with
+optimistic bubbles and retry, apply realtime events from a foreground watch service,
+mark open threads read with coalesced receipts, and render inline media with full-screen
+image and video viewers and seen ticks driven by real read receipts. Older-message paging
+in the UI and an in-app session screen are next.
 
 ## License
 

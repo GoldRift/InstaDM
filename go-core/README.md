@@ -271,15 +271,18 @@ Download URLs expire, so re-run the command instead of storing a URL long-term.
 Downloads are capped at 25 MiB and written with mode `0600`. It supports
 images, video, audio, GIFs, stickers, and multi-media messages. The source bytes may be
 recompressed by the CDN, so compare decoded pixels rather than file hashes. Both listing
-and downloading search the newest 100 messages; older media messages need a paginated
-lookup in a later pass.
+and downloading search the newest 100 messages unless a recently loaded thread page
+already contains the message; older media messages need a paginated lookup in a later
+pass. A CDN 403 causes one cache-bypassing thread refresh and retry.
 
 `mark-read` resolves the short thread ID to the long thread ID required by read
 receipts, selects the newest message (or `--message-id`), sends the initial read
 mutation, then sends the validation mutation with the message timestamp. It prints the
 short and long thread IDs, message ID, timestamp, and whether Instagram validated the
 read. The CLI is stateless, so it does not persist a local read watermark; the Android
-app will do that. A specific `--message-id` must be within the newest 100 messages.
+app does. A recently loaded thread page is reused for the long ID and target metadata,
+so the Android caller can mark a message read without a second thread query. A specific
+`--message-id` must be within the newest 100 messages when no cached page has it.
 
 `edit` replaces the text of one of your own messages. Instagram enforces a 15-minute
 edit window and a maximum of five edits per message; violations fail at the server. The
@@ -350,7 +353,7 @@ defer client.StopWatch()
 | `PinJSON(threadID, pin, timeoutSeconds)` | Pin/unpin result JSON |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
-| `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
+| `MarkReadJSON(threadID, messageID, longThreadID, timestampMS, timeoutSeconds)` | Read-receipt result JSON; the long ID and timestamp from a loaded thread avoid a re-query |
 | `DownloadMediaJSON(threadID, messageID, part, destPath, timeoutSeconds)` | Download one attachment to `destPath` |
 | `StartWatch(callback)` | Start the DGW watcher; `callback.OnEvent(eventJSON)` receives normalized events |
 | `StopWatch()` | Cancel the watcher and wait briefly for the socket loop |
