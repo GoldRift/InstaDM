@@ -87,6 +87,45 @@ class RealtimeEventTest {
     }
 
     @Test
+    fun parsesReadReceipt() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "read.receipt",
+              "thread_id": "thread-1",
+              "timestamp_ms": 1700000002000,
+              "participant_fbid": 222,
+              "from_viewer": false
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        assertEquals("read.receipt", event!!.type)
+        assertEquals(1_700_000_002_000L, event.timestampMs)
+        assertEquals(222L, event.participantFbid)
+        assertFalse(event.fromViewer)
+    }
+
+    @Test
+    fun parsesViewerReadReceipt() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "read.receipt",
+              "thread_id": "thread-1",
+              "timestamp_ms": 1700000002000,
+              "participant_fbid": 111,
+              "from_viewer": true
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        assertTrue(event!!.fromViewer)
+    }
+
+    @Test
     fun parsesDisconnectedEventWithoutMessage() {
         val event = RealtimeEvent.fromJson("""{"type":"disconnected","error":"socket closed"}""")
 

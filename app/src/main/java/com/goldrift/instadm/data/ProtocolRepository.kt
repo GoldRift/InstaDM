@@ -41,6 +41,11 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.sendText(threadId, text)
     }
 
+    /** Marks the thread read up to [messageId], or to the newest message when blank. */
+    suspend fun markRead(threadId: String, messageId: String = ""): JSONObject = withClient {
+        it.markRead(threadId, messageId)
+    }
+
     /**
      * Downloads one attachment into the app cache and returns the local file.
      * The Go downloader re-queries the thread, so it uses a fresh signed URL

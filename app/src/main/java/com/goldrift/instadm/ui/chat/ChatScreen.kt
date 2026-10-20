@@ -95,6 +95,7 @@ fun ChatScreen(
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onLoadMedia: MediaLoader? = null,
+    onMarkRead: (String) -> Unit = {},
 ) {
     val messages = conversation.messages
     var draft by remember { mutableStateOf("") }
@@ -113,6 +114,15 @@ fun ChatScreen(
     LaunchedEffect(messages.size, isTyping) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(0)
+        }
+    }
+
+    // Mark the thread read whenever the newest server message changes while the
+    // chat is composed. InboxState deduplicates targets and ignores backgrounding.
+    val readTarget = messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
+    LaunchedEffect(readTarget) {
+        if (readTarget.isNotBlank()) {
+            onMarkRead(readTarget)
         }
     }
 

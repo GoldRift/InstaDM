@@ -24,6 +24,8 @@ data class Conversation(
     val preview: String = "",
     val isGroup: Boolean = false,
     val messagesLoaded: Boolean = false,
+    val threadFbid: String = "",
+    val systemFolder: String = "",
 )
 
 data class ChatMessage(

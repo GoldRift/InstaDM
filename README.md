@@ -42,10 +42,13 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
 20 messages; sending text appends the server message after the mutation succeeds.
-Image, GIF, sticker, and video attachments render inline, and GIFs autoplay while
-their row is visible. Tapping an attachment opens a full-screen viewer; it downloads
-the original through the Go core into the app cache (so expired thumbnail URLs still
-work) and plays videos with the platform player, including looping GIFs.
+Opening a chat also marks it read, and own messages show a seen tick once another
+participant's read receipt reaches them. Realtime read receipts update the open chat
+immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
+autoplay while their row is visible. Tapping an attachment opens a full-screen
+viewer; it downloads the original through the Go core into the app cache (so expired
+thumbnail URLs still work) and plays videos with the platform player, including
+looping GIFs.
 Use the refresh button after replacing the cookie file. If the file is missing, the
 app shows the exact path it expects.
 
@@ -83,11 +86,12 @@ adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.Androi
 ## Status
 
 The Go core implements text and media send/download, reactions, edits, unsend,
-mark-read, mute/pin, new DMs, reconnect backoff, and a durable send outbox. The
-Android inbox and chat load real mailbox/thread JSON, send text through the AAR,
-apply realtime events from a foreground watch service, and render inline media with
-full-screen image and video viewers. Older-message paging in the UI and an in-app
-session screen are next.
+mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff, and a durable
+send outbox. The Android inbox and chat load real mailbox/thread JSON, send text
+through the AAR, apply realtime events from a foreground watch service, mark open
+threads read, and render inline media with full-screen image and video viewers and
+seen ticks driven by real read receipts. Older-message paging in the UI and an
+in-app session screen are next.
 
 ## License
 

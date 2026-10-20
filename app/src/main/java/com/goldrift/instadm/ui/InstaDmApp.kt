@@ -100,6 +100,7 @@ fun InstaDmApp() {
                     onLoadMedia = { mediaThreadId, messageId, partIndex, mediaType ->
                         inboxState.downloadMedia(mediaThreadId, messageId, partIndex, mediaType)
                     },
+                    onMarkRead = { messageId -> inboxState.markRead(threadId, messageId) },
                 )
             }
         }

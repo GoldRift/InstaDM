@@ -34,17 +34,31 @@ fun mapMailbox(
             lastActivityMs = thread.optLong("last_activity_ms"),
             preview = previous?.preview.orEmpty(),
             isGroup = thread.optBoolean("is_group"),
-            messagesLoaded = previous?.messagesLoaded ?: false,
+            // Reload the thread when it is reopened after a mailbox refresh so
+            // read receipts and newer messages are not left stale.
+            messagesLoaded = false,
+            threadFbid = thread.optString("thread_fbid").ifBlank {
+                previous?.threadFbid.orEmpty()
+            },
+            systemFolder = thread.optString("system_folder").ifBlank {
+                previous?.systemFolder.orEmpty()
+            },
         )
     }
     return result.sortedByDescending { it.lastActivityMs }
 }
 
-fun mapThread(json: JSONObject, conversation: Conversation): Conversation =
-    conversation.copy(
+fun mapThread(json: JSONObject, conversation: Conversation): Conversation {
+    val thread = json.optJSONObject("thread")
+    return conversation.copy(
+        threadFbid = thread?.optString("thread_fbid").orEmpty()
+            .ifBlank { conversation.threadFbid },
+        systemFolder = thread?.optString("system_folder").orEmpty()
+            .ifBlank { conversation.systemFolder },
         messages = mapMessages(json.optJSONArray("messages")),
         messagesLoaded = true,
     )
+}
 
 private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
     if (messages == null) return emptyList()
@@ -66,6 +80,7 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
             },
             timestamp = formatMessageTime(timestampMs),
             timestampMs = timestampMs,
+            seen = message.optBoolean("seen"),
             media = media,
         )
     }

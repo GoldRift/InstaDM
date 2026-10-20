@@ -10,6 +10,7 @@ import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.messagePlaceholder
+import com.goldrift.instadm.service.AppVisibility
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -17,6 +18,9 @@ import java.io.File
 import java.util.UUID
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
+
+/** Message requests must be accepted before they are marked read. */
+private val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
 
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
@@ -30,6 +34,7 @@ class InboxState(
 ) {
     private val items = mutableStateListOf<Conversation>()
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
+    private val markedRead = mutableMapOf<String, String>()
     private var refreshInFlight = false
 
     var status by mutableStateOf(InboxStatus.Loading)
@@ -109,6 +114,7 @@ class InboxState(
                         }
                         loaded.copy(messages = loaded.messages + inFlight)
                     }
+                    markRead(threadId)
                 }
                 .onFailure { error ->
                     errorMessage = describeError(error)
@@ -171,6 +177,32 @@ class InboxState(
         }
     }
 
+    /**
+     * Marks the thread read up to [messageId], or the newest server message when
+     * blank. Each target is sent once; failures clear the marker so the next
+     * view or incoming message can retry. Only runs while the app is visible.
+     */
+    fun markRead(threadId: String, messageId: String = "") {
+        if (!AppVisibility.isForeground) return
+        val conversation = conversation(threadId) ?: return
+        if (conversation.systemFolder in READ_REQUEST_FOLDERS) return
+
+        val target = messageId.trim().ifBlank {
+            conversation.messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
+        }
+        if (target.isBlank() || markedRead[threadId] == target) return
+
+        markedRead[threadId] = target
+        scope.launch {
+            runCatching { repository.markRead(threadId, target) }
+                .onFailure {
+                    if (markedRead[threadId] == target) {
+                        markedRead.remove(threadId)
+                    }
+                }
+        }
+    }
+
     private fun applyRealtimeEvent(event: RealtimeEvent) {
         when (event.type) {
             "message.new", "message.admin" -> applyNewMessage(event)
@@ -184,7 +216,7 @@ class InboxState(
         val message = event.message ?: return
         if (event.threadId.isBlank() || message.id.isBlank()) return
 
-        val index = items.indexOfFirst { it.id == event.threadId }
+        val index = indexOfThread(event.threadId)
         if (index < 0) {
             refresh()
             return
@@ -236,7 +268,7 @@ class InboxState(
         val message = event.message ?: return
         if (event.threadId.isBlank() || message.id.isBlank()) return
 
-        val index = items.indexOfFirst { it.id == event.threadId }
+        val index = indexOfThread(event.threadId)
         if (index < 0) return
         val conversation = items[index]
         val messageIndex = conversation.messages.indexOfFirst { it.id == message.id }
@@ -256,7 +288,7 @@ class InboxState(
         val message = event.message ?: return
         if (event.threadId.isBlank() || message.id.isBlank()) return
 
-        val index = items.indexOfFirst { it.id == event.threadId }
+        val index = indexOfThread(event.threadId)
         if (index < 0) return
         val conversation = items[index]
         if (conversation.messages.none { it.id == message.id }) return
@@ -272,24 +304,17 @@ class InboxState(
         val watermark = event.timestampMs
         if (watermark <= 0 || event.threadId.isBlank()) return
 
-        val index = items.indexOfFirst { it.id == event.threadId }
+        val index = indexOfThread(event.threadId)
         if (index < 0) return
         val conversation = items[index]
-        if (conversation.messages.none {
-                it.sender == MessageSender.Me && it.timestampMs in 1..watermark && !it.seen
-            }
-        ) {
-            return
+        val messages = applyReadReceiptToMessages(
+            conversation.messages,
+            watermark,
+            event.fromViewer,
+        )
+        if (messages !== conversation.messages) {
+            items[index] = conversation.copy(messages = messages)
         }
-
-        val messages = conversation.messages.map { message ->
-            if (message.sender == MessageSender.Me && message.timestampMs in 1..watermark) {
-                message.copy(seen = true)
-            } else {
-                message
-            }
-        }
-        items[index] = conversation.copy(messages = messages)
     }
 
     /** Downloads an attachment through the Go client into the app cache. */
@@ -311,6 +336,14 @@ class InboxState(
         if (sorted == items) return
         items.clear()
         items.addAll(sorted)
+    }
+
+    private fun indexOfThread(threadId: String): Int {
+        if (threadId.isBlank()) return -1
+        return items.indexOfFirst { conversation ->
+            conversation.id == threadId ||
+                (conversation.threadFbid.isNotBlank() && conversation.threadFbid == threadId)
+        }
     }
 
     private fun update(threadId: String, transform: (Conversation) -> Conversation) {

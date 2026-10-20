@@ -11,6 +11,8 @@ data class RealtimeEvent(
     val error: String = "",
     val seqId: Long = 0,
     val rawType: String = "",
+    val participantFbid: Long = 0,
+    val fromViewer: Boolean = false,
 ) {
     companion object {
         fun fromJson(raw: String): RealtimeEvent? = runCatching {
@@ -38,6 +40,8 @@ data class RealtimeEvent(
                 error = json.optString("error"),
                 seqId = json.optLong("seq_id"),
                 rawType = json.optString("raw_type"),
+                participantFbid = json.optLong("participant_fbid"),
+                fromViewer = json.optBoolean("from_viewer"),
             )
         }.getOrNull()
     }
