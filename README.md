@@ -7,9 +7,9 @@ An Android Instagram DM client built around a Go protocol core.
   download, mute/pin, new DMs, a durable outbox, and DGW realtime watch. See
   [`go-core/README.md`](go-core/README.md).
 - [`app/`](app/) — Android Jetpack Compose app. It embeds the Go core through the
-  generated `igcore.aar`, loads the real inbox and threads, sends text, renders
-  inline image/video attachments, and keeps a realtime watch alive in a foreground
-  service.
+  generated `igcore.aar`, loads the real inbox and threads, sends text and media
+  from the camera or gallery, renders inline image/video attachments, and keeps a
+  realtime watch alive in a foreground service.
 
 ## Build
 
@@ -43,6 +43,9 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
 30 messages, and scrolling to the oldest bubble pages in older messages until the
 thread begins. Sending text appends the server message after the mutation succeeds.
+Attachments can be captured with the camera button or picked from the system photo
+picker; the composer shows a local preview immediately and clears the pending tick
+once the upload finishes. A failed upload keeps the bubble so it can be retried.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
 immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
@@ -84,15 +87,29 @@ adb push ~/.config/instadm/cookies.json \
 adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
+## Media send checks
+
+Uploads reach a live account, so verify the composer and the pickers before sending:
+
+- The empty composer shows the camera circle, `Message…`, and the gallery icon.
+  Typing replaces the left and right actions with the primary send button.
+- The camera writes into `cacheDir/outgoing` through the app `FileProvider`; the
+  gallery opens the system photo picker.
+- Images are capped at 8 MB and other attachments at 25 MB, mirroring
+  `go-core/igcore/media.go`. A larger file is rejected before uploading.
+- HEIC images and other unsupported MIME types are rejected with a readable error.
+- In airplane mode, a picked photo keeps a failed bubble; reconnecting and tapping
+  the retry label uploads it.
+
 ## Status
 
 The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff, and a durable
-send outbox. The Android inbox and chat load real mailbox/thread JSON, send text
-through the AAR, apply realtime events from a foreground watch service, mark open
-threads read, and render inline media with full-screen image and video viewers and
-seen ticks driven by real read receipts. Older-message paging in the UI and an
-in-app session screen are next.
+send outbox. The Android inbox and chat load real mailbox/thread JSON, send text and
+media (camera or gallery) through the AAR with optimistic bubbles and retry, apply
+realtime events from a foreground watch service, mark open threads read, and render
+inline media with full-screen image and video viewers and seen ticks driven by real
+read receipts. Older-message paging in the UI and an in-app session screen are next.
 
 ## License
 
