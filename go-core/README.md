@@ -239,6 +239,40 @@ reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). 
 text is included in both forms, so treat watch output as sensitive. `seq_id` events are
 included in JSON but omitted from the human output to avoid noise.
 
+## Mobile wrapper
+
+`mobile/` is a JSON-only wrapper designed for `gomobile bind`. It keeps the Android
+boundary small: every method returns normalized JSON and an error, and no Go types cross
+the boundary except strings, bytes, and primitives.
+
+```go
+client, err := mobile.New(cookieJSON)
+defer client.Close()
+
+mailboxJSON, err := client.MailboxJSON(90)
+threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
+```
+
+| Method | Purpose |
+|---|---|
+| `New(cookiesJSON)` | Parse cookies and create a client |
+| `Version()` | Pinned protocol version |
+| `MailboxJSON(timeoutSeconds)` | Inbox and viewer JSON |
+| `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
+| `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
+| `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
+| `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
+| `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
+| `DownloadMediaJSON(threadID, messageID, part, destPath, timeoutSeconds)` | Download one attachment to `destPath` |
+| `Close()` | Release the client |
+
+A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes bytes
+rather than a path so Android can pass the result of reading a content URI; the Go side
+still enforces type and size limits. `DownloadMediaJSON` writes to a normal filesystem
+path, so Kotlin should pass a path under the app cache directory. Errors are returned to
+Kotlin as exceptions. The AAR build requires `gomobile` and an Android NDK; the wrapper
+itself is covered by host tests.
+
 ## Validation status
 
 - Build, cookie parsing, table rendering, thread normalization, error paths, and the
@@ -263,7 +297,9 @@ included in JSON but omitted from the human output to avoid noise.
     64×64 dimensions;
   - `media` listed and downloaded all three: the PNG decoded to identical pixels, the
     JPEG was 64×64 sRGB, and the MP4 was H.264 at 64×64 for 1 second. The CDN
-    recompressed the image bytes, so file hashes are not stable.
+    recompressed the image bytes, so file hashes are not stable;
+  - the `mobile` wrapper's real-account `MailboxJSON` and `ThreadJSON` calls returned
+    valid JSON with the pinned protocol version.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,

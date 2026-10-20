@@ -72,6 +72,46 @@ func TestNewMediaSendResult(t *testing.T) {
 	}
 }
 
+func TestNewMediaData(t *testing.T) {
+	data := encodeTestPNG(t)
+	file, err := newMediaData("photo.bin", "", data)
+	if err != nil {
+		t.Fatalf("newMediaData: %v", err)
+	}
+	if file.Filename != "photo.bin" || file.MimeType != "image/png" {
+		t.Errorf("file = %+v", file)
+	}
+	if file.SizeBytes != int64(len(data)) || len(file.Data) != len(data) {
+		t.Errorf("size/data = %d/%d, want %d", file.SizeBytes, len(file.Data), len(data))
+	}
+
+	unnamed, err := newMediaData("", "", data)
+	if err != nil {
+		t.Fatalf("newMediaData unnamed: %v", err)
+	}
+	if unnamed.Filename != "upload.png" {
+		t.Errorf("unnamed filename = %q, want upload.png", unnamed.Filename)
+	}
+}
+
+func TestSendMediaBytesValidation(t *testing.T) {
+	client := &Client{inner: &instameow.Client{}}
+	pngData := encodeTestPNG(t)
+
+	if _, err := client.SendMediaBytes(context.Background(), "", "photo.png", "image/png", pngData, "", ""); err == nil || !strings.Contains(err.Error(), "thread ID is required") {
+		t.Errorf("empty thread error = %v", err)
+	}
+	if _, err := client.SendMediaBytes(context.Background(), "not-a-number", "photo.png", "image/png", pngData, "", ""); err == nil || !strings.Contains(err.Error(), "numeric") {
+		t.Errorf("non-numeric thread error = %v", err)
+	}
+	if _, err := client.SendMediaBytes(context.Background(), "123", "photo.png", "image/png", nil, "", ""); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Errorf("empty data error = %v", err)
+	}
+	if _, err := client.SendMediaBytes(context.Background(), "123", "page.html", "text/html", []byte("<!doctype html>"), "", ""); err == nil || !strings.Contains(err.Error(), "unsupported media type") {
+		t.Errorf("unsupported type error = %v", err)
+	}
+}
+
 func TestReadMediaFile(t *testing.T) {
 	path := writeTestPNG(t)
 

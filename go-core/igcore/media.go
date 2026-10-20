@@ -48,23 +48,47 @@ type mediaFile struct {
 // SendMedia uploads a local file through the web upload endpoint and sends the
 // resulting attachment to an existing thread. threadID is the short IG chat ID.
 func (c *Client) SendMedia(ctx context.Context, threadID, filePath, replyTo, otid string) (*MediaSendResult, error) {
-	if c == nil || c.inner == nil {
-		return nil, errors.New("client is not initialized")
-	}
-
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return nil, errors.New("thread ID is required")
-	}
-	threadIDInt, err := strconv.ParseInt(threadID, 10, 64)
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
 	if err != nil {
-		return nil, errors.New("thread ID must be numeric for media upload")
+		return nil, err
 	}
-
 	file, err := readMediaFile(filePath)
 	if err != nil {
 		return nil, err
 	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
+// SendMediaBytes is the in-memory variant of SendMedia for mobile callers that
+// already have the file contents. Empty mimeType is detected from the data.
+func (c *Client) SendMediaBytes(ctx context.Context, threadID, filename, mimeType string, data []byte, replyTo, otid string) (*MediaSendResult, error) {
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := newMediaData(filename, mimeType, data)
+	if err != nil {
+		return nil, err
+	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
+func parseMediaThreadID(c *Client, threadID string) (string, int64, error) {
+	if c == nil || c.inner == nil {
+		return "", 0, errors.New("client is not initialized")
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", 0, errors.New("thread ID is required")
+	}
+	threadIDInt, err := strconv.ParseInt(threadID, 10, 64)
+	if err != nil {
+		return "", 0, errors.New("thread ID must be numeric for media upload")
+	}
+	return threadID, threadIDInt, nil
+}
+
+func (c *Client) sendMediaFile(ctx context.Context, threadID string, threadIDInt int64, file *mediaFile, replyTo, otid string) (*MediaSendResult, error) {
 	if otid == "" {
 		otid = strconv.FormatInt(methods.GenerateEpochID(), 10)
 	}
@@ -147,14 +171,40 @@ func readMediaFile(path string) (*mediaFile, error) {
 	if info.Size() == 0 {
 		return nil, errors.New("media file is empty")
 	}
-
-	detected, err := mimetype.DetectFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("detect media type: %w", err)
+	if info.Size() > MaxMediaBytes {
+		return nil, fmt.Errorf("media file is %d bytes; the maximum is %d bytes", info.Size(), MaxMediaBytes)
 	}
-	mimeType := detected.String()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read media file: %w", err)
+	}
+
+	file, err := newMediaData(filepath.Base(path), "", data)
+	if err != nil {
+		return nil, err
+	}
+	file.Path = path
+	return file, nil
+}
+
+func newMediaData(filename, mimeType string, data []byte) (*mediaFile, error) {
+	if len(data) == 0 {
+		return nil, errors.New("media file is empty")
+	}
+
+	filename = filepath.Base(strings.TrimSpace(filename))
+	if filename == "" || filename == "." || filename == string(filepath.Separator) {
+		filename = "upload"
+	}
+
+	detected := mimetype.Detect(data)
+	mimeType = strings.TrimSpace(mimeType)
 	if mimeType == "" || mimeType == "application/octet-stream" {
-		if byExtension := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); byExtension != "" {
+		mimeType = detected.String()
+	}
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		if byExtension := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))); byExtension != "" {
 			mimeType = byExtension
 		}
 	}
@@ -166,22 +216,15 @@ func readMediaFile(path string) (*mediaFile, error) {
 	}
 
 	limit := maxMediaBytes(mimeType)
-	if info.Size() > limit {
-		return nil, fmt.Errorf("media file is %d bytes; the limit for %s is %d bytes", info.Size(), mimeType, limit)
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("media file is %d bytes; the limit for %s is %d bytes", len(data), mimeType, limit)
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read media file: %w", err)
-	}
-
-	filename := filepath.Base(path)
-	if filename == "" || filename == "." || filename == string(filepath.Separator) {
-		filename = "upload" + detected.Extension()
+	if filename == "upload" && detected.Extension() != "" {
+		filename += detected.Extension()
 	}
 
 	return &mediaFile{
-		Path:      path,
 		Filename:  filename,
 		MimeType:  mimeType,
 		SizeBytes: int64(len(data)),
