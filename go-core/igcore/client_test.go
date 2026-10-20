@@ -2,6 +2,9 @@ package igcore
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,6 +12,7 @@ import (
 
 	"go.mau.fi/mautrix-meta/pkg/instameow"
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
+	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
 	"go.mau.fi/util/jsontime"
 )
 
@@ -96,6 +100,66 @@ func TestLoadOlderMessagesValidation(t *testing.T) {
 	}
 	if _, err := client.LoadOlderMessages(context.Background(), "thread-id", "", 20); err == nil || !strings.Contains(err.Error(), "after cursor is required") {
 		t.Errorf("empty cursor error = %v", err)
+	}
+}
+
+func TestNextWatchBackoff(t *testing.T) {
+	for _, test := range []struct {
+		current time.Duration
+		want    time.Duration
+	}{
+		{current: 0, want: initialWatchBackoff},
+		{current: time.Second, want: 2 * time.Second},
+		{current: 8 * time.Second, want: 16 * time.Second},
+		{current: 16 * time.Second, want: maxWatchBackoff},
+		{current: maxWatchBackoff, want: maxWatchBackoff},
+		{current: 45 * time.Second, want: maxWatchBackoff},
+	} {
+		if got := nextWatchBackoff(test.current); got != test.want {
+			t.Errorf("nextWatchBackoff(%s) = %s, want %s", test.current, got, test.want)
+		}
+	}
+}
+
+func TestShouldRetryWatch(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "eof", err: io.EOF, want: true},
+		{name: "network", err: errors.New("network down"), want: true},
+		{name: "canceled", err: context.Canceled, want: false},
+		{name: "deadline", err: context.DeadlineExceeded, want: false},
+		{name: "token invalid", err: httpclient.ErrTokenInvalidated, want: false},
+		{name: "challenge", err: httpclient.ErrChallengeRequired, want: false},
+		{name: "rate limited", err: httpclient.ErrRateLimited, want: false},
+		{name: "wrapped challenge", err: fmt.Errorf("wrapped: %w", httpclient.ErrChallengeRequired), want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldRetryWatch(test.err); got != test.want {
+				t.Errorf("shouldRetryWatch(%v) = %v, want %v", test.err, got, test.want)
+			}
+		})
+	}
+}
+
+func TestSleepContext(t *testing.T) {
+	if err := sleepContext(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("sleepContext = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleepContext(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled sleep = %v, want context.Canceled", err)
+	}
+}
+
+func TestWatchValidation(t *testing.T) {
+	var client *Client
+	if err := client.Watch(context.Background()); err == nil || !strings.Contains(err.Error(), "client is not initialized") {
+		t.Errorf("error = %v", err)
 	}
 }
 

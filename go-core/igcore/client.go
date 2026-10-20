@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/mautrix-meta/pkg/instameow"
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
 	"go.mau.fi/mautrix-meta/pkg/messagix/cookies"
+	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
 	"go.mau.fi/mautrix-meta/pkg/messagix/methods"
 	"go.mau.fi/mautrix-meta/pkg/messagix/types"
 )
@@ -250,34 +251,85 @@ func (c *Client) Bootstrap(ctx context.Context) error {
 	return err
 }
 
+const (
+	initialWatchBackoff   = 1 * time.Second
+	maxWatchBackoff       = 30 * time.Second
+	stableWatchConnection = 30 * time.Second
+)
+
 // Watch connects to DGW and blocks until ctx is canceled. It reconnects after
 // clean socket closes and re-bootstraps if Instagram requests a resnapshot.
-// Events are delivered through Options.OnEvent.
+// Transient bootstrap failures are retried with exponential backoff; permanent
+// session failures are returned instead of retried forever.
 func (c *Client) Watch(ctx context.Context) error {
 	if c == nil || c.inner == nil {
 		return errors.New("client is not initialized")
 	}
-	if _, err := c.bootstrap(ctx); err != nil {
-		return err
-	}
 
+	backoff := initialWatchBackoff
 	for {
+		if _, err := c.bootstrap(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if !shouldRetryWatch(err) {
+				return err
+			}
+			if err := sleepContext(ctx, backoff); err != nil {
+				return nil
+			}
+			backoff = nextWatchBackoff(backoff)
+			continue
+		}
+
+		started := time.Now()
 		c.inner.Connect(ctx)
 		if ctx.Err() != nil {
 			return nil
+		}
+		if time.Since(started) >= stableWatchConnection {
+			backoff = initialWatchBackoff
 		}
 
 		// Connect returns on a clean close or after a resnapshot request.
 		// Refresh the bootstrap and sequence cursor before reconnecting.
 		c.markUnbootstrapped()
-		select {
-		case <-ctx.Done():
+		if err := sleepContext(ctx, backoff); err != nil {
 			return nil
-		case <-time.After(2 * time.Second):
 		}
-		if _, err := c.bootstrap(ctx); err != nil {
-			return err
-		}
+		backoff = nextWatchBackoff(backoff)
+	}
+}
+
+func nextWatchBackoff(current time.Duration) time.Duration {
+	if current <= 0 {
+		return initialWatchBackoff
+	}
+	next := current * 2
+	if next > maxWatchBackoff {
+		return maxWatchBackoff
+	}
+	return next
+}
+
+func shouldRetryWatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return !httpclient.IsPermanentRequestError(err)
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

@@ -277,7 +277,10 @@ the emoji; the CLI always sends the emoji you provide.
 The `watch` human output prints connection state, new messages, edits, deletes,
 reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). Message
 text is included in both forms, so treat watch output as sensitive. `seq_id` events are
-included in JSON but omitted from the human output to avoid noise.
+included in JSON but omitted from the human output to avoid noise. The reconnect loop
+uses exponential backoff from 1 second to 30 seconds, resets after a stable 30-second
+connection, and retries transient bootstrap failures. Expired-session, challenge,
+checkpoint, and rate-limit errors are returned instead of retried forever.
 
 ## Mobile wrapper
 
@@ -317,8 +320,9 @@ itself is covered by host tests.
 
 ## Validation status
 
-- Build, cookie parsing, table rendering, thread normalization, error paths, and the
-  one-shot refresh after a 403 media response are covered by local tests.
+- Build, cookie parsing, table rendering, thread normalization, error paths, watch
+  backoff and permanent-error classification, and the one-shot refresh after a 403
+  media response are covered by local tests.
 - Real-account acceptance passed:
   - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
     a DM thread;
