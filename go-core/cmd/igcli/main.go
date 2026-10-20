@@ -29,6 +29,7 @@ Usage:
   igcli thread <thread-id> --cookies <path> [flags]
   igcli send <thread-id> "<text>" --cookies <path> [flags]
   igcli send-media <thread-id> <file> --cookies <path> [flags]
+  igcli edit <thread-id> <message-id> "<text>" --cookies <path> [flags]
   igcli mark-read <thread-id> --cookies <path> [flags]
   igcli react <thread-id> <message-id> <emoji> --cookies <path> [flags]
   igcli media <thread-id> <message-id> --cookies <path> [flags]
@@ -40,6 +41,7 @@ Commands:
   thread     Fetch a thread and print its most recent messages
   send       Send a text message to an existing thread
   send-media Upload and send a file to an existing thread
+  edit       Edit one of your own text messages
   mark-read  Mark a thread read up to the newest or a specific message
   react      Add or remove a reaction on a message
   media      List or download media attachments from a message
@@ -65,6 +67,9 @@ Send-media flags:
   --reply-to <message-id> Reply to a message ID
   --otid <otid>           Reuse a specific offline threading ID
 
+Edit flags:
+  --otid <otid>           Reuse a specific offline threading ID
+
 Mark-read flags:
   --message-id <id>       Mark read up to this message (default: newest message)
 
@@ -85,8 +90,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, mark-read, react, and media, put all flags before or after
-the positional arguments; do not split them across both positions.
+For thread, send, send-media, edit, mark-read, react, and media, put all flags before or
+after the positional arguments; do not split them across both positions.
 `
 
 func main() {
@@ -111,6 +116,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runSend(args[1:], stdout, stderr)
 	case "send-media":
 		return runSendMedia(args[1:], stdout, stderr)
+	case "edit":
+		return runEdit(args[1:], stdout, stderr)
 	case "mark-read":
 		return runMarkRead(args[1:], stdout, stderr)
 	case "react":
@@ -409,6 +416,82 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 		return encodeJSON(stdout, result)
 	}
 	printMediaSendResult(stdout, result)
+	return nil
+}
+
+func runEdit(args []string, stdout, stderr io.Writer) error {
+	// Accept "edit <thread> <message> <text> --flags" by moving the three
+	// leading positionals after the flags.
+	if len(args) > 3 &&
+		!strings.HasPrefix(args[0], "-") &&
+		!strings.HasPrefix(args[1], "-") &&
+		!strings.HasPrefix(args[2], "-") {
+		args = append(append([]string{}, args[3:]...), args[0], args[1], args[2])
+	}
+
+	flags := flag.NewFlagSet("edit", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	otid := flags.String("otid", "", "reuse a specific offline threading ID")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 3 {
+		return errors.New(`usage: igcli edit <thread-id> <message-id> "<text>" --cookies <path>`)
+	}
+
+	threadID := strings.TrimSpace(flags.Arg(0))
+	messageID := strings.TrimSpace(flags.Arg(1))
+	text := flags.Arg(2)
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+	if messageID == "" {
+		return errors.New("message ID is empty")
+	}
+	if strings.TrimSpace(text) == "" {
+		return errors.New("text is required")
+	}
+	if length := len([]rune(text)); length > igcore.MaxTextLength {
+		return fmt.Errorf("text is %d characters; the maximum is %d", length, igcore.MaxTextLength)
+	}
+	if *otid != "" {
+		if _, err := strconv.ParseInt(*otid, 10, 64); err != nil {
+			return errors.New("--otid must be a numeric offline threading ID")
+		}
+	}
+
+	otidValue := *otid
+	if otidValue == "" {
+		otidValue = igcore.NewOTID()
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.EditText(ctx, threadID, messageID, text, otidValue)
+	if err != nil {
+		return describeError(err)
+	}
+
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printEditResult(stdout, result)
 	return nil
 }
 
@@ -936,6 +1019,15 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	if result.ID != "" && result.ID != result.MessageID {
 		fmt.Fprintf(w, "  id: %s\n", result.ID)
 	}
+	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
+	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
+	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+func printEditResult(w io.Writer, result *igcore.EditResult) {
+	fmt.Fprintln(w, "Edited message")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  message: %s\n", valueOrDash(result.MessageID))
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))

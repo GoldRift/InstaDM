@@ -190,6 +190,57 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintEditResult(t *testing.T) {
+	result := &igcore.EditResult{
+		ProtocolVersion:    "test",
+		ThreadID:           "thread-1",
+		MessageID:          "message-1",
+		OfflineThreadingID: "otid-1",
+		Text:               "new text",
+		TimestampMS:        1_700_000_000_000,
+	}
+
+	var output bytes.Buffer
+	printEditResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Edited message", "thread-1", "message-1", "otid-1", "new text"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunEditValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runEdit(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli edit") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty thread", args: []string{"", "message-1", "text", "--cookie-header", fakeCookies}, want: "thread ID is empty"},
+		{name: "empty message", args: []string{"thread-1", "", "text", "--cookie-header", fakeCookies}, want: "message ID is empty"},
+		{name: "empty text", args: []string{"thread-1", "message-1", "", "--cookie-header", fakeCookies}, want: "text is required"},
+		{name: "invalid otid", args: []string{"thread-1", "message-1", "text", "--otid", "abc", "--cookie-header", fakeCookies}, want: "--otid must be"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runEdit(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintMediaList(t *testing.T) {
 	message := &igcore.MessageView{
 		ID:         "message-1",

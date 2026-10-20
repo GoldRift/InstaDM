@@ -5,8 +5,8 @@ Instagram cookies, lists DM threads, reads recent messages, sends text and image
 adds/removes reactions, marks threads read, downloads attachments, and watches the DGW
 realtime stream.
 
-It does **not** implement edits/unsend, create new DMs, persist a durable outbox, or
-touch the Android app. Those are later levels.
+It does **not** implement unsend, create new DMs, persist a durable outbox, or touch the
+Android app. Those are later levels.
 
 ## Upstream dependency
 
@@ -111,6 +111,9 @@ go run ./cmd/igcli send <thread-id> "hello" --otid 1792364344000123 --cookies ~/
 # Retry transient failures with the same OTID
 go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instadm/cookies.json
 
+# Edit one of your own text messages
+go run ./cmd/igcli edit <thread-id> <message-id> "updated text" --cookies ~/.config/instadm/cookies.json
+
 # Upload and send an image or file
 go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
 
@@ -152,7 +155,7 @@ Flags:
 | `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
 | `--after <cursor>` | `thread`: load older messages after this cursor |
 | `--reply-to <message-id>` | `send`, `send-media`: reply to an existing message |
-| `--otid <otid>` | `send`, `send-media`: reuse a specific offline threading ID |
+| `--otid <otid>` | `send`, `send-media`, `edit`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
@@ -228,6 +231,12 @@ short and long thread IDs, message ID, timestamp, and whether Instagram validate
 read. The CLI is stateless, so it does not persist a local read watermark; the Android
 app will do that. A specific `--message-id` must be within the newest 100 messages.
 
+`edit` replaces the text of one of your own messages. Instagram enforces a 15-minute
+edit window and a maximum of five edits per message; violations fail at the server. The
+mutation sends `target_item_id: ""`, the new body, a new OTID, and the target IG message
+ID. The result includes the thread, message, OTID, timestamp, and new text. Inbound
+edits arrive as `message.edit` deltas.
+
 `react` adds or removes one reaction on a message. Instagram allows one reaction per
 sender per message, so adding a different emoji replaces the previous one. The target
 message ID is the IG message ID from `thread --json`. Message JSON now also includes a
@@ -260,6 +269,7 @@ threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 | `MailboxJSON(timeoutSeconds)` | Inbox and viewer JSON |
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
+| `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
 | `MarkReadJSON(threadID, messageID, timeoutSeconds)` | Read-receipt result JSON |
@@ -298,6 +308,8 @@ itself is covered by host tests.
   - `media` listed and downloaded all three: the PNG decoded to identical pixels, the
     JPEG was 64×64 sRGB, and the MP4 was H.264 at 64×64 for 1 second. The CDN
     recompressed the image bytes, so file hashes are not stable;
+  - `edit` changed a fresh text message within the edit window, and `watch` reported a
+    matching `message.edit` delta;
   - the `mobile` wrapper's real-account `MailboxJSON` and `ThreadJSON` calls returned
     valid JSON with the pinned protocol version.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode

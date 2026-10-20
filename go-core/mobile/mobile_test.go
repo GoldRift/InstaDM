@@ -40,6 +40,9 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.SendMediaJSON("123", "photo.png", "image/png", nil, "", "", 1); err == nil || !strings.Contains(err.Error(), "media file is empty") {
 		t.Errorf("send media error = %v", err)
 	}
+	if _, err := client.EditJSON("thread-id", "message-id", " ", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
+		t.Errorf("edit error = %v", err)
+	}
 	if _, err := client.ReactJSON("thread-id", "message-id", "", false, 1); err == nil || !strings.Contains(err.Error(), "emoji is required") {
 		t.Errorf("react error = %v", err)
 	}

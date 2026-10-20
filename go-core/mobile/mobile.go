@@ -96,6 +96,21 @@ func (c *Client) SendTextJSON(threadID, text, replyTo, otid string, timeoutSecon
 	return encode(result)
 }
 
+func (c *Client) EditJSON(threadID, messageID, text, otid string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.EditText(ctx, threadID, messageID, text, otid)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte, replyTo, otid string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
