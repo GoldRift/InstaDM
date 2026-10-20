@@ -147,6 +147,7 @@ func TestHandleDeltaEditAndReadReceipt(t *testing.T) {
 		ThreadIGID: "thread-1",
 		Data: &slidetypes.ReadReceiptEvent{
 			ReadReceipt: slidetypes.ReadReceipt{
+				ParticipantFBID:      222,
 				WatermarkTimestampMS: jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_002_000)},
 			},
 		},
@@ -160,6 +161,33 @@ func TestHandleDeltaEditAndReadReceipt(t *testing.T) {
 	}
 	if (*events)[1].Type != "read.receipt" || (*events)[1].TimestampMS != 1_700_000_002_000 {
 		t.Errorf("read receipt event = %+v", (*events)[1])
+	}
+	if (*events)[1].ParticipantFBID != 222 {
+		t.Errorf("read receipt participant = %d, want 222", (*events)[1].ParticipantFBID)
+	}
+	if (*events)[1].FromViewer {
+		t.Error("other participant's read receipt marked as from the viewer")
+	}
+}
+
+func TestHandleDeltaReadReceiptFromViewer(t *testing.T) {
+	client, events := newEventCapture()
+	client.handleEvent(&slidetypes.Delta{
+		TypeName:   "SlideUQPPReadReceipt",
+		ThreadIGID: "thread-1",
+		Data: &slidetypes.ReadReceiptEvent{
+			ReadReceipt: slidetypes.ReadReceipt{
+				ParticipantFBID:      111,
+				WatermarkTimestampMS: jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_002_000)},
+			},
+		},
+	})
+
+	if len(*events) != 1 {
+		t.Fatalf("emitted %d events, want 1", len(*events))
+	}
+	if !(*events)[0].FromViewer {
+		t.Error("viewer's own read receipt not marked as from the viewer")
 	}
 }
 

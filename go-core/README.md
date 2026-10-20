@@ -210,10 +210,13 @@ them out of version control unless they have been redacted.
 The `thread` table shows the thread metadata followed by one row per message: local
 timestamp, sender (`me` for your own messages), content kind, and text. Messages are
 printed oldest-to-newest. Media is represented as `[image]`, `[video]`, `[sticker]`, and
-so on. `--json` adds message IDs, offline threading IDs, sender FBIDs, and
-`has_more_older`/`oldest_cursor` for the next pagination step. Media messages also get a
-`media` array with attachment FBIDs, full and preview CDN URLs, dimensions, and duration
-where available. CDN URLs are sensitive and expire; do not put them in shared fixtures.
+so on. `--json` adds message IDs, offline threading IDs, sender FBIDs, a `seen` flag on
+the viewer's messages, and `has_more_older`/`oldest_cursor` for the next pagination
+step. It also includes `read_receipts` with each participant's FBID, watermark, and
+`from_viewer` flag. The viewer's own receipt only means the viewer read the thread; it
+never produces a `seen` flag. Media messages also get a `media` array with attachment
+FBIDs, full and preview CDN URLs, dimensions, and duration where available. CDN URLs
+are sensitive and expire; do not put them in shared fixtures.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
 messages. The older-page output uses the same message table and prints the next cursor.
@@ -304,12 +307,15 @@ message ID is the IG message ID from `thread --json`. Message JSON now also incl
 the emoji; the CLI always sends the emoji you provide.
 
 The `watch` human output prints connection state, new messages, edits, deletes,
-reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). Message
-text is included in both forms, so treat watch output as sensitive. `seq_id` events are
-included in JSON but omitted from the human output to avoid noise. The reconnect loop
-uses exponential backoff from 1 second to 30 seconds, resets after a stable 30-second
-connection, and retries transient bootstrap failures. Expired-session, challenge,
-checkpoint, and rate-limit errors are returned instead of retried forever.
+reactions, and read receipts. Read receipts include the participant FBID in human
+output, while `--json` adds `participant_fbid` and `from_viewer` (the viewer's own
+read state must not be rendered as a seen tick). `--json` emits one JSON object per
+line (NDJSON). Message text is included in both forms, so treat watch output as
+sensitive. `seq_id` events are included in JSON but omitted from the human output to
+avoid noise. The reconnect loop uses exponential backoff from 1 second to 30 seconds,
+resets after a stable 30-second connection, and retries transient bootstrap failures.
+Expired-session, challenge, checkpoint, and rate-limit errors are returned instead of
+retried forever.
 
 ## Mobile wrapper
 
@@ -387,9 +393,9 @@ directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
 
 ## Validation status
 
-- Build, cookie parsing, table rendering, thread normalization, error paths, watch
-  backoff and permanent-error classification, and the one-shot refresh after a 403
-  media response are covered by local tests.
+- Build, cookie parsing, table rendering, thread normalization, read-receipt/seen
+  derivation, error paths, watch backoff and permanent-error classification, and the
+  one-shot refresh after a 403 media response are covered by local tests.
 - Real-account acceptance passed:
   - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
     a DM thread;

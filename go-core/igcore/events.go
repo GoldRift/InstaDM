@@ -7,15 +7,17 @@ import (
 // Event is the small, normalized subset of protocol events exposed to callers.
 // Message text is included; callers must treat it as sensitive.
 type Event struct {
-	Type         string       `json:"type"`
-	ThreadID     string       `json:"thread_id,omitempty"`
-	SeqID        int64        `json:"seq_id,omitempty"`
-	FailureCount int          `json:"failure_count,omitempty"`
-	Error        string       `json:"error,omitempty"`
-	RawType      string       `json:"raw_type,omitempty"`
-	Reaction     string       `json:"reaction,omitempty"`
-	TimestampMS  int64        `json:"timestamp_ms,omitempty"`
-	Message      *MessageView `json:"message,omitempty"`
+	Type            string       `json:"type"`
+	ThreadID        string       `json:"thread_id,omitempty"`
+	SeqID           int64        `json:"seq_id,omitempty"`
+	FailureCount    int          `json:"failure_count,omitempty"`
+	Error           string       `json:"error,omitempty"`
+	RawType         string       `json:"raw_type,omitempty"`
+	Reaction        string       `json:"reaction,omitempty"`
+	ParticipantFBID int64        `json:"participant_fbid,omitempty"`
+	FromViewer      bool         `json:"from_viewer,omitempty"`
+	TimestampMS     int64        `json:"timestamp_ms,omitempty"`
+	Message         *MessageView `json:"message,omitempty"`
 }
 
 func (c *Client) handleEvent(event slidetypes.ClientEvent) {
@@ -99,6 +101,11 @@ func (c *Client) handleDelta(delta *slidetypes.Delta) {
 		event.Type = "mark.unread"
 	case *slidetypes.ReadReceiptEvent:
 		event.Type = "read.receipt"
+		event.ParticipantFBID = data.ReadReceipt.ParticipantFBID
+		c.mu.Lock()
+		ownFBID := c.ownFBID
+		c.mu.Unlock()
+		event.FromViewer = ownFBID != 0 && event.ParticipantFBID == ownFBID
 		if !data.ReadReceipt.WatermarkTimestampMS.IsZero() {
 			event.TimestampMS = data.ReadReceipt.WatermarkTimestampMS.UnixMilli()
 		}

@@ -140,6 +140,84 @@ func TestNewThreadDetailView(t *testing.T) {
 	}
 }
 
+func TestNewThreadDetailViewReadReceipts(t *testing.T) {
+	timestamp := func(milliseconds int64) jsontime.UnixMilliString {
+		return jsontime.UnixMilliString{Time: time.UnixMilli(milliseconds)}
+	}
+	message := func(id string, sender, at int64) *slidetypes.Message {
+		return &slidetypes.Message{
+			MessageID:   id,
+			SenderFBID:  sender,
+			TimestampMS: timestamp(at),
+		}
+	}
+
+	thread := &slidetypes.ThreadInfo{
+		ID: "short-id",
+		Users: []*slidetypes.User{
+			{ID: "ig-other", InteropMessagingUserFBID: 222},
+		},
+		SlideMessages: &slidetypes.SlideMessages{
+			Edges: []slidetypes.Node[*slidetypes.Message]{
+				{Node: message("m3", 111, 3000)},
+				{Node: message("m2", 222, 2000)},
+				{Node: message("m1", 111, 1000)},
+			},
+		},
+		SlideReadReceipts: []slidetypes.ReadReceipt{
+			// The viewer's own watermark means the viewer read the thread; it
+			// must not turn the viewer's sent messages into "seen".
+			{ParticipantFBID: 111, WatermarkTimestampMS: timestamp(5000)},
+			{ParticipantFBID: 222, WatermarkTimestampMS: timestamp(2000)},
+			{ParticipantFBID: 0, WatermarkTimestampMS: timestamp(9000)},
+			{ParticipantFBID: 333},
+		},
+	}
+
+	view := newThreadDetailView(thread, 111, 20)
+	if len(view.ReadReceipts) != 2 {
+		t.Fatalf("read receipts = %d, want 2", len(view.ReadReceipts))
+	}
+	if view.ReadReceipts[0].ParticipantFBID != 111 || view.ReadReceipts[0].WatermarkMS != 5000 {
+		t.Errorf("viewer receipt = %+v", view.ReadReceipts[0])
+	}
+	if !view.ReadReceipts[0].FromViewer {
+		t.Error("viewer receipt should be marked as from the viewer")
+	}
+	if view.ReadReceipts[1].ParticipantFBID != 222 || view.ReadReceipts[1].WatermarkMS != 2000 {
+		t.Errorf("other receipt = %+v", view.ReadReceipts[1])
+	}
+	if view.ReadReceipts[1].FromViewer {
+		t.Error("other participant's receipt marked as from the viewer")
+	}
+
+	seen := make(map[string]bool, len(view.Messages))
+	for _, message := range view.Messages {
+		seen[message.ID] = message.Seen
+	}
+	if !seen["m1"] {
+		t.Error("m1 should be seen: other participant read past 1000")
+	}
+	if seen["m2"] {
+		t.Error("m2 is from the other participant and should never be seen")
+	}
+	if seen["m3"] {
+		t.Error("m3 should not be seen: other participant only read to 2000")
+	}
+}
+
+func TestApplyReadReceiptsIgnoresViewerOnly(t *testing.T) {
+	messages := []MessageView{
+		{ID: "m1", TimestampMS: 1000, IsFromViewer: true},
+	}
+	applyReadReceipts(messages, []ReadReceiptView{
+		{ParticipantFBID: 111, WatermarkMS: 5000, FromViewer: true},
+	})
+	if messages[0].Seen {
+		t.Error("viewer-only receipt produced a seen tick")
+	}
+}
+
 func TestNormalizeMessagePageNil(t *testing.T) {
 	messages, hasMoreOlder, oldestCursor := normalizeMessagePage(nil, 111, nil, 20)
 	if len(messages) != 0 || hasMoreOlder || oldestCursor != "" {

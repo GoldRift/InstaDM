@@ -1283,6 +1283,17 @@ func printThread(w io.Writer, detail *igcore.ThreadDetailView) {
 		}
 		fmt.Fprintf(w, "Participants: %s\n", strings.Join(names, ", "))
 	}
+	if len(detail.ReadReceipts) > 0 {
+		receipts := make([]string, 0, len(detail.ReadReceipts))
+		for _, receipt := range detail.ReadReceipts {
+			receipts = append(receipts, fmt.Sprintf(
+				"%d@%s",
+				receipt.ParticipantFBID,
+				formatTimestamp(receipt.WatermarkMS),
+			))
+		}
+		fmt.Fprintf(w, "Read receipts: %s\n", strings.Join(receipts, ", "))
+	}
 	fmt.Fprintf(w, "Messages: %d", len(detail.Messages))
 	if detail.HasMoreOlder {
 		fmt.Fprint(w, " (older messages available)")
@@ -1580,6 +1591,15 @@ func formatEvent(event igcore.Event) string {
 		}
 		return fmt.Sprintf("%s %s reaction %s %s on %s", timestamp, thread, action, valueOrDash(event.Reaction), valueOrDash(messageID))
 	case "mark.read", "mark.unread", "read.receipt":
+		if event.Type == "read.receipt" && event.ParticipantFBID != 0 {
+			return fmt.Sprintf(
+				"%s %s %s participant=%d",
+				timestamp,
+				thread,
+				event.Type,
+				event.ParticipantFBID,
+			)
+		}
 		return fmt.Sprintf("%s %s %s", timestamp, thread, event.Type)
 	case "unknown", "delta":
 		return fmt.Sprintf("%s %s %s", timestamp, thread, valueOrDash(firstNonEmpty(event.RawType, event.Type)))

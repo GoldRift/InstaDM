@@ -151,11 +151,21 @@ func displayTitle(participants []ParticipantView, ownFBID int64) string {
 // ordered oldest-to-newest for display, even though Instagram returns the newest
 // page first.
 type ThreadDetailView struct {
-	ProtocolVersion string        `json:"protocol_version"`
-	Thread          ThreadView    `json:"thread"`
-	Messages        []MessageView `json:"messages"`
-	HasMoreOlder    bool          `json:"has_more_older"`
-	OldestCursor    string        `json:"oldest_cursor,omitempty"`
+	ProtocolVersion string            `json:"protocol_version"`
+	Thread          ThreadView        `json:"thread"`
+	Messages        []MessageView     `json:"messages"`
+	ReadReceipts    []ReadReceiptView `json:"read_receipts,omitempty"`
+	HasMoreOlder    bool              `json:"has_more_older"`
+	OldestCursor    string            `json:"oldest_cursor,omitempty"`
+}
+
+// ReadReceiptView is a participant's read watermark for a thread. FromViewer
+// marks the viewer's own receipt, which only means the viewer has read the
+// thread; it must not be rendered as a seen tick.
+type ReadReceiptView struct {
+	ParticipantFBID int64 `json:"participant_fbid"`
+	WatermarkMS     int64 `json:"watermark_ms"`
+	FromViewer      bool  `json:"from_viewer,omitempty"`
 }
 
 // ThreadPageView is a page fetched with IGDMessageListOffMsysQuery. It has no
@@ -200,17 +210,64 @@ type MessageView struct {
 	Media              []MediaView    `json:"media,omitempty"`
 	RepliedToMessageID string         `json:"replied_to_message_id,omitempty"`
 	Reactions          []ReactionView `json:"reactions,omitempty"`
+	// Seen is true when another participant's read watermark has reached this
+	// message. It is only meaningful for messages sent by the viewer.
+	Seen bool `json:"seen"`
 }
 
 func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int) *ThreadDetailView {
 	view := &ThreadDetailView{
 		ProtocolVersion: ProtocolVersion,
 		Thread:          newThreadView(thread, ownFBID),
+		ReadReceipts:    newReadReceiptViews(thread.SlideReadReceipts, ownFBID),
 	}
 	view.Messages, view.HasMoreOlder, view.OldestCursor = normalizeMessagePage(
 		thread.SlideMessages, ownFBID, participantNames(thread), limit,
 	)
+	applyReadReceipts(view.Messages, view.ReadReceipts)
 	return view
+}
+
+func newReadReceiptViews(receipts []slidetypes.ReadReceipt, ownFBID int64) []ReadReceiptView {
+	views := make([]ReadReceiptView, 0, len(receipts))
+	for _, receipt := range receipts {
+		if receipt.ParticipantFBID == 0 || receipt.WatermarkTimestampMS.IsZero() {
+			continue
+		}
+		views = append(views, ReadReceiptView{
+			ParticipantFBID: receipt.ParticipantFBID,
+			WatermarkMS:     receipt.WatermarkTimestampMS.UnixMilli(),
+			FromViewer:      ownFBID != 0 && receipt.ParticipantFBID == ownFBID,
+		})
+	}
+	return views
+}
+
+// applyReadReceipts marks the viewer's messages as seen when another
+// participant has read up to their timestamp. The viewer's own watermark only
+// means the viewer has read the thread, so it must not produce seen ticks.
+func applyReadReceipts(messages []MessageView, receipts []ReadReceiptView) {
+	var watermark int64
+	for _, receipt := range receipts {
+		if receipt.FromViewer {
+			continue
+		}
+		if receipt.WatermarkMS > watermark {
+			watermark = receipt.WatermarkMS
+		}
+	}
+	if watermark == 0 {
+		return
+	}
+
+	for i := range messages {
+		if !messages[i].IsFromViewer || messages[i].TimestampMS == 0 {
+			continue
+		}
+		if messages[i].TimestampMS <= watermark {
+			messages[i].Seen = true
+		}
+	}
 }
 
 func normalizeMessagePage(page *slidetypes.SlideMessages, ownFBID int64, participants map[int64]string, limit int) ([]MessageView, bool, string) {

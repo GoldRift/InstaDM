@@ -43,6 +43,15 @@ func TestRedactedFixturesUnmarshal(t *testing.T) {
 	if thread.Messages[0].Kind != "text" || thread.Messages[2].Kind != "image" {
 		t.Errorf("thread fixture kinds = %q, %q, want text, image", thread.Messages[0].Kind, thread.Messages[2].Kind)
 	}
+	if len(thread.ReadReceipts) != 2 {
+		t.Errorf("thread fixture read receipts = %d, want 2", len(thread.ReadReceipts))
+	}
+	if !thread.Messages[1].Seen {
+		t.Error("thread fixture message-2 should be seen")
+	}
+	if thread.Messages[0].Seen || thread.Messages[2].Seen {
+		t.Error("thread fixture only the viewer's read message should be seen")
+	}
 	if !thread.HasMoreOlder || thread.OldestCursor == "" {
 		t.Error("thread fixture is missing pagination metadata")
 	}
