@@ -7,6 +7,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
+/** Messages per thread page, for both the newest page and older pages. */
+private const val THREAD_PAGE_SIZE = 30
+
 /**
  * Serializes calls into the Go client and owns its lifetime. The Go side keeps
  * the session and socket; this repository only moves JSON across the boundary.
@@ -34,7 +37,12 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
     suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(90) }
 
     suspend fun loadThread(threadId: String): JSONObject = withClient {
-        it.thread(threadId, 20, "", 90)
+        it.thread(threadId, THREAD_PAGE_SIZE)
+    }
+
+    /** Fetches the page of messages older than [cursor] (an `oldest_cursor` value). */
+    suspend fun loadOlder(threadId: String, cursor: String): JSONObject = withClient {
+        it.thread(threadId, THREAD_PAGE_SIZE, cursor)
     }
 
     suspend fun sendText(threadId: String, text: String): JSONObject = withClient {

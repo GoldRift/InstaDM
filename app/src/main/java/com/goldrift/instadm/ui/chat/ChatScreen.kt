@@ -48,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -97,6 +98,8 @@ fun ChatScreen(
     errorMessage: String? = null,
     onLoadMedia: MediaLoader? = null,
     onMarkRead: (String) -> Unit = {},
+    onLoadOlder: () -> Unit = {},
+    onRetryOlder: () -> Unit = {},
 ) {
     val messages = conversation.messages
     var draft by remember { mutableStateOf("") }
@@ -111,9 +114,15 @@ fun ChatScreen(
         draft = ""
     }
 
-    // Keep the newest bubble (bottom, index 0 in a reverse layout) in view.
-    LaunchedEffect(messages.size, isTyping) {
-        if (messages.isNotEmpty()) {
+    // Follow the newest bubble on first load, on a new message, and when typing
+    // starts. Prepending an older page must not move the viewport, so this keys
+    // on the newest message ID rather than the list size; a new message only
+    // scrolls when the newest bubble is already on screen, unless the viewer
+    // sent it.
+    val newestMessage = messages.lastOrNull()
+    LaunchedEffect(newestMessage?.id, isTyping) {
+        if (newestMessage == null) return@LaunchedEffect
+        if (listState.firstVisibleItemIndex <= 1 || newestMessage.sender == MessageSender.Me) {
             listState.animateScrollToItem(0)
         }
     }
@@ -194,6 +203,11 @@ fun ChatScreen(
                         isTyping = isTyping,
                         listState = listState,
                         threadId = conversation.id,
+                        hasMoreOlder = conversation.hasMoreOlder,
+                        isLoadingOlder = conversation.isLoadingOlder,
+                        olderError = conversation.olderError,
+                        onLoadOlder = onLoadOlder,
+                        onRetryOlder = onRetryOlder,
                         onOpenMedia = { messageId, media ->
                             viewerTarget = MediaViewerTarget(messageId, media)
                         },
@@ -273,6 +287,11 @@ private fun MessageList(
     isTyping: Boolean,
     listState: LazyListState,
     threadId: String,
+    hasMoreOlder: Boolean,
+    isLoadingOlder: Boolean,
+    olderError: Boolean,
+    onLoadOlder: () -> Unit,
+    onRetryOlder: () -> Unit,
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     onLoadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
@@ -282,6 +301,27 @@ private fun MessageList(
         derivedStateOf {
             listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { it.key as? String }
         }
+    }
+
+    // The list is reversed, so older messages are appended past the visible
+    // range and stable keys keep the reader's position while a page is
+    // prepended. Ask for another page once the oldest bubbles are on screen;
+    // pages keep loading until the viewport is filled or the thread begins.
+    val loadOlderNow by remember(listState, hasMoreOlder, isLoadingOlder, olderError) {
+        derivedStateOf {
+            if (!hasMoreOlder || isLoadingOlder || olderError) {
+                false
+            } else {
+                val info = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                lastVisible != null && lastVisible >= info.totalItemsCount - 3
+            }
+        }
+    }
+    // Keyed on the page size as well so a page that does not fill the viewport
+    // immediately pulls the next one.
+    LaunchedEffect(loadOlderNow, messages.size) {
+        if (loadOlderNow) onLoadOlder()
     }
 
     LazyColumn(
@@ -320,6 +360,16 @@ private fun MessageList(
                 onLoadMedia = onLoadMedia,
                 modifier = Modifier.animateItem(),
             )
+        }
+
+        if (hasMoreOlder) {
+            item(key = "older", contentType = "older") {
+                OlderMessagesFooter(
+                    isLoading = isLoadingOlder,
+                    hasError = olderError,
+                    onRetry = onRetryOlder,
+                )
+            }
         }
 
         item(key = "date", contentType = "date") {
@@ -515,6 +565,49 @@ private fun TypingDots(color: androidx.compose.ui.graphics.Color, modifier: Modi
                     .alpha(alpha)
                     .background(color, CircleShape),
             )
+        }
+    }
+}
+
+@Composable
+private fun OlderMessagesFooter(
+    isLoading: Boolean,
+    hasError: Boolean,
+    onRetry: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            hasError -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.chat_older_error),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onRetry) {
+                    Text(
+                        text = stringResource(R.string.chat_older_retry),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+
+            isLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.chat_loading_older),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

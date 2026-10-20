@@ -41,7 +41,8 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 ```
 
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
-20 messages; sending text appends the server message after the mutation succeeds.
+30 messages, and scrolling to the oldest bubble pages in older messages until the
+thread begins. Sending text appends the server message after the mutation succeeds.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
 immediately. Image, GIF, sticker, and video attachments render inline, and GIFs

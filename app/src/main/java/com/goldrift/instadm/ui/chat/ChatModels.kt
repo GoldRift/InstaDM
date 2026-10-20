@@ -26,6 +26,13 @@ data class Conversation(
     val messagesLoaded: Boolean = false,
     val threadFbid: String = "",
     val systemFolder: String = "",
+    /** True while Instagram reports more messages older than [oldestCursor]. */
+    val hasMoreOlder: Boolean = false,
+    /** Cursor for the next older page; blank until the newest page is loaded. */
+    val oldestCursor: String = "",
+    val isLoadingOlder: Boolean = false,
+    /** A failed older-page fetch; automatic paging pauses until the user retries. */
+    val olderError: Boolean = false,
 )
 
 data class ChatMessage(

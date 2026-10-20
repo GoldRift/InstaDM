@@ -101,6 +101,8 @@ fun InstaDmApp() {
                         inboxState.downloadMedia(mediaThreadId, messageId, partIndex, mediaType)
                     },
                     onMarkRead = { messageId -> inboxState.markRead(threadId, messageId) },
+                    onLoadOlder = { inboxState.loadOlder(threadId) },
+                    onRetryOlder = { inboxState.retryOlder(threadId) },
                 )
             }
         }

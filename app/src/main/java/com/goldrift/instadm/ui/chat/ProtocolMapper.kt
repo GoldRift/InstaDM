@@ -57,7 +57,42 @@ fun mapThread(json: JSONObject, conversation: Conversation): Conversation {
             .ifBlank { conversation.systemFolder },
         messages = mapMessages(json.optJSONArray("messages")),
         messagesLoaded = true,
+        hasMoreOlder = json.optBoolean("has_more_older"),
+        oldestCursor = json.optString("oldest_cursor"),
+        isLoadingOlder = false,
+        olderError = false,
     )
+}
+
+/**
+ * Maps a page fetched with `afterCursor`. Page JSON carries no `thread` object,
+ * so thread metadata is kept from [conversation]. Older messages are prepended
+ * and deduplicated against the page they overlap at the cursor boundary.
+ */
+fun mapOlderPage(json: JSONObject, conversation: Conversation): Conversation {
+    val older = mapMessages(json.optJSONArray("messages"))
+    return conversation.copy(
+        messages = mergeOlderMessages(conversation.messages, older),
+        hasMoreOlder = json.optBoolean("has_more_older"),
+        oldestCursor = json.optString("oldest_cursor"),
+        isLoadingOlder = false,
+        olderError = false,
+    )
+}
+
+/**
+ * Prepends [older] to [existing] without duplicating messages the two pages
+ * share. Existing entries win, so pending and seen flags are preserved.
+ */
+fun mergeOlderMessages(
+    existing: List<ChatMessage>,
+    older: List<ChatMessage>,
+): List<ChatMessage> {
+    if (older.isEmpty()) return existing
+    val known = existing.mapTo(HashSet(existing.size), ChatMessage::id)
+    val additions = older.filter { known.add(it.id) }
+    if (additions.isEmpty()) return existing
+    return additions + existing
 }
 
 private fun mapMessages(messages: JSONArray?): List<ChatMessage> {

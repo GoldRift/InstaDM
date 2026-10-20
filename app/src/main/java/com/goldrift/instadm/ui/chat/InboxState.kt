@@ -123,6 +123,47 @@ class InboxState(
         }
     }
 
+    /**
+     * Fetches the next page of older messages. The Go core addresses pages by
+     * the `oldest_cursor` of the previously loaded page and returns a new
+     * cursor plus its own `has_more_older` flag.
+     */
+    fun loadOlder(threadId: String) {
+        val conversation = conversation(threadId) ?: return
+        if (!conversation.messagesLoaded || conversation.isLoadingOlder) return
+        if (!conversation.hasMoreOlder || conversation.oldestCursor.isBlank()) return
+
+        val cursor = conversation.oldestCursor
+        update(threadId) { it.copy(isLoadingOlder = true) }
+        scope.launch {
+            runCatching { repository.loadOlder(threadId, cursor) }
+                .onSuccess { json ->
+                    update(threadId) { current ->
+                        val page = mapOlderPage(json, current)
+                        // A page that adds nothing while still claiming more
+                        // would retrigger the scroll loader forever.
+                        if (page.messages.size == current.messages.size) {
+                            page.copy(hasMoreOlder = false)
+                        } else {
+                            page
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    errorMessage = describeError(error)
+                    update(threadId) { current ->
+                        current.copy(isLoadingOlder = false, olderError = true)
+                    }
+                }
+        }
+    }
+
+    /** Retries a failed older page; automatic paging stays paused until then. */
+    fun retryOlder(threadId: String) {
+        update(threadId) { it.copy(olderError = false) }
+        loadOlder(threadId)
+    }
+
     fun send(threadId: String, rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || conversation(threadId) == null) return

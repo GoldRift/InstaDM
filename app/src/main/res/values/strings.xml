@@ -13,6 +13,9 @@
     <string name="chat_media_unavailable">Media unavailable</string>
     <string name="chat_media_error">Couldn\'t load media</string>
     <string name="chat_video_play">Play video</string>
+    <string name="chat_loading_older">Loading older messages</string>
+    <string name="chat_older_error">Couldn\'t load older messages</string>
+    <string name="chat_older_retry">Retry</string>
     <string name="inbox_you_prefix">You: %1$s</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_refresh">Refresh</string>

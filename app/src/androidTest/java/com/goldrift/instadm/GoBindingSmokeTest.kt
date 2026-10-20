@@ -57,6 +57,17 @@ class GoBindingSmokeTest {
             val threadId = firstThread.getString("id")
             val thread = client.thread(threadId, 5, "", 90)
             assertNotNull("thread has no messages array", thread.optJSONArray("messages"))
+
+            // A thread longer than the page advertises the cursor the app uses
+            // for older pages; the paged response must carry the same shape.
+            if (thread.optBoolean("has_more_older")) {
+                val cursor = thread.optString("oldest_cursor")
+                assertTrue("has_more_older without oldest_cursor", cursor.isNotBlank())
+
+                val page = client.thread(threadId, 5, cursor, 90)
+                assertNotNull("older page has no messages array", page.optJSONArray("messages"))
+                assertTrue("older page has no thread_id", page.optString("thread_id").isNotEmpty())
+            }
         }
     }
 
