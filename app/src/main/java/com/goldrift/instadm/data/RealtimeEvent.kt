@@ -24,6 +24,7 @@ data class RealtimeEvent(
             val message = json.optJSONObject("message")?.let { payload ->
                 RealtimeMessage(
                     id = payload.optString("id"),
+                    offlineThreadingId = payload.optString("offline_threading_id"),
                     text = payload.optString("text"),
                     senderName = payload.optString("sender_name"),
                     isFromViewer = payload.optBoolean("is_from_viewer"),
@@ -51,6 +52,7 @@ data class RealtimeEvent(
 
 data class RealtimeMessage(
     val id: String,
+    val offlineThreadingId: String = "",
     val text: String,
     val senderName: String,
     val isFromViewer: Boolean,

@@ -43,9 +43,35 @@ data class ChatMessage(
     val timestampMs: Long = 0,
     val seen: Boolean = false,
     val pending: Boolean = false,
+    val failed: Boolean = false,
     val media: List<MessageMedia> = emptyList(),
     val reactions: List<MessageReaction> = emptyList(),
+    /** Local preview for media that has not reached the server yet. */
+    val localMedia: PendingMedia? = null,
+    /** Offline threading ID used to match the realtime echo of a send. */
+    val offlineThreadingId: String = "",
 )
+
+/**
+ * A picked attachment shown optimistically in an outgoing bubble. The content
+ * URI stays readable for the lifetime of the activity, which is long enough for
+ * the upload and a retry.
+ */
+data class PendingMedia(
+    val uri: String,
+    val kind: String,
+    val fileName: String,
+    val width: Int = 0,
+    val height: Int = 0,
+    val durationMs: Int = 0,
+) {
+    val aspectRatio: Float
+        get() {
+            if (width <= 0 || height <= 0) return 1f
+            return (width.toFloat() / height.toFloat()).coerceIn(0.6f, 1.8f)
+        }
+}
+
 
 /** True for a message Instagram has assigned an ID to. */
 fun ChatMessage.isServerMessage(): Boolean =
@@ -56,7 +82,9 @@ fun ChatMessage.isServerMessage(): Boolean =
 
 /** One-line label for inbox previews; falls back to the media placeholder. */
 fun ChatMessage.previewLabel(): String = text.ifBlank {
-    media.firstOrNull()?.let { messagePlaceholder(it.type) } ?: ""
+    localMedia?.kind?.let { messagePlaceholder(it) }
+        ?: media.firstOrNull()?.let { messagePlaceholder(it.type) }
+        ?: ""
 }
 
 /** Fixed demo conversations used by Compose previews. */

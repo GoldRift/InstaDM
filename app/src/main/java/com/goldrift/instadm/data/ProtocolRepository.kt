@@ -49,6 +49,17 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.sendText(threadId, text)
     }
 
+    /** Uploads one attachment and sends it to an existing thread. */
+    suspend fun sendMedia(
+        threadId: String,
+        fileName: String,
+        mimeType: String,
+        data: ByteArray,
+        otid: String,
+    ): JSONObject = withClient {
+        it.sendMedia(threadId, fileName, mimeType, data, otid = otid)
+    }
+
     /** Marks the thread read up to [messageId], or to the newest message when blank. */
     suspend fun markRead(threadId: String, messageId: String = ""): JSONObject = withClient {
         it.markRead(threadId, messageId)

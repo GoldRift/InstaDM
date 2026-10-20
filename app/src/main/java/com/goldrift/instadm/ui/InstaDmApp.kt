@@ -14,6 +14,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.SessionStore
@@ -37,7 +38,10 @@ fun InstaDmApp() {
     val scope = rememberCoroutineScope()
     val sessionStore = remember(context) { SessionStore(context) }
     val repository = remember(sessionStore) { ProtocolRepository(sessionStore) }
-    val inboxState = remember(repository, scope) { InboxState(repository, scope) }
+    val mediaReader = remember(context) { MediaReader(context) }
+    val inboxState = remember(repository, scope, mediaReader) {
+        InboxState(repository, scope, mediaReader)
+    }
     val navController = rememberNavController()
     val realtimeStatus by RealtimeBus.status.collectAsState()
 

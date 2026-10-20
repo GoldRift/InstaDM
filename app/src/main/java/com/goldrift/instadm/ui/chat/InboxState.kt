@@ -1,11 +1,15 @@
 package com.goldrift.instadm.ui.chat
 
+import android.net.Uri
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.goldrift.instadm.data.MediaReader
+import com.goldrift.instadm.data.OfflineThreadingIds
+import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
@@ -14,6 +18,7 @@ import com.goldrift.instadm.service.AppVisibility
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
@@ -31,10 +36,12 @@ private val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
 class InboxState(
     private val repository: ProtocolRepository,
     private val scope: CoroutineScope,
+    private val mediaReader: MediaReader,
 ) {
     private val items = mutableStateListOf<Conversation>()
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
     private val markedRead = mutableMapOf<String, String>()
+    private val inFlightSends = mutableSetOf<String>()
     private var refreshInFlight = false
 
     var status by mutableStateOf(InboxStatus.Loading)
@@ -104,13 +111,23 @@ class InboxState(
                     update(threadId) { current ->
                         val loaded = mapThread(json, current)
                         val loadedIDs = loaded.messages.mapTo(HashSet()) { it.id }
+                        val loadedOtids = loaded.messages
+                            .mapNotNullTo(HashSet()) { message ->
+                                message.offlineThreadingId.takeIf { it.isNotBlank() }
+                            }
                         val inFlight = current.messages.filter { message ->
-                            message.id !in loadedIDs &&
-                                loaded.messages.none { loadedMessage ->
-                                    message.pending &&
+                            when {
+                                message.id in loadedIDs -> false
+                                message.id in inFlightSends -> true
+                                message.offlineThreadingId.isNotBlank() ->
+                                    message.offlineThreadingId !in loadedOtids
+                                message.pending && message.text.isNotBlank() ->
+                                    loaded.messages.none { loadedMessage ->
                                         loadedMessage.sender == message.sender &&
-                                        loadedMessage.text == message.text
-                                }
+                                            loadedMessage.text == message.text
+                                    }
+                                else -> true
+                            }
                         }
                         loaded.copy(messages = loaded.messages + inFlight)
                     }
@@ -215,6 +232,151 @@ class InboxState(
                     }
                     errorMessage = describeError(error)
                 }
+        }
+    }
+
+    /**
+     * Sends a picked attachment. The bubble appears immediately with a local
+     * preview; the bytes are read and uploaded afterwards. A failed upload keeps
+     * the bubble so it can be retried from the same content URI.
+     */
+    fun sendMedia(threadId: String, uri: Uri) {
+        if (conversation(threadId) == null) return
+
+        scope.launch {
+            val picked = runCatching { mediaReader.prepare(uri) }
+                .getOrElse { error ->
+                    errorMessage = describeError(error)
+                    return@launch
+                }
+
+            val localID = "local-${UUID.randomUUID()}"
+            val localTimestamp = System.currentTimeMillis()
+            val otid = OfflineThreadingIds.next()
+            val local = ChatMessage(
+                id = localID,
+                text = "",
+                sender = MessageSender.Me,
+                timestamp = formatMessageTime(localTimestamp),
+                timestampMs = localTimestamp,
+                pending = true,
+                localMedia = PendingMedia(
+                    uri = uri.toString(),
+                    kind = picked.kind,
+                    fileName = picked.fileName,
+                    width = picked.width,
+                    height = picked.height,
+                    durationMs = picked.durationMs,
+                ),
+                offlineThreadingId = otid,
+            )
+            update(threadId) { conversation ->
+                conversation.copy(
+                    messages = conversation.messages + local,
+                    lastActivityMs = maxOf(conversation.lastActivityMs, localTimestamp),
+                    preview = previewFor(local),
+                )
+            }
+            errorMessage = null
+
+            uploadMedia(threadId, localID, picked, otid)
+        }
+    }
+
+    /** Retries a failed attachment upload from the URI kept on the bubble. */
+    fun retryMedia(threadId: String, messageId: String) {
+        val message = conversation(threadId)
+            ?.messages
+            ?.firstOrNull { it.id == messageId }
+            ?: return
+        if (message.pending || !message.failed) return
+        val local = message.localMedia ?: return
+        val uri = runCatching { Uri.parse(local.uri) }.getOrNull() ?: return
+
+        val otid = message.offlineThreadingId.ifBlank { OfflineThreadingIds.next() }
+        updateMessage(threadId, messageId) {
+            it.copy(pending = true, failed = false, offlineThreadingId = otid)
+        }
+        errorMessage = null
+
+        scope.launch {
+            val picked = runCatching { mediaReader.prepare(uri) }
+                .getOrElse { error ->
+                    markMediaFailed(threadId, messageId)
+                    errorMessage = describeError(error)
+                    return@launch
+                }
+            uploadMedia(threadId, messageId, picked, otid)
+        }
+    }
+
+    private suspend fun uploadMedia(
+        threadId: String,
+        localID: String,
+        picked: PickedMedia,
+        otid: String,
+    ) {
+        inFlightSends += localID
+        val result = runCatching {
+            val data = mediaReader.read(picked)
+            repository.sendMedia(threadId, picked.fileName, picked.mimeType, data, otid)
+        }
+        inFlightSends -= localID
+
+        result
+            .onSuccess { reconcileMediaSend(threadId, localID, it) }
+            .onFailure { error ->
+                markMediaFailed(threadId, localID)
+                errorMessage = describeError(error)
+            }
+        resortConversations()
+    }
+
+    /**
+     * Replaces the optimistic bubble with the server message. If the realtime
+     * echo already produced that message, the local duplicate is dropped.
+     */
+    private fun reconcileMediaSend(threadId: String, localID: String, result: JSONObject) {
+        val serverID = result.optString("message_id")
+            .ifBlank { result.optString("id") }
+        val serverTimestamp = result.optLong("timestamp_ms").takeIf { it > 0 }
+
+        update(threadId) { conversation ->
+            val echoArrived = serverID.isNotBlank() &&
+                conversation.messages.any { it.id == serverID && it.id != localID }
+            val messages = if (echoArrived) {
+                conversation.messages.filterNot { it.id == localID }
+            } else {
+                conversation.messages.map { message ->
+                    if (message.id != localID) return@map message
+                    val timestampMs = serverTimestamp ?: message.timestampMs
+                    message.copy(
+                        id = serverID.ifBlank { localID },
+                        timestamp = formatMessageTime(timestampMs),
+                        timestampMs = timestampMs,
+                        pending = false,
+                        failed = false,
+                    )
+                }
+            }
+            conversation.copy(
+                messages = messages,
+                preview = previewFor(messages.lastOrNull()),
+            )
+        }
+    }
+
+    private fun markMediaFailed(threadId: String, messageId: String) {
+        update(threadId) { conversation ->
+            conversation.copy(
+                messages = conversation.messages.map { message ->
+                    if (message.id == messageId) {
+                        message.copy(pending = false, failed = true)
+                    } else {
+                        message
+                    }
+                },
+            )
         }
     }
 
@@ -378,6 +540,7 @@ class InboxState(
             timestamp = formatMessageTime(timestamp),
             timestampMs = timestamp,
             media = message.media,
+            offlineThreadingId = message.offlineThreadingId,
         )
 
         val conversation = items[index]
@@ -387,8 +550,15 @@ class InboxState(
             messages[existingIndex] = incoming.copy(seen = messages[existingIndex].seen)
         } else {
             val pendingIndex = if (message.isFromViewer) {
-                messages.indexOfFirst {
-                    it.pending && it.sender == MessageSender.Me && it.text == incoming.text
+                messages.indexOfFirst { candidate ->
+                    candidate.pending && candidate.sender == MessageSender.Me &&
+                        when {
+                            message.offlineThreadingId.isNotBlank() &&
+                                candidate.offlineThreadingId.isNotBlank() ->
+                                candidate.offlineThreadingId == message.offlineThreadingId
+                            message.text.isNotBlank() -> candidate.text == message.text
+                            else -> false
+                        }
                 }
             } else {
                 -1

@@ -118,6 +118,7 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
             seen = message.optBoolean("seen"),
             media = media,
             reactions = parseReactions(message.optJSONArray("reactions")),
+            offlineThreadingId = message.optString("offline_threading_id"),
         )
     }
     return result
