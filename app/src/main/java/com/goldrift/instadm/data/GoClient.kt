@@ -51,11 +51,20 @@ class GoClient(cookiesJson: String) : Closeable {
         client.sendMediaJSON(threadId, filename, mimeType, data, replyTo, otid, timeoutSeconds),
     )
 
+    /**
+     * Marks a thread read up to [messageId]. Passing the conversation's
+     * [longThreadId] and the target's [timestampMs] avoids a thread re-query in
+     * the Go core.
+     */
     fun markRead(
         threadId: String,
         messageId: String = "",
+        longThreadId: String = "",
+        timestampMs: Long = 0,
         timeoutSeconds: Int = 90,
-    ): JSONObject = JSONObject(client.markReadJSON(threadId, messageId, timeoutSeconds))
+    ): JSONObject = JSONObject(
+        client.markReadJSON(threadId, messageId, longThreadId, timestampMs, timeoutSeconds),
+    )
 
     fun react(
         threadId: String,

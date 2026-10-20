@@ -17,6 +17,8 @@ import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.service.AppVisibility
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -27,6 +29,15 @@ enum class InboxStatus { Loading, Ready, NoSession, Error }
 
 /** Message requests must be accepted before they are marked read. */
 private val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
+
+/** Wait for a burst of incoming messages to settle before sending a receipt. */
+private const val READ_DEBOUNCE_MS = 1_000L
+
+/** Never send more than one read receipt per thread in this window. */
+private const val READ_MIN_INTERVAL_MS = 3_000L
+
+/** Avoid a mailbox refresh per message for a thread outside the first page. */
+private const val UNKNOWN_THREAD_REFRESH_MS = 60_000L
 
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
@@ -42,6 +53,9 @@ class InboxState(
     private val items = mutableStateListOf<Conversation>()
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
     private val markedRead = mutableMapOf<String, String>()
+    private val readJobs = mutableMapOf<String, Job>()
+    private val lastReadAt = mutableMapOf<String, Long>()
+    private val unknownThreadRefreshAt = mutableMapOf<String, Long>()
     private val inFlightSends = mutableSetOf<String>()
     private var refreshInFlight = false
 
@@ -68,6 +82,11 @@ class InboxState(
         errorMessage = null
     }
 
+    /** Loads the inbox once per process; rotations reuse the retained state. */
+    fun refreshIfNeeded() {
+        if (status == InboxStatus.Loading && items.isEmpty()) refresh()
+    }
+
     fun refresh() {
         if (refreshInFlight) return
         refreshInFlight = true
@@ -75,7 +94,6 @@ class InboxState(
             try {
                 status = InboxStatus.Loading
                 errorMessage = null
-                repository.reloadSession()
 
                 if (!repository.hasCookies()) {
                     items.clear()
@@ -132,7 +150,6 @@ class InboxState(
                         }
                         loaded.copy(messages = loaded.messages + inFlight)
                     }
-                    markRead(threadId)
                 }
                 .onFailure { error ->
                     errorMessage = describeError(error)
@@ -484,29 +501,66 @@ class InboxState(
     }
 
     /**
-     * Marks the thread read up to [messageId], or the newest server message when
-     * blank. Each target is sent once; failures clear the marker so the next
-     * view or incoming message can retry. Only runs while the app is visible.
+     * Marks the thread read up to [messageId], or the newest incoming server
+     * message when blank. Bursts are coalesced: a newer target replaces the
+     * pending receipt, the receipt is sent after the burst settles, and one
+     * thread is not read more than once per [READ_MIN_INTERVAL_MS].
+     * Failures clear the marker so the next view or incoming message can retry.
      */
     fun markRead(threadId: String, messageId: String = "") {
         if (!AppVisibility.isForeground) return
         val conversation = conversation(threadId) ?: return
         if (conversation.systemFolder in READ_REQUEST_FOLDERS) return
 
-        val target = messageId.trim().ifBlank {
-            conversation.messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
+        val explicit = messageId.trim()
+        val targetMessage = if (explicit.isNotBlank()) {
+            conversation.messages.firstOrNull { it.id == explicit }
+        } else {
+            conversation.messages.lastOrNull { it.canMarkRead() }
         }
+        val target = targetMessage?.id?.takeIf { it.isNotBlank() } ?: explicit
         if (target.isBlank() || markedRead[threadId] == target) return
 
         markedRead[threadId] = target
-        scope.launch {
-            runCatching { repository.markRead(threadId, target) }
-                .onFailure {
+        readJobs.remove(threadId)?.cancel()
+
+        var sent = false
+        val job = scope.launch {
+            try {
+                delay(READ_DEBOUNCE_MS)
+                if (markedRead[threadId] != target) return@launch
+
+                val sinceLast = System.currentTimeMillis() - (lastReadAt[threadId] ?: 0L)
+                if (sinceLast < READ_MIN_INTERVAL_MS) {
+                    delay(READ_MIN_INTERVAL_MS - sinceLast)
+                }
+                if (!AppVisibility.isForeground || markedRead[threadId] != target) return@launch
+
+                val current = conversation(threadId) ?: return@launch
+                val currentTarget = current.messages.firstOrNull { it.id == target }
+                lastReadAt[threadId] = System.currentTimeMillis()
+                sent = true
+                runCatching {
+                    repository.markRead(
+                        threadId = threadId,
+                        messageId = target,
+                        longThreadId = current.longThreadId,
+                        timestampMs = currentTarget?.timestampMs ?: 0L,
+                    )
+                }.onFailure {
                     if (markedRead[threadId] == target) {
                         markedRead.remove(threadId)
                     }
                 }
+            } finally {
+                // A coalesced or deferred target was never sent, so leave it
+                // eligible for the next view or foreground transition.
+                if (!sent && markedRead[threadId] == target) {
+                    markedRead.remove(threadId)
+                }
+            }
         }
+        readJobs[threadId] = job
     }
 
     private fun applyRealtimeEvent(event: RealtimeEvent) {
@@ -525,7 +579,14 @@ class InboxState(
 
         val index = indexOfThread(event.threadId)
         if (index < 0) {
-            refresh()
+            // A thread outside the loaded page should not trigger a mailbox
+            // query for every message it receives.
+            val now = System.currentTimeMillis()
+            val last = unknownThreadRefreshAt[event.threadId] ?: 0L
+            if (now - last >= UNKNOWN_THREAD_REFRESH_MS) {
+                unknownThreadRefreshAt[event.threadId] = now
+                refresh()
+            }
             return
         }
 

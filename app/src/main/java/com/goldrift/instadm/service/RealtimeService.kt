@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -49,6 +50,12 @@ class RealtimeService : Service() {
 
     @Volatile
     private var starting = false
+
+    @Volatile
+    private var reloading = false
+
+    @Volatile
+    private var sessionCookies: String? = null
 
     @Volatile
     private var destroyed = false
@@ -83,7 +90,11 @@ class RealtimeService : Service() {
             statusText(initialStatus)
         }
         startForegroundNow(initialText)
-        requestWatch()
+        if (intent?.action == ACTION_RESTART) {
+            reloadWatchIfSessionChanged()
+        } else {
+            requestWatch()
+        }
         return START_STICKY
     }
 
@@ -107,6 +118,46 @@ class RealtimeService : Service() {
                 startWatch()
             } finally {
                 starting = false
+            }
+        }
+    }
+
+    /**
+     * The UI asks for a reload when the user presses refresh and may have
+     * replaced cookies.json. Reconnect only when the file actually changed;
+     * an unchanged file leaves the healthy watch alone.
+     */
+    private fun reloadWatchIfSessionChanged() {
+        if (reloading || destroyed) return
+        reloading = true
+        serviceScope.launch {
+            try {
+                // Let an in-flight start finish so its client and cookies are
+                // visible to this check.
+                while (starting && !destroyed) {
+                    delay(50)
+                }
+
+                val cookies = SessionStore(this@RealtimeService).readCookies()
+                if (cookies == null) {
+                    stopWatch()
+                    keepStatusOnDestroy = true
+                    RealtimeBus.setStatus(RealtimeStatus.NoSession)
+                    updateForeground(getString(R.string.realtime_no_session))
+                    Log.i(TAG, "no session file; stopping service")
+                    stopSelf()
+                    return@launch
+                }
+
+                if (client != null && cookies == sessionCookies) {
+                    Log.i(TAG, "session unchanged; keeping watch")
+                    return@launch
+                }
+
+                stopWatch()
+                requestWatch()
+            } finally {
+                reloading = false
             }
         }
     }
@@ -138,6 +189,7 @@ class RealtimeService : Service() {
                 }
             }
             watchCallback = callback
+            sessionCookies = cookies
             client = goClient
             if (destroyed) {
                 stopWatch()
@@ -160,6 +212,7 @@ class RealtimeService : Service() {
         val active = client
         client = null
         watchCallback = null
+        sessionCookies = null
         if (active != null) {
             runCatching { active.stopWatch() }
             runCatching { active.close() }
@@ -337,6 +390,7 @@ class RealtimeService : Service() {
     companion object {
         private const val TAG = "RealtimeService"
         private const val ACTION_START = "com.goldrift.instadm.action.START_REALTIME"
+        private const val ACTION_RESTART = "com.goldrift.instadm.action.RESTART_REALTIME"
         private const val ACTION_STOP = "com.goldrift.instadm.action.STOP_REALTIME"
         private const val CHANNEL_STATUS = "realtime_status"
         private const val CHANNEL_MESSAGES = "messages"
@@ -350,12 +404,13 @@ class RealtimeService : Service() {
         }
 
         /**
-         * Recreates the watch so a replaced cookies.json and its session are
-         * picked up immediately. Call this from a foreground UI action.
+         * Recreates the watch only if cookies.json changed, so a replaced
+         * session is picked up without reconnecting on every refresh tap.
+         * Call this from a foreground UI action.
          */
         fun restart(context: Context) {
-            context.stopService(Intent(context, RealtimeService::class.java))
-            start(context)
+            val intent = Intent(context, RealtimeService::class.java).setAction(ACTION_RESTART)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 }

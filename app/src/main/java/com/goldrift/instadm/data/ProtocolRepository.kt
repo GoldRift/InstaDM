@@ -17,21 +17,25 @@ private const val THREAD_PAGE_SIZE = 30
 class ProtocolRepository(private val sessionStore: SessionStore) {
     private val mutex = Mutex()
     private var client: GoClient? = null
+    private var clientCookies: String? = null
 
     suspend fun hasCookies(): Boolean = withContext(Dispatchers.IO) {
         sessionStore.readCookies() != null
     }
 
+    /** Drops the client even when the cookie file is unchanged. */
     suspend fun reloadSession() {
         mutex.withLock {
             client?.close()
             client = null
+            clientCookies = null
         }
     }
 
     fun close() {
         client?.close()
         client = null
+        clientCookies = null
     }
 
     suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(90) }
@@ -60,9 +64,18 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.sendMedia(threadId, fileName, mimeType, data, otid = otid)
     }
 
-    /** Marks the thread read up to [messageId], or to the newest message when blank. */
-    suspend fun markRead(threadId: String, messageId: String = ""): JSONObject = withClient {
-        it.markRead(threadId, messageId)
+    /**
+     * Marks the thread read up to [messageId]. The long thread ID and target
+     * timestamp come from the loaded conversation, so the Go core does not have
+     * to fetch the whole thread page again.
+     */
+    suspend fun markRead(
+        threadId: String,
+        messageId: String = "",
+        longThreadId: String = "",
+        timestampMs: Long = 0,
+    ): JSONObject = withClient {
+        it.markRead(threadId, messageId, longThreadId, timestampMs)
     }
 
     /** Adds or removes one emoji reaction on [messageId]. */
@@ -118,7 +131,15 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         mutex.withLock {
             val cookies = sessionStore.readCookies()
                 ?: error("cookies.json not found at ${sessionStore.cookieFile.absolutePath}")
-            val active = client ?: GoClient(cookies).also { client = it }
+            // Reuse the bootstrapped client until the cookie file changes. Each
+            // new client costs a page load and mailbox query.
+            val active = client?.takeIf { clientCookies == cookies } ?: run {
+                client?.close()
+                GoClient(cookies).also {
+                    client = it
+                    clientCookies = cookies
+                }
+            }
             block(active)
         }
     }

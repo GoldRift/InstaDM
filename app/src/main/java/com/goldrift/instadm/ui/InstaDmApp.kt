@@ -2,25 +2,19 @@ package com.goldrift.instadm.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.goldrift.instadm.data.MediaReader
-import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.data.RealtimeBus
-import com.goldrift.instadm.data.SessionStore
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
-import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.inbox.InboxScreen
 
 private object Routes {
@@ -35,21 +29,14 @@ private object Routes {
 @Composable
 fun InstaDmApp() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val sessionStore = remember(context) { SessionStore(context) }
-    val repository = remember(sessionStore) { ProtocolRepository(sessionStore) }
-    val mediaReader = remember(context) { MediaReader(context) }
-    val inboxState = remember(repository, scope, mediaReader) {
-        InboxState(repository, scope, mediaReader)
-    }
+    val application = context.applicationContext as InstaDmApplication
+    val sessionStore = application.sessionStore
+    val inboxState = application.inboxState
     val navController = rememberNavController()
     val realtimeStatus by RealtimeBus.status.collectAsState()
 
-    DisposableEffect(repository) {
-        onDispose { repository.close() }
-    }
     LaunchedEffect(inboxState) {
-        inboxState.refresh()
+        inboxState.refreshIfNeeded()
     }
 
     NavHost(

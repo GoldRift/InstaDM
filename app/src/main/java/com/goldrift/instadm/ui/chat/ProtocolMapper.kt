@@ -40,6 +40,9 @@ fun mapMailbox(
             threadFbid = thread.optString("thread_fbid").ifBlank {
                 previous?.threadFbid.orEmpty()
             },
+            longThreadId = thread.optString("thread_id").ifBlank {
+                previous?.longThreadId.orEmpty()
+            },
             systemFolder = thread.optString("system_folder").ifBlank {
                 previous?.systemFolder.orEmpty()
             },
@@ -53,6 +56,8 @@ fun mapThread(json: JSONObject, conversation: Conversation): Conversation {
     return conversation.copy(
         threadFbid = thread?.optString("thread_fbid").orEmpty()
             .ifBlank { conversation.threadFbid },
+        longThreadId = thread?.optString("thread_id").orEmpty()
+            .ifBlank { conversation.longThreadId },
         systemFolder = thread?.optString("system_folder").orEmpty()
             .ifBlank { conversation.systemFolder },
         messages = mapMessages(json.optJSONArray("messages")),

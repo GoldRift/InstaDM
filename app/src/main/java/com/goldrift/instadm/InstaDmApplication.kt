@@ -3,14 +3,31 @@ package com.goldrift.instadm
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.goldrift.instadm.data.MediaReader
+import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.SessionStore
+import com.goldrift.instadm.ui.chat.InboxState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 
 /**
  * Supplies the Coil image loader used for inline thumbnails. Instagram's CDN
  * expects the same browser fingerprint as the Go downloader, so every request
  * carries those headers.
+ *
+ * It also owns the process-scoped session, repository, and inbox state so a
+ * configuration change does not rebuild the Go client or refetch the inbox.
  */
 class InstaDmApplication : Application(), ImageLoaderFactory {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    val sessionStore by lazy { SessionStore(this) }
+    val repository by lazy { ProtocolRepository(sessionStore) }
+    val mediaReader by lazy { MediaReader(this) }
+    val inboxState by lazy { InboxState(repository, appScope, mediaReader) }
+
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient {
             OkHttpClient.Builder()

@@ -30,6 +30,8 @@ fun applyReadReceiptToMessages(
 
 /**
  * True when mark-read can target this message. Optimistic sends and mapped
- * messages without a server ID must not be sent to the protocol mutation.
+ * messages without a server ID must not be sent to the protocol mutation, and
+ * the viewer's own messages are already read.
  */
-fun ChatMessage.canMarkRead(): Boolean = isServerMessage()
+fun ChatMessage.canMarkRead(): Boolean =
+    sender == MessageSender.Them && isServerMessage()

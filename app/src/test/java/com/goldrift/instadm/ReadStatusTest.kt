@@ -75,13 +75,15 @@ class ReadStatusTest {
     }
 
     @Test
-    fun onlyServerMessageIDsCanBeMarkedRead() {
-        assertTrue(message("mid.\$abc", MessageSender.Me, 1).canMarkRead())
-        assertTrue(message("1234567890", MessageSender.Me, 1).canMarkRead())
-        assertFalse(message("local-123", MessageSender.Me, 1, pending = true).canMarkRead())
-        assertFalse(message("local-123", MessageSender.Me, 1).canMarkRead())
-        assertFalse(message("message-0", MessageSender.Me, 1).canMarkRead())
-        assertFalse(message("mid.\$abc", MessageSender.Me, 1, pending = true).canMarkRead())
-        assertFalse(message("", MessageSender.Me, 1).canMarkRead())
+    fun onlyIncomingServerMessagesCanBeMarkedRead() {
+        assertTrue(message("mid.\$abc", MessageSender.Them, 1).canMarkRead())
+        assertTrue(message("1234567890", MessageSender.Them, 1).canMarkRead())
+        // The viewer's own messages are already read.
+        assertFalse(message("mid.\$abc", MessageSender.Me, 1).canMarkRead())
+        assertFalse(message("local-123", MessageSender.Them, 1, pending = true).canMarkRead())
+        assertFalse(message("local-123", MessageSender.Them, 1).canMarkRead())
+        assertFalse(message("message-0", MessageSender.Them, 1).canMarkRead())
+        assertFalse(message("mid.\$abc", MessageSender.Them, 1, pending = true).canMarkRead())
+        assertFalse(message("", MessageSender.Them, 1).canMarkRead())
     }
 }

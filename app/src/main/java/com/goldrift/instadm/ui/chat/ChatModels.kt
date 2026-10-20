@@ -25,6 +25,8 @@ data class Conversation(
     val isGroup: Boolean = false,
     val messagesLoaded: Boolean = false,
     val threadFbid: String = "",
+    /** Instagram's long thread ID (`thread_id`), needed for read receipts. */
+    val longThreadId: String = "",
     val systemFolder: String = "",
     /** True while Instagram reports more messages older than [oldestCursor]. */
     val hasMoreOlder: Boolean = false,
