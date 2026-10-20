@@ -1,6 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -291,7 +292,7 @@ class InboxState(
             ?: return
         if (message.pending || !message.failed) return
         val local = message.localMedia ?: return
-        val uri = runCatching { Uri.parse(local.uri) }.getOrNull() ?: return
+        val uri = runCatching { local.uri.toUri() }.getOrNull() ?: return
 
         val otid = message.offlineThreadingId.ifBlank { OfflineThreadingIds.next() }
         updateMessage(threadId, messageId) {
@@ -550,16 +551,7 @@ class InboxState(
             messages[existingIndex] = incoming.copy(seen = messages[existingIndex].seen)
         } else {
             val pendingIndex = if (message.isFromViewer) {
-                messages.indexOfFirst { candidate ->
-                    candidate.pending && candidate.sender == MessageSender.Me &&
-                        when {
-                            message.offlineThreadingId.isNotBlank() &&
-                                candidate.offlineThreadingId.isNotBlank() ->
-                                candidate.offlineThreadingId == message.offlineThreadingId
-                            message.text.isNotBlank() -> candidate.text == message.text
-                            else -> false
-                        }
-                }
+                messages.indexOfFirst { candidate -> matchesPendingSend(candidate, message) }
             } else {
                 -1
             }

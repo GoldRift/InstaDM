@@ -50,6 +50,7 @@ class RealtimeEventTest {
               "thread_id": "thread-1",
               "message": {
                 "id": "mid.media",
+                "offline_threading_id": "7300000000000000042",
                 "text": "",
                 "kind": "image",
                 "timestamp_ms": 1700000000000,
@@ -74,6 +75,7 @@ class RealtimeEventTest {
 
         assertNotNull(event)
         val media = event!!.message!!.media
+        assertEquals("7300000000000000042", event.message!!.offlineThreadingId)
         assertEquals(2, media.size)
         assertEquals("image", media[0].type)
         assertEquals("https://cdn.example/full.jpg", media[0].fullUrl)
