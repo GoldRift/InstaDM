@@ -202,7 +202,9 @@ class RealtimeService : Service() {
                     maybeNotify(event)
                 }
 
-                "message.edit", "message.delete", "read.receipt" -> {
+                "message.edit", "message.delete", "read.receipt",
+                "reaction.add", "reaction.remove",
+                -> {
                     RealtimeBus.publish(event)
                 }
             }

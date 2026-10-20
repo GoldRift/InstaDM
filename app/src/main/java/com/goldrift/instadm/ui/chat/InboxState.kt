@@ -219,6 +219,108 @@ class InboxState(
     }
 
     /**
+     * Toggles the viewer's reaction optimistically. Instagram allows one
+     * reaction per sender, so choosing a different emoji replaces the old one.
+     */
+    fun react(threadId: String, messageId: String, emoji: String) {
+        val message = conversation(threadId)
+            ?.messages
+            ?.firstOrNull { it.id == messageId }
+            ?: return
+        if (!message.canReact()) return
+
+        val original = message.reactions.firstOrNull { it.isFromViewer }
+        val (optimistic, remove) = toggleViewerReaction(message, emoji)
+        if (optimistic === message.reactions) return
+
+        updateMessage(threadId, messageId) { it.copy(reactions = optimistic) }
+        errorMessage = null
+
+        scope.launch {
+            runCatching { repository.react(threadId, messageId, emoji, remove) }
+                .onFailure { error ->
+                    updateMessage(threadId, messageId) { current ->
+                        current.copy(
+                            reactions = restoreViewerReaction(current.reactions, original),
+                        )
+                    }
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    /** Edits one of the viewer's own messages, reverting on failure. */
+    fun edit(threadId: String, messageId: String, rawText: String) {
+        val text = rawText.trim()
+        if (text.isEmpty()) return
+
+        val message = conversation(threadId)
+            ?.messages
+            ?.firstOrNull { it.id == messageId }
+            ?: return
+        if (!message.canEdit() || message.text == text) return
+
+        val originalText = message.text
+        updateMessage(threadId, messageId) { it.copy(text = text) }
+        errorMessage = null
+
+        scope.launch {
+            runCatching { repository.edit(threadId, messageId, text) }
+                .onSuccess { result ->
+                    val serverText = result.optString("text").ifBlank { text }
+                    updateMessage(threadId, messageId) { it.copy(text = serverText) }
+                }
+                .onFailure { error ->
+                    updateMessage(threadId, messageId) { current ->
+                        if (current.text == text) current.copy(text = originalText) else current
+                    }
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    /**
+     * Removes one of the viewer's own messages for everyone. The bubble
+     * disappears immediately and is restored at its old position on failure.
+     */
+    fun unsend(threadId: String, messageId: String) {
+        val conversation = conversation(threadId) ?: return
+        val index = conversation.messages.indexOfFirst { it.id == messageId }
+        if (index < 0) return
+
+        val message = conversation.messages[index]
+        if (!message.canUnsend()) return
+
+        val remaining = conversation.messages.filterNot { it.id == messageId }
+        update(threadId) {
+            it.copy(
+                messages = remaining,
+                preview = previewFor(remaining.lastOrNull()),
+            )
+        }
+        errorMessage = null
+
+        scope.launch {
+            runCatching { repository.unsend(threadId, messageId) }
+                .onFailure { error ->
+                    update(threadId) { current ->
+                        if (current.messages.any { it.id == messageId }) {
+                            current
+                        } else {
+                            val restored = current.messages.toMutableList()
+                            restored.add(index.coerceIn(0, restored.size), message)
+                            current.copy(
+                                messages = restored,
+                                preview = previewFor(restored.lastOrNull()),
+                            )
+                        }
+                    }
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    /**
      * Marks the thread read up to [messageId], or the newest server message when
      * blank. Each target is sent once; failures clear the marker so the next
      * view or incoming message can retry. Only runs while the app is visible.
@@ -250,6 +352,7 @@ class InboxState(
             "message.edit" -> applyEdit(event)
             "message.delete" -> applyDelete(event)
             "read.receipt" -> applyReadReceipt(event)
+            "reaction.add", "reaction.remove" -> applyReactionEvent(event)
         }
     }
 
@@ -341,6 +444,26 @@ class InboxState(
         )
     }
 
+    private fun applyReactionEvent(event: RealtimeEvent) {
+        val messageID = event.message?.id.orEmpty()
+        if (event.threadId.isBlank() || messageID.isBlank() || event.reaction.isBlank()) return
+
+        val index = indexOfThread(event.threadId)
+        if (index < 0) return
+        val conversation = items[index]
+        val messages = applyReactionToMessages(
+            conversation.messages,
+            messageID,
+            event.reaction,
+            event.participantFbid,
+            event.fromViewer,
+            event.type == "reaction.remove",
+        )
+        if (messages !== conversation.messages) {
+            items[index] = conversation.copy(messages = messages)
+        }
+    }
+
     private fun applyReadReceipt(event: RealtimeEvent) {
         val watermark = event.timestampMs
         if (watermark <= 0 || event.threadId.isBlank()) return
@@ -391,6 +514,28 @@ class InboxState(
         val index = items.indexOfFirst { it.id == threadId }
         if (index >= 0) {
             items[index] = transform(items[index])
+        }
+    }
+
+    private fun updateMessage(
+        threadId: String,
+        messageId: String,
+        transform: (ChatMessage) -> ChatMessage,
+    ) {
+        update(threadId) { conversation ->
+            val index = conversation.messages.indexOfFirst { it.id == messageId }
+            if (index < 0) return@update conversation
+
+            val message = conversation.messages[index]
+            val updated = transform(message)
+            if (updated == message) return@update conversation
+
+            val messages = conversation.messages.toMutableList()
+            messages[index] = updated
+            conversation.copy(
+                messages = messages,
+                preview = previewFor(messages.lastOrNull()),
+            )
         }
     }
 

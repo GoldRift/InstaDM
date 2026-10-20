@@ -54,6 +54,26 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.markRead(threadId, messageId)
     }
 
+    /** Adds or removes one emoji reaction on [messageId]. */
+    suspend fun react(
+        threadId: String,
+        messageId: String,
+        emoji: String,
+        remove: Boolean,
+    ): JSONObject = withClient {
+        it.react(threadId, messageId, emoji, remove)
+    }
+
+    /** Replaces the text of one of the viewer's own messages. */
+    suspend fun edit(threadId: String, messageId: String, text: String): JSONObject = withClient {
+        it.edit(threadId, messageId, text)
+    }
+
+    /** Removes one of the viewer's own messages for everyone. */
+    suspend fun unsend(threadId: String, messageId: String): JSONObject = withClient {
+        it.unsend(threadId, messageId)
+    }
+
     /**
      * Downloads one attachment into the app cache and returns the local file.
      * The Go downloader re-queries the thread, so it uses a fresh signed URL

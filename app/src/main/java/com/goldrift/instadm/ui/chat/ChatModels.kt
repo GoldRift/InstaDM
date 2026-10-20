@@ -44,7 +44,15 @@ data class ChatMessage(
     val seen: Boolean = false,
     val pending: Boolean = false,
     val media: List<MessageMedia> = emptyList(),
+    val reactions: List<MessageReaction> = emptyList(),
 )
+
+/** True for a message Instagram has assigned an ID to. */
+fun ChatMessage.isServerMessage(): Boolean =
+    !pending &&
+        id.isNotBlank() &&
+        !id.startsWith("local-") &&
+        !id.startsWith("message-")
 
 /** One-line label for inbox previews; falls back to the media placeholder. */
 fun ChatMessage.previewLabel(): String = text.ifBlank {
@@ -60,7 +68,15 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("maya-1", "hey! are we still on for tonight?", MessageSender.Them, now, 18),
             message("maya-2", "absolutely. I found that little place on 5th", MessageSender.Me, now, 17, seen = true),
             message("maya-3", "the one with the string lights?", MessageSender.Them, now, 16),
-            message("maya-4", "that's the one ✨", MessageSender.Me, now, 15, seen = true),
+            message(
+                id = "maya-4",
+                text = "that's the one ✨",
+                sender = MessageSender.Me,
+                now = now,
+                minutesAgo = 15,
+                seen = true,
+                reactions = listOf(MessageReaction("❤️", isFromViewer = true)),
+            ),
             message("maya-5", "perfect. 8pm?", MessageSender.Them, now, 14),
             message("maya-6", "I'll be there", MessageSender.Me, now, 13, seen = true),
         ),
@@ -110,6 +126,7 @@ private fun message(
     now: Long,
     minutesAgo: Int,
     seen: Boolean = false,
+    reactions: List<MessageReaction> = emptyList(),
 ): ChatMessage = ChatMessage(
     id = id,
     text = text,
@@ -117,6 +134,7 @@ private fun message(
     timestamp = timeLabel(now, minutesAgo),
     timestampMs = now - minutesAgo * 60_000L,
     seen = seen,
+    reactions = reactions,
 )
 
 private fun timeLabel(now: Long, minutesAgo: Int): String =

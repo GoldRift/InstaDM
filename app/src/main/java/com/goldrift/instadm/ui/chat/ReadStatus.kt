@@ -32,8 +32,4 @@ fun applyReadReceiptToMessages(
  * True when mark-read can target this message. Optimistic sends and mapped
  * messages without a server ID must not be sent to the protocol mutation.
  */
-fun ChatMessage.canMarkRead(): Boolean =
-    !pending &&
-        id.isNotBlank() &&
-        !id.startsWith("local-") &&
-        !id.startsWith("message-")
+fun ChatMessage.canMarkRead(): Boolean = isServerMessage()

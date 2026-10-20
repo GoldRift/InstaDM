@@ -117,6 +117,23 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
             timestampMs = timestampMs,
             seen = message.optBoolean("seen"),
             media = media,
+            reactions = parseReactions(message.optJSONArray("reactions")),
+        )
+    }
+    return result
+}
+
+private fun parseReactions(reactions: JSONArray?): List<MessageReaction> {
+    if (reactions == null) return emptyList()
+    val result = ArrayList<MessageReaction>(reactions.length())
+    for (index in 0 until reactions.length()) {
+        val reaction = reactions.optJSONObject(index) ?: continue
+        val emoji = reaction.optString("emoji")
+        if (emoji.isBlank()) continue
+        result += MessageReaction(
+            emoji = emoji,
+            senderFbid = reaction.optLong("sender_fbid"),
+            isFromViewer = reaction.optBoolean("is_from_viewer"),
         )
     }
     return result

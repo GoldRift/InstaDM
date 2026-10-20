@@ -126,6 +126,47 @@ class RealtimeEventTest {
     }
 
     @Test
+    fun parsesReactionEvents() {
+        val added = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "reaction.add",
+              "thread_id": "thread-1",
+              "reaction": "❤️",
+              "participant_fbid": 222,
+              "from_viewer": false,
+              "message": { "id": "mid.1" }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(added)
+        assertEquals("reaction.add", added!!.type)
+        assertEquals("❤️", added.reaction)
+        assertEquals("mid.1", added.message!!.id)
+        assertEquals(222L, added.participantFbid)
+        assertFalse(added.fromViewer)
+
+        val removed = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "reaction.remove",
+              "thread_id": "thread-1",
+              "reaction": "👍",
+              "participant_fbid": 111,
+              "from_viewer": true,
+              "message": { "id": "mid.1" }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(removed)
+        assertEquals("reaction.remove", removed!!.type)
+        assertEquals("👍", removed.reaction)
+        assertTrue(removed.fromViewer)
+    }
+
+    @Test
     fun parsesDisconnectedEventWithoutMessage() {
         val event = RealtimeEvent.fromJson("""{"type":"disconnected","error":"socket closed"}""")
 
