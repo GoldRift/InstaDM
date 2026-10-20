@@ -1,6 +1,8 @@
 // Package mobile exposes a JSON-only, gomobile-friendly wrapper around igcore.
 // Request methods run with their own timeout; StartWatch streams JSON events on
-// a callback until StopWatch. Nothing returns cookies or bootstrap tokens.
+// a callback until StopWatch. ExportCookiesJSON is the only method that returns
+// session cookies, for encrypted persistence; bootstrap tokens are never
+// exposed.
 package mobile
 
 import (
@@ -61,6 +63,16 @@ func (c *Client) handleEvent(event igcore.Event) {
 		return
 	}
 	emitWatchEvent(callback, event)
+}
+
+// ExportCookiesJSON returns the current cookie jar as flat JSON. The app uses
+// this to persist cookies that Instagram rotated during a request.
+func (c *Client) ExportCookiesJSON() (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	return client.ExportCookiesJSON()
 }
 
 func Version() string {

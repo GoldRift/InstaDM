@@ -24,6 +24,22 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestExportCookiesJSON(t *testing.T) {
+	client, err := New(fakeCookies)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer client.Close()
+
+	exported, err := client.ExportCookiesJSON()
+	if err != nil {
+		t.Fatalf("ExportCookiesJSON: %v", err)
+	}
+	if _, err := igcore.ParseCookies([]byte(exported)); err != nil {
+		t.Errorf("exported cookies are not parseable: %v", err)
+	}
+}
+
 func TestValidationBeforeNetwork(t *testing.T) {
 	client, err := New(fakeCookies)
 	if err != nil {

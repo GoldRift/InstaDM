@@ -2,6 +2,7 @@ package igcore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -75,6 +76,33 @@ func New(cs *cookies.Cookies, options Options) (*Client, error) {
 	})
 
 	return client, nil
+}
+
+// ExportCookiesJSON returns the current cookie jar as flat JSON so the app can
+// persist values Instagram rotated during a request. The output is accepted by
+// ParseCookies. An incomplete session is refused so a failed request cannot
+// overwrite a valid stored session.
+func (c *Client) ExportCookiesJSON() (string, error) {
+	if c == nil || c.inner == nil {
+		return "", errors.New("client is not initialized")
+	}
+	cs := c.inner.GetCookies()
+	if cs == nil {
+		return "", errors.New("client has no cookies")
+	}
+	if missing := cs.GetMissingCookieNames(); len(missing) > 0 {
+		return "", fmt.Errorf("session cookies incomplete: %s", joinCookieNames(missing))
+	}
+
+	values := make(map[string]string)
+	for name, value := range cs.GetAll() {
+		values[string(name)] = value
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "", fmt.Errorf("marshal cookies: %w", err)
+	}
+	return string(data), nil
 }
 
 func (c *Client) LoadMailbox(ctx context.Context) (*MailboxView, error) {
