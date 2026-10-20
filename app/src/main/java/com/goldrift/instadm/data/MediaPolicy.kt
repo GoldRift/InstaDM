@@ -49,7 +49,6 @@ object MediaPolicy {
         "ogv" to "video/ogg",
         "mp3" to "audio/mpeg",
         "m4a" to "audio/mp4",
-        "aac" to "audio/mp4",
         "wav" to "audio/wav",
     )
 
