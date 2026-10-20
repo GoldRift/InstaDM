@@ -416,7 +416,9 @@ private fun ChatTopSection(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(R.string.chat_direct_message),
+                            text = stringResource(
+                                if (isGroup) R.string.chat_group else R.string.chat_direct_message,
+                            ),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
