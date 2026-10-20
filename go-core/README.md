@@ -347,8 +347,35 @@ A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes 
 rather than a path so Android can pass the result of reading a content URI; the Go side
 still enforces type and size limits. `DownloadMediaJSON` writes to a normal filesystem
 path, so Kotlin should pass a path under the app cache directory. Errors are returned to
-Kotlin as exceptions. The AAR build requires `gomobile` and an Android NDK; the wrapper
-itself is covered by host tests.
+Kotlin as exceptions.
+
+Build the Android AAR from the repository root:
+
+```bash
+./scripts/build-android-aar.sh
+```
+
+The script finds the newest NDK under `$ANDROID_HOME/ndk`, checks that `gomobile` is on
+`PATH`, ensures the module has the `gobind` tool directive, and writes
+`app/libs/igcore.aar`. The AAR is generated, not committed. It is consumed by
+`app/build.gradle.kts`; the app manifest requests `INTERNET`, and the release keep rules
+retain the gomobile classes.
+
+The generated Java package is `com.goldrift.instadm.core.mobile`:
+
+- `Mobile.new_(cookieJSON)` creates the client (`New` becomes `new_` because `new` is a
+  Java keyword).
+- `Mobile.version()` returns the pinned protocol version.
+- `Client.mailboxJSON(timeout)`, `threadJSON(...)`, `sendTextJSON(...)`,
+  `sendMediaJSON(...)`, `sendNewDMJSON(...)`, `editJSON(...)`, `unsendJSON(...)`,
+  `reactJSON(...)`, `markReadJSON(...)`, `muteJSON(...)`, `pinJSON(...)`, and
+  `downloadMediaJSON(...)` return JSON strings.
+- `int32` parameters become Java `int`; `[]byte` becomes `byte[]`; Go errors become
+  exceptions.
+
+The wrapper itself is covered by host tests. The Android smoke test lives in
+`app/src/androidTest` and requires a cookie file under the app's external files
+directory.
 
 ## Validation status
 
