@@ -3,6 +3,7 @@ package igcore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -266,7 +268,63 @@ func TestDownloadMediaURLHTTPError(t *testing.T) {
 	defer server.Close()
 
 	dest := filepath.Join(t.TempDir(), "forbidden.bin")
-	if _, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, MaxMediaBytes); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
-		t.Errorf("error = %v, want HTTP 403", err)
+	if _, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, MaxMediaBytes); !errors.Is(err, ErrMediaForbidden) {
+		t.Errorf("error = %v, want ErrMediaForbidden", err)
+	}
+}
+
+func TestDownloadMediaPartRefreshesForbiddenURL(t *testing.T) {
+	pngData := encodeTestPNG(t)
+	var oldHits, newHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/old":
+			oldHits.Add(1)
+			http.Error(w, "forbidden", http.StatusForbidden)
+		case "/new":
+			newHits.Add(1)
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	loads := 0
+	loader := func(ctx context.Context, threadID, messageID string) (*MessageView, error) {
+		loads++
+		path := "/old"
+		if loads > 1 {
+			path = "/new"
+		}
+		return &MessageView{
+			ID: messageID,
+			Media: []MediaView{
+				{Type: "image", URL: server.URL + path},
+			},
+		}, nil
+	}
+
+	dest := filepath.Join(t.TempDir(), "refreshed.png")
+	result, err := (&Client{}).downloadMediaPart(context.Background(), "thread-id", "message-id", 0, dest, loader)
+	if err != nil {
+		t.Fatalf("downloadMediaPart: %v", err)
+	}
+	if loads != 2 {
+		t.Errorf("loads = %d, want 2", loads)
+	}
+	if oldHits.Load() != 1 || newHits.Load() != 1 {
+		t.Errorf("hits old/new = %d/%d, want 1/1", oldHits.Load(), newHits.Load())
+	}
+	if result.URL != server.URL+"/new" {
+		t.Errorf("result URL = %q, want refreshed URL", result.URL)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if !bytes.Equal(data, pngData) {
+		t.Error("downloaded bytes differ from source")
 	}
 }

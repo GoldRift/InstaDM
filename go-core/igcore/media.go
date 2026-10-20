@@ -209,6 +209,10 @@ func maxMediaBytes(mimeType string) int64 {
 	return MaxMediaBytes
 }
 
+// ErrMediaForbidden marks a CDN response that usually means the signed URL
+// expired. Callers can refresh the message and retry once.
+var ErrMediaForbidden = errors.New("media download forbidden")
+
 type DownloadResult struct {
 	ProtocolVersion string `json:"protocol_version"`
 	ThreadID        string `json:"thread_id"`
@@ -251,22 +255,22 @@ func (c *Client) LoadMessage(ctx context.Context, threadID, messageID string) (*
 
 // DownloadMediaPart downloads one attachment from a message to destPath. The
 // attachment URL comes from a fresh thread query, so it has the current expiry.
+// If the CDN rejects the URL with 403, the thread is queried once more and the
+// download is retried with the refreshed URL.
 func (c *Client) DownloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string) (*DownloadResult, error) {
-	message, err := c.LoadMessage(ctx, threadID, messageID)
+	return c.downloadMediaPart(ctx, threadID, messageID, partIndex, destPath, c.LoadMessage)
+}
+
+type messageLoader func(ctx context.Context, threadID, messageID string) (*MessageView, error)
+
+func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID string, partIndex int, destPath string, load messageLoader) (*DownloadResult, error) {
+	message, err := load(ctx, threadID, messageID)
 	if err != nil {
 		return nil, err
 	}
-	if len(message.Media) == 0 {
-		return nil, errors.New("message has no downloadable media")
-	}
-	if partIndex < 0 || partIndex >= len(message.Media) {
-		return nil, fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
-	}
-
-	media := message.Media[partIndex]
-	mediaURL := firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
-	if mediaURL == "" {
-		return nil, errors.New("media attachment has no download URL")
+	media, mediaURL, err := selectMediaPart(message, partIndex)
+	if err != nil {
+		return nil, err
 	}
 	destPath = strings.TrimSpace(destPath)
 	if destPath == "" {
@@ -274,13 +278,40 @@ func (c *Client) DownloadMediaPart(ctx context.Context, threadID, messageID stri
 	}
 
 	result, err := downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
+	if errors.Is(err, ErrMediaForbidden) {
+		refreshed, refreshErr := load(ctx, threadID, messageID)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
+		}
+		media, mediaURL, refreshErr = selectMediaPart(refreshed, partIndex)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
+		}
+		result, err = downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	result.ThreadID = strings.TrimSpace(threadID)
 	result.MessageID = strings.TrimSpace(messageID)
 	result.PartIndex = partIndex
 	return result, nil
+}
+
+func selectMediaPart(message *MessageView, partIndex int) (MediaView, string, error) {
+	if len(message.Media) == 0 {
+		return MediaView{}, "", errors.New("message has no downloadable media")
+	}
+	if partIndex < 0 || partIndex >= len(message.Media) {
+		return MediaView{}, "", fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
+	}
+	media := message.Media[partIndex]
+	mediaURL := firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
+	if mediaURL == "" {
+		return MediaView{}, "", errors.New("media attachment has no download URL")
+	}
+	return media, mediaURL, nil
 }
 
 func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, destPath string, maxBytes int64) (*DownloadResult, error) {
@@ -296,6 +327,9 @@ func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, de
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode == http.StatusForbidden {
+		return nil, ErrMediaForbidden
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("media download returned HTTP %d", response.StatusCode)
 	}

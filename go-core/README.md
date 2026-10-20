@@ -213,8 +213,9 @@ separately.
 
 `media` lists the attachments on one message. With `--save`, it downloads the selected
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN
-URL is fresh; download URLs expire, so re-run the command instead of storing a URL
-long-term. Downloads are capped at 25 MiB and written with mode `0600`. It supports
+URL is fresh; if the CDN rejects the URL with HTTP 403, it re-queries once and retries.
+Download URLs expire, so re-run the command instead of storing a URL long-term.
+Downloads are capped at 25 MiB and written with mode `0600`. It supports
 images, video, audio, GIFs, stickers, and multi-media messages. The source bytes may be
 recompressed by the CDN, so compare decoded pixels rather than file hashes. Both listing
 and downloading search the newest 100 messages; older media messages need a paginated
@@ -240,8 +241,8 @@ included in JSON but omitted from the human output to avoid noise.
 
 ## Validation status
 
-- Build, cookie parsing, table rendering, thread normalization, and error paths are
-  covered by local tests.
+- Build, cookie parsing, table rendering, thread normalization, error paths, and the
+  one-shot refresh after a 403 media response are covered by local tests.
 - Real-account acceptance passed:
   - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
     a DM thread;
