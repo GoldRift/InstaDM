@@ -3,6 +3,7 @@ module github.com/goldrift/instadm/go-core
 go 1.27.1
 
 require (
+	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/mautrix-meta v0.2609.1-0.20261002183013-0e6bf6c054c0
 	go.mau.fi/util v0.10.2-0.20260918225449-a4c0d5b86aa8

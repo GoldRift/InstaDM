@@ -190,6 +190,59 @@ func TestPrintThreadPage(t *testing.T) {
 	}
 }
 
+func TestPrintMediaSendResult(t *testing.T) {
+	result := &igcore.MediaSendResult{
+		ProtocolVersion:    "test",
+		ThreadID:           "thread-1",
+		OfflineThreadingID: "otid-1",
+		AttachmentFBID:     "attachment-1",
+		Filename:           "photo.png",
+		MimeType:           "image/png",
+		SizeBytes:          1234,
+		MessageID:          "message-1",
+		TimestampMS:        1_700_000_000_000,
+	}
+
+	var output bytes.Buffer
+	printMediaSendResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Sent media", "thread-1", "message-1", "attachment-1", "photo.png", "image/png", "1234 bytes"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunSendMediaValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runSendMedia(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli send-media") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "empty thread", args: []string{"", "photo.png", "--cookie-header", fakeCookies}, want: "thread ID is empty"},
+		{name: "empty file", args: []string{"thread-1", "", "--cookie-header", fakeCookies}, want: "file path is empty"},
+		{name: "missing file", args: []string{"thread-1", "/definitely/missing.png", "--cookie-header", fakeCookies}, want: "media file:"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runSendMedia(test.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestPrintReactionResult(t *testing.T) {
 	added := &igcore.ReactionResult{
 		ProtocolVersion: "test",

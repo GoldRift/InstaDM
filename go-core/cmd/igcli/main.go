@@ -28,6 +28,7 @@ Usage:
   igcli mailbox --cookies <path> [flags]
   igcli thread <thread-id> --cookies <path> [flags]
   igcli send <thread-id> "<text>" --cookies <path> [flags]
+  igcli send-media <thread-id> <file> --cookies <path> [flags]
   igcli mark-read <thread-id> --cookies <path> [flags]
   igcli react <thread-id> <message-id> <emoji> --cookies <path> [flags]
   igcli watch --cookies <path> [flags]
@@ -37,6 +38,7 @@ Commands:
   mailbox    Validate the session and list DM threads
   thread     Fetch a thread and print its most recent messages
   send       Send a text message to an existing thread
+  send-media Upload and send a file to an existing thread
   mark-read  Mark a thread read up to the newest or a specific message
   react      Add or remove a reaction on a message
   watch      Connect to DGW and print realtime events until interrupted
@@ -57,6 +59,10 @@ Send flags:
   --otid <otid>           Reuse a specific offline threading ID
   --retry <n>             Retry transient failures with the same OTID (default: 0)
 
+Send-media flags:
+  --reply-to <message-id> Reply to a message ID
+  --otid <otid>           Reuse a specific offline threading ID
+
 Mark-read flags:
   --message-id <id>       Mark read up to this message (default: newest message)
 
@@ -73,8 +79,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, mark-read, and react, put all flags before or after the positional
-arguments; do not split them across both positions.
+For thread, send, send-media, mark-read, and react, put all flags before or after the
+positional arguments; do not split them across both positions.
 `
 
 func main() {
@@ -97,6 +103,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runThread(args[1:], stdout, stderr)
 	case "send":
 		return runSend(args[1:], stdout, stderr)
+	case "send-media":
+		return runSendMedia(args[1:], stdout, stderr)
 	case "mark-read":
 		return runMarkRead(args[1:], stdout, stderr)
 	case "react":
@@ -321,6 +329,78 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 		return encodeJSON(stdout, result)
 	}
 	printSendResult(stdout, result)
+	return nil
+}
+
+func runSendMedia(args []string, stdout, stderr io.Writer) error {
+	// Accept "send-media <id> <file> --flags" by moving the two leading
+	// positionals after the flags.
+	if len(args) > 2 && !strings.HasPrefix(args[0], "-") && !strings.HasPrefix(args[1], "-") {
+		args = append(append([]string{}, args[2:]...), args[0], args[1])
+	}
+
+	flags := flag.NewFlagSet("send-media", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	replyTo := flags.String("reply-to", "", "message ID to reply to")
+	otid := flags.String("otid", "", "reuse a specific offline threading ID")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 2 {
+		return errors.New(`usage: igcli send-media <thread-id> <file> --cookies <path>`)
+	}
+
+	threadID := strings.TrimSpace(flags.Arg(0))
+	filePath := strings.TrimSpace(flags.Arg(1))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+	if filePath == "" {
+		return errors.New("file path is empty")
+	}
+	if info, err := os.Stat(filePath); err != nil {
+		return fmt.Errorf("media file: %w", err)
+	} else if info.IsDir() {
+		return errors.New("media path is a directory")
+	}
+	if *otid != "" {
+		if _, err := strconv.ParseInt(*otid, 10, 64); err != nil {
+			return errors.New("--otid must be a numeric offline threading ID")
+		}
+	}
+
+	otidValue := *otid
+	if otidValue == "" {
+		otidValue = igcore.NewOTID()
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.SendMedia(ctx, threadID, filePath, *replyTo, otidValue)
+	if err != nil {
+		return describeError(err)
+	}
+
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printMediaSendResult(stdout, result)
 	return nil
 }
 
@@ -768,6 +848,19 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+func printMediaSendResult(w io.Writer, result *igcore.MediaSendResult) {
+	fmt.Fprintln(w, "Sent media")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  message id: %s\n", valueOrDash(firstNonEmpty(result.MessageID, result.ID)))
+	if result.ID != "" && result.ID != result.MessageID {
+		fmt.Fprintf(w, "  id: %s\n", result.ID)
+	}
+	fmt.Fprintf(w, "  attachment: %s\n", valueOrDash(result.AttachmentFBID))
+	fmt.Fprintf(w, "  file: %s (%s, %d bytes)\n", truncate(result.Filename, 80), valueOrDash(result.MimeType), result.SizeBytes)
+	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
+	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 }
 
 func printMarkReadResult(w io.Writer, result *igcore.MarkReadResult) {

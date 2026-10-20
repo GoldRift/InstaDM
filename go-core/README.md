@@ -1,11 +1,11 @@
 # go-core — Instagram protocol lab
 
 Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
-Instagram cookies, lists DM threads, reads recent messages, sends text, adds/removes
-reactions, marks threads read, and watches the DGW realtime stream.
+Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
+adds/removes reactions, marks threads read, and watches the DGW realtime stream.
 
-It does **not** upload or download media, implement edits/unsend, create new DMs, or
-touch the Android app. Those are later levels.
+It does **not** download media yet, implement edits/unsend, create new DMs, or touch the
+Android app. Those are later levels.
 
 ## Upstream dependency
 
@@ -110,6 +110,9 @@ go run ./cmd/igcli send <thread-id> "hello" --otid 1792364344000123 --cookies ~/
 # Retry transient failures with the same OTID
 go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instadm/cookies.json
 
+# Upload and send an image or file
+go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
+
 # Mark a thread read up to its newest message
 go run ./cmd/igcli mark-read <thread-id> --cookies ~/.config/instadm/cookies.json
 
@@ -138,8 +141,8 @@ Flags:
 | `--timeout <duration>` | Network timeout, default `90s`; bootstrap timeout for `watch` |
 | `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
 | `--after <cursor>` | `thread`: load older messages after this cursor |
-| `--reply-to <message-id>` | `send`: reply to an existing message |
-| `--otid <otid>` | `send`: reuse a specific offline threading ID |
+| `--reply-to <message-id>` | `send`, `send-media`: reply to an existing message |
+| `--otid <otid>` | `send`, `send-media`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
@@ -186,6 +189,15 @@ Permanent errors (expired session, challenge, checkpoint, rate limit) are not re
 A durable cross-process outbox belongs to the Android/Room stage, not this CLI. `send`
 only targets existing threads; new-DM creation via `recipient_igids` is deferred.
 
+`send-media` uploads a local file through the web upload endpoint, then sends the
+resulting attachment ID to an existing thread. It prints the message ID, attachment
+FBID, filename, detected MIME type, byte size, OTID, and timestamp. Images are limited
+to 8 MiB and other files to 25 MiB; these are client-side limits. MIME type is detected
+from the file contents, with an extension fallback. The upload path is image/file first;
+the Android-only video fallback for accounts that reject web video uploads is not
+implemented. Captions are not supported, matching the send mutation; send text
+separately. The `send-media` command does not download media or return CDN URLs yet.
+
 `mark-read` resolves the short thread ID to the long thread ID required by read
 receipts, selects the newest message (or `--message-id`), sends the initial read
 mutation, then sends the validation mutation with the message timestamp. It prints the
@@ -220,7 +232,10 @@ included in JSON but omitted from the human output to avoid noise.
   - `thread --after` returned the previous page's older messages, ordered
     oldest-to-newest, with the next cursor and no overlap;
   - `react` added and removed a reaction, and `watch` reported matching
-    `reaction.add`/`reaction.remove` deltas.
+    `reaction.add`/`reaction.remove` deltas;
+  - `send-media` uploaded a generated PNG and sent it; the returned message ID and OTID
+    matched the `message.new` watch delta, which reported `kind=image` and
+    `media_count=1`.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,
