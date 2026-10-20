@@ -73,6 +73,7 @@ fun InstaDmApp() {
                     RealtimeService.start(context)
                     navController.navigate(Routes.Inbox) {
                         popUpTo(Routes.Login) { inclusive = true }
+                        launchSingleTop = true
                     }
                 },
             )
