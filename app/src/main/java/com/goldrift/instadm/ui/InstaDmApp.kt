@@ -97,6 +97,9 @@ fun InstaDmApp() {
                     },
                     isLoading = inboxState.isLoading(threadId),
                     errorMessage = inboxState.errorMessage,
+                    onLoadMedia = { mediaThreadId, messageId, partIndex, mediaType ->
+                        inboxState.downloadMedia(mediaThreadId, messageId, partIndex, mediaType)
+                    },
                 )
             }
         }

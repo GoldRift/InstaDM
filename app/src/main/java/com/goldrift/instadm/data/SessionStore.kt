@@ -19,6 +19,10 @@ class SessionStore(context: Context) {
     val cookieFile: File
         get() = File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "cookies.json")
 
+    /** App-private cache for downloaded media. Safe to clear at any time. */
+    val mediaCacheDir: File
+        get() = File(appContext.cacheDir, "media").apply { mkdirs() }
+
     fun readCookies(): String? = runCatching {
         cookieFile
             .takeIf { it.isFile }

@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -38,6 +39,51 @@ class RealtimeEventTest {
         assertEquals(42L, event.seqId)
         assertFalse(event.message!!.isFromViewer)
         assertEquals("hello", event.message.text)
+    }
+
+    @Test
+    fun parsesMediaAttachments() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "message.new",
+              "thread_id": "thread-1",
+              "message": {
+                "id": "mid.media",
+                "text": "",
+                "kind": "image",
+                "timestamp_ms": 1700000000000,
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.example/full.jpg",
+                    "preview_url": "https://cdn.example/preview.jpg",
+                    "width": 800,
+                    "height": 600
+                  },
+                  {
+                    "type": "video",
+                    "url": "https://cdn.example/clip.mp4",
+                    "duration_ms": 4200
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        val media = event!!.message!!.media
+        assertEquals(2, media.size)
+        assertEquals("image", media[0].type)
+        assertEquals("https://cdn.example/full.jpg", media[0].fullUrl)
+        assertEquals("https://cdn.example/preview.jpg", media[0].thumbnailUrl)
+        assertEquals(800, media[0].width)
+        assertEquals(600, media[0].height)
+        assertEquals(0, media[0].partIndex)
+        assertTrue(media[1].isVideo)
+        assertEquals(1, media[1].partIndex)
+        assertEquals(4200, media[1].durationMs)
     }
 
     @Test

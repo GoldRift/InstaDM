@@ -1,6 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
-import com.goldrift.instadm.data.messagePreview
+import com.goldrift.instadm.data.messagePlaceholder
+import com.goldrift.instadm.data.parseMedia
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -52,9 +53,12 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
         val message = messages.optJSONObject(index) ?: continue
         val kind = message.optString("kind")
         val timestampMs = message.optLong("timestamp_ms")
+        val media = parseMedia(message.optJSONArray("media"))
         result += ChatMessage(
             id = message.optString("id").ifBlank { "message-$index" },
-            text = messagePreview(message.optString("text"), kind),
+            text = message.optString("text").ifBlank {
+                if (media.isEmpty()) messagePlaceholder(kind) else ""
+            },
             sender = if (message.optBoolean("is_from_viewer")) {
                 MessageSender.Me
             } else {
@@ -62,6 +66,7 @@ private fun mapMessages(messages: JSONArray?): List<ChatMessage> {
             },
             timestamp = formatMessageTime(timestampMs),
             timestampMs = timestampMs,
+            media = media,
         )
     }
     return result

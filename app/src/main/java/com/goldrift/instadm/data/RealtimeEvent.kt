@@ -26,6 +26,7 @@ data class RealtimeEvent(
                     isFromViewer = payload.optBoolean("is_from_viewer"),
                     timestampMs = payload.optLong("timestamp_ms"),
                     kind = payload.optString("kind"),
+                    media = parseMedia(payload.optJSONArray("media")),
                 )
             }
 
@@ -49,6 +50,7 @@ data class RealtimeMessage(
     val isFromViewer: Boolean,
     val timestampMs: Long,
     val kind: String,
+    val media: List<MessageMedia> = emptyList(),
 )
 
 enum class RealtimeStatus { Stopped, Connecting, Connected, Reconnecting, NoSession, Error }

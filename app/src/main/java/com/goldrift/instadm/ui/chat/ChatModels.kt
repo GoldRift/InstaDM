@@ -1,5 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
+import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.messagePlaceholder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,7 +34,13 @@ data class ChatMessage(
     val timestampMs: Long = 0,
     val seen: Boolean = false,
     val pending: Boolean = false,
+    val media: List<MessageMedia> = emptyList(),
 )
+
+/** One-line label for inbox previews; falls back to the media placeholder. */
+fun ChatMessage.previewLabel(): String = text.ifBlank {
+    media.firstOrNull()?.let { messagePlaceholder(it.type) } ?: ""
+}
 
 /** Fixed demo conversations used by Compose previews. */
 fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversation> = listOf(

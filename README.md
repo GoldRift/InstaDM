@@ -7,8 +7,9 @@ An Android Instagram DM client built around a Go protocol core.
   download, mute/pin, new DMs, a durable outbox, and DGW realtime watch. See
   [`go-core/README.md`](go-core/README.md).
 - [`app/`](app/) — Android Jetpack Compose app. It embeds the Go core through the
-  generated `igcore.aar`, loads the real inbox and threads, sends text, and keeps a
-  realtime watch alive in a foreground service.
+  generated `igcore.aar`, loads the real inbox and threads, sends text, renders
+  inline image/video attachments, and keeps a realtime watch alive in a foreground
+  service.
 
 ## Build
 
@@ -41,6 +42,9 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 
 The inbox loads the mailbox from the Go core. Opening a thread fetches its newest
 20 messages; sending text appends the server message after the mutation succeeds.
+Image, GIF, sticker, and video attachments render inline. Tapping an attachment
+opens a full-screen viewer; it downloads the original through the Go core into the
+app cache (so expired thumbnail URLs still work) and plays videos with Media3.
 Use the refresh button after replacing the cookie file. If the file is missing, the
 app shows the exact path it expects.
 
@@ -79,9 +83,10 @@ adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.Androi
 
 The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read, mute/pin, new DMs, reconnect backoff, and a durable send outbox. The
-Android inbox and chat load real mailbox/thread JSON, send text through the AAR, and
-apply realtime events from a foreground watch service. Media rendering, older-message
-paging in the UI, and an in-app session screen are next.
+Android inbox and chat load real mailbox/thread JSON, send text through the AAR,
+apply realtime events from a foreground watch service, and render inline media with
+full-screen image and video viewers. Older-message paging in the UI and an in-app
+session screen are next.
 
 ## License
 

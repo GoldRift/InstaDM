@@ -5,6 +5,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 
 /**
  * Serializes calls into the Go client and owns its lifetime. The Go side keeps
@@ -40,6 +41,35 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.sendText(threadId, text)
     }
 
+    /**
+     * Downloads one attachment into the app cache and returns the local file.
+     * The Go downloader re-queries the thread, so it uses a fresh signed URL
+     * even when the inline thumbnail URL has expired.
+     */
+    suspend fun downloadMedia(
+        threadId: String,
+        messageId: String,
+        partIndex: Int,
+        mediaType: String,
+    ): File = withClient {
+        val cacheDir = sessionStore.mediaCacheDir
+        val baseName = "${safeName(threadId)}_${safeName(messageId)}_$partIndex"
+        cachedMedia(cacheDir, baseName)?.let { return@withClient it }
+
+        val temp = File(cacheDir, "$baseName.download")
+        temp.delete()
+        val result = it.downloadMedia(threadId, messageId, partIndex, temp.absolutePath)
+        val target = File(
+            cacheDir,
+            "$baseName.${extensionFor(result.optString("mime_type"), mediaType)}",
+        )
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        target
+    }
+
     private suspend fun <T> withClient(block: (GoClient) -> T): T = withContext(Dispatchers.IO) {
         mutex.withLock {
             val cookies = sessionStore.readCookies()
@@ -48,4 +78,25 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
             block(active)
         }
     }
+
+    private fun cachedMedia(directory: File, baseName: String): File? =
+        directory.listFiles()
+            ?.firstOrNull { file ->
+                file.isFile &&
+                    file.length() > 0 &&
+                    file.name.startsWith("$baseName.") &&
+                    !file.name.endsWith(".download")
+            }
+
+    private fun extensionFor(mimeType: String, mediaType: String): String = when {
+        mimeType.startsWith("video/") || mediaType == "video" -> "mp4"
+        mimeType == "image/gif" -> "gif"
+        mimeType == "image/webp" -> "webp"
+        mimeType == "image/png" -> "png"
+        mimeType.startsWith("image/") || mediaType == "image" -> "jpg"
+        else -> "bin"
+    }
+
+    private fun safeName(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
 }

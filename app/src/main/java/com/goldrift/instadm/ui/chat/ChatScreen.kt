@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -65,8 +66,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import java.io.File
 
 private val OutgoingBubbleShape = RoundedCornerShape(
     topStart = 24.dp,
@@ -91,9 +94,11 @@ fun ChatScreen(
     isTyping: Boolean = false,
     isLoading: Boolean = false,
     errorMessage: String? = null,
+    onLoadMedia: (suspend (threadId: String, messageId: String, partIndex: Int, mediaType: String) -> File)? = null,
 ) {
     val messages = conversation.messages
     var draft by remember { mutableStateOf("") }
+    var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
     val listState = rememberLazyListState()
 
     fun sendMessage() {
@@ -175,11 +180,23 @@ fun ChatScreen(
                         contactInitials = conversation.contact.initials,
                         isTyping = isTyping,
                         listState = listState,
+                        onOpenMedia = { messageId, media ->
+                            viewerTarget = MediaViewerTarget(messageId, media)
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
         }
+    }
+
+    viewerTarget?.let { target ->
+        MediaViewerDialog(
+            threadId = conversation.id,
+            target = target,
+            loadMedia = onLoadMedia,
+            onDismiss = { viewerTarget = null },
+        )
     }
 }
 
@@ -240,6 +257,7 @@ private fun MessageList(
     contactInitials: String,
     isTyping: Boolean,
     listState: LazyListState,
+    onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val reversed = messages.asReversed()
@@ -274,6 +292,7 @@ private fun MessageList(
                 message = message,
                 contactInitials = contactInitials,
                 showAvatar = showAvatar,
+                onOpenMedia = { media -> onOpenMedia(message.id, media) },
                 modifier = Modifier.animateItem(),
             )
         }
@@ -289,6 +308,7 @@ private fun MessageRow(
     message: ChatMessage,
     contactInitials: String,
     showAvatar: Boolean,
+    onOpenMedia: (MessageMedia) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
@@ -327,10 +347,9 @@ private fun MessageRow(
                     MaterialTheme.colorScheme.onSurface
                 },
             ) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                MessageBubbleContent(
+                    message = message,
+                    onOpenMedia = onOpenMedia,
                 )
             }
 
@@ -367,6 +386,39 @@ private fun MessageRow(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MessageBubbleContent(
+    message: ChatMessage,
+    onOpenMedia: (MessageMedia) -> Unit,
+) {
+    val media = message.media.filter { it.isVisual }
+    Column(
+        modifier = Modifier.padding(
+            horizontal = if (media.isEmpty()) 14.dp else 4.dp,
+            vertical = if (media.isEmpty()) 9.dp else 4.dp,
+        ),
+    ) {
+        media.forEachIndexed { index, item ->
+            if (index > 0) Spacer(Modifier.height(4.dp))
+            MediaThumbnail(
+                media = item,
+                onClick = { onOpenMedia(item) },
+            )
+        }
+
+        if (message.text.isNotBlank()) {
+            Text(
+                text = message.text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(
+                    horizontal = if (media.isEmpty()) 0.dp else 10.dp,
+                    vertical = if (media.isEmpty()) 0.dp else 6.dp,
+                ),
+            )
         }
     }
 }

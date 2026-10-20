@@ -8,6 +8,11 @@
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_message_hint">Message…</string>
     <string name="chat_send">Send message</string>
+    <string name="chat_media_open">Open media</string>
+    <string name="chat_media_close">Close</string>
+    <string name="chat_media_unavailable">Media unavailable</string>
+    <string name="chat_media_error">Couldn\'t load media</string>
+    <string name="chat_video_play">Play video</string>
     <string name="inbox_you_prefix">You: %1$s</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_refresh">Refresh</string>

@@ -9,10 +9,11 @@ import androidx.compose.runtime.setValue
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
-import com.goldrift.instadm.data.messagePreview
+import com.goldrift.instadm.data.messagePlaceholder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
@@ -194,10 +195,13 @@ class InboxState(
             ?: System.currentTimeMillis()
         val incoming = ChatMessage(
             id = message.id,
-            text = messagePreview(message.text, message.kind),
+            text = message.text.ifBlank {
+                if (message.media.isEmpty()) messagePlaceholder(message.kind) else ""
+            },
             sender = if (message.isFromViewer) MessageSender.Me else MessageSender.Them,
             timestamp = formatMessageTime(timestamp),
             timestampMs = timestamp,
+            media = message.media,
         )
 
         val conversation = items[index]
@@ -288,10 +292,18 @@ class InboxState(
         items[index] = conversation.copy(messages = messages)
     }
 
+    /** Downloads an attachment through the Go client into the app cache. */
+    suspend fun downloadMedia(
+        threadId: String,
+        messageId: String,
+        partIndex: Int,
+        mediaType: String,
+    ): File = repository.downloadMedia(threadId, messageId, partIndex, mediaType)
+
     private fun previewFor(message: ChatMessage?): String = when {
         message == null -> ""
-        message.sender == MessageSender.Me -> "You: ${message.text}"
-        else -> message.text
+        message.sender == MessageSender.Me -> "You: ${message.previewLabel()}"
+        else -> message.previewLabel()
     }
 
     private fun resortConversations() {
