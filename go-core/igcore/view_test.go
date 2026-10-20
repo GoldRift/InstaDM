@@ -39,8 +39,8 @@ func TestNewMailboxView(t *testing.T) {
 							LastActivityTimestampMS: timestamp,
 							IsMuted:                 &muted,
 							Users: []*slidetypes.User{
-								{ID: "ig-other", InteropMessagingUserFBID: 222, Username: "other", FullName: "Other Person"},
-								{ID: "ig-viewer", InteropMessagingUserFBID: 111, Username: "me", FullName: "Me"},
+								{ID: "ig-other", InteropMessagingUserFBID: 222, Username: "other", FullName: "Other Person", ProfilePicURL: "https://cdn.example.invalid/other.jpg"},
+								{ID: "ig-viewer", InteropMessagingUserFBID: 111, Username: "me", FullName: "Me", ProfilePicURL: "https://cdn.example.invalid/me.jpg"},
 							},
 						},
 					},
@@ -80,6 +80,9 @@ func TestNewMailboxView(t *testing.T) {
 	}
 	if !thread.IsMuted {
 		t.Error("is_muted = false, want true")
+	}
+	if thread.AvatarURL != "https://cdn.example.invalid/other.jpg" {
+		t.Errorf("avatar_url = %q, want the other participant's picture", thread.AvatarURL)
 	}
 }
 
@@ -431,5 +434,84 @@ func TestNewThreadViewKeepsGroupTitle(t *testing.T) {
 	}
 	if len(view.Participants) != 2 {
 		t.Errorf("participants = %d, want 2", len(view.Participants))
+	}
+}
+
+func TestNewThreadViewExposesParticipantAvatars(t *testing.T) {
+	thread := &slidetypes.ThreadInfo{
+		ID:            "group-id",
+		ThreadTitle:   "Weekend plans",
+		ThreadSubtype: slidetypes.ThreadSubtypeGroup,
+		IsGroup:       true,
+		Users: []*slidetypes.User{
+			{ID: "ig-me", InteropMessagingUserFBID: 999, FullName: "Me", ProfilePicURL: "https://cdn/me.jpg"},
+			{ID: "ig-a", InteropMessagingUserFBID: 1, FullName: "Alice", ProfilePicURL: "https://cdn/a.jpg"},
+			{ID: "ig-b", InteropMessagingUserFBID: 2, FullName: "Bob"},
+		},
+	}
+
+	view := newThreadView(thread, 999)
+
+	if view.AvatarURL != "" {
+		t.Errorf("group avatar = %q, want empty without a custom image", view.AvatarURL)
+	}
+	if view.Participants[0].AvatarURL != "https://cdn/me.jpg" || !view.Participants[0].IsViewer {
+		t.Errorf("viewer participant = %+v, want own avatar and is_viewer", view.Participants[0])
+	}
+	if view.Participants[1].AvatarURL != "https://cdn/a.jpg" || view.Participants[1].IsViewer {
+		t.Errorf("other participant = %+v, want avatar and not is_viewer", view.Participants[1])
+	}
+}
+
+func TestNewThreadViewGroupUsesCustomImage(t *testing.T) {
+	thread := &slidetypes.ThreadInfo{
+		ID:             "group-id",
+		ThreadSubtype:  slidetypes.ThreadSubtypeGroup,
+		IsGroup:        true,
+		ThreadImageURL: "https://cdn/group.jpg",
+	}
+
+	view := newThreadView(thread, 999)
+
+	if view.AvatarURL != "https://cdn/group.jpg" {
+		t.Errorf("group avatar = %q, want the custom thread image", view.AvatarURL)
+	}
+}
+
+func TestNewThreadViewDirectAvatarSkipsViewer(t *testing.T) {
+	thread := &slidetypes.ThreadInfo{
+		ID:            "dm-id",
+		ThreadSubtype: slidetypes.ThreadSubtypeDirect,
+		Users: []*slidetypes.User{
+			{ID: "ig-other", InteropMessagingUserFBID: 222, FullName: "Other", ProfilePicURL: "https://cdn/other.jpg"},
+			{ID: "ig-me", InteropMessagingUserFBID: 111, FullName: "Me", ProfilePicURL: "https://cdn/me.jpg"},
+		},
+	}
+
+	view := newThreadView(thread, 111)
+
+	if view.AvatarURL != "https://cdn/other.jpg" {
+		t.Errorf("direct avatar = %q, want the other participant's picture", view.AvatarURL)
+	}
+	if view.Participants[1].IsViewer != true || view.Participants[0].IsViewer != false {
+		t.Errorf("participants = %+v, want only fbid 111 marked as viewer", view.Participants)
+	}
+}
+
+func TestNewThreadViewDirectAvatarWithoutViewerID(t *testing.T) {
+	thread := &slidetypes.ThreadInfo{
+		ID: "dm-id",
+		Users: []*slidetypes.User{
+			{ID: "ig-other", InteropMessagingUserFBID: 222, ProfilePicURL: "https://cdn/other.jpg"},
+		},
+	}
+
+	view := newThreadView(thread, 0)
+
+	if view.AvatarURL != "https://cdn/other.jpg" {
+		t.Errorf("direct avatar = %q, want the only participant's picture", view.AvatarURL)
+	}
+	if view.Participants[0].IsViewer {
+		t.Error("is_viewer = true without a known viewer FBID")
 	}
 }

@@ -18,12 +18,14 @@
       "subtype": "IG_ONLY_ONE_TO_ONE",
       "is_group": false,
       "title": "Test Participant",
+      "avatar_url": "https://cdn.example.invalid/test_participant.jpg",
       "participants": [
         {
           "ig_id": "200000000000000",
           "fbid": 200000000000000,
           "username": "test_participant",
-          "name": "Test Participant"
+          "name": "Test Participant",
+          "avatar_url": "https://cdn.example.invalid/test_participant.jpg"
         }
       ],
       "last_activity_ms": 1700000000000,

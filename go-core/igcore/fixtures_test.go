@@ -25,6 +25,11 @@ func TestRedactedFixturesUnmarshal(t *testing.T) {
 	if mailbox.Threads[0].ID == "" || mailbox.Threads[0].Title == "" {
 		t.Error("mailbox fixture thread is missing ID or title")
 	}
+	if mailbox.Threads[0].AvatarURL == "" ||
+		len(mailbox.Threads[0].Participants) == 0 ||
+		mailbox.Threads[0].Participants[0].AvatarURL == "" {
+		t.Error("mailbox fixture thread is missing avatar metadata")
+	}
 
 	threadData, err := os.ReadFile(filepath.Join("..", "fixtures", "thread.redacted.json"))
 	if err != nil {
@@ -54,5 +59,8 @@ func TestRedactedFixturesUnmarshal(t *testing.T) {
 	}
 	if !thread.HasMoreOlder || thread.OldestCursor == "" {
 		t.Error("thread fixture is missing pagination metadata")
+	}
+	if thread.Thread.AvatarURL == "" || thread.Thread.Participants[0].AvatarURL == "" {
+		t.Error("thread fixture is missing avatar metadata")
 	}
 }

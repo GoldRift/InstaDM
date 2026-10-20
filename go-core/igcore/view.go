@@ -33,20 +33,27 @@ type ViewerView struct {
 }
 
 type ParticipantView struct {
-	IGID     string `json:"ig_id"`
-	FBID     int64  `json:"fbid"`
-	Username string `json:"username"`
-	Name     string `json:"name"`
+	IGID      string `json:"ig_id"`
+	FBID      int64  `json:"fbid"`
+	Username  string `json:"username"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	// IsViewer marks the logged-in account when Instagram includes it in the
+	// participant list. The app excludes it from group avatar collages.
+	IsViewer bool `json:"is_viewer,omitempty"`
 }
 
 type ThreadView struct {
-	ID             string            `json:"id"`
-	ThreadFBID     string            `json:"thread_fbid"`
-	ThreadID       string            `json:"thread_id"`
-	ThreadKey      int64             `json:"thread_key"`
-	Subtype        string            `json:"subtype"`
-	IsGroup        bool              `json:"is_group"`
-	Title          string            `json:"title"`
+	ID         string `json:"id"`
+	ThreadFBID string `json:"thread_fbid"`
+	ThreadID   string `json:"thread_id"`
+	ThreadKey  int64  `json:"thread_key"`
+	Subtype    string `json:"subtype"`
+	IsGroup    bool   `json:"is_group"`
+	Title      string `json:"title"`
+	// AvatarURL is the conversation photo: the group's custom image, or, for a
+	// one-to-one thread, the other person's profile picture.
+	AvatarURL      string            `json:"avatar_url,omitempty"`
 	Participants   []ParticipantView `json:"participants"`
 	LastActivityMS int64             `json:"last_activity_ms"`
 	Folder         string            `json:"folder,omitempty"`
@@ -113,18 +120,47 @@ func newThreadView(thread *slidetypes.ThreadInfo, ownFBID int64) ThreadView {
 			continue
 		}
 		view.Participants = append(view.Participants, ParticipantView{
-			IGID:     user.ID,
-			FBID:     user.InteropMessagingUserFBID,
-			Username: user.Username,
-			Name:     user.FullName,
+			IGID:      user.ID,
+			FBID:      user.InteropMessagingUserFBID,
+			Username:  user.Username,
+			Name:      user.FullName,
+			AvatarURL: user.ProfilePicURL,
+			IsViewer:  ownFBID != 0 && user.InteropMessagingUserFBID == ownFBID,
 		})
 	}
+
+	view.AvatarURL = threadAvatarURL(thread, view.Participants, ownFBID)
 
 	if view.Title == "" {
 		view.Title = displayTitle(view.Participants, ownFBID)
 	}
 
 	return view
+}
+
+// threadAvatarURL picks the conversation photo. Groups use the custom thread
+// image, which Instagram leaves empty until someone uploads one; the app then
+// composes a collage from the participant avatars. Direct threads have no
+// thread image, so use the other person's profile picture.
+func threadAvatarURL(thread *slidetypes.ThreadInfo, participants []ParticipantView, ownFBID int64) string {
+	if thread.IsGroup {
+		return thread.ThreadImageURL
+	}
+	for _, participant := range participants {
+		if ownFBID != 0 && participant.FBID == ownFBID {
+			continue
+		}
+		if participant.AvatarURL != "" {
+			return participant.AvatarURL
+		}
+	}
+	// Self threads and responses without a viewer ID still deserve an avatar.
+	for _, participant := range participants {
+		if participant.AvatarURL != "" {
+			return participant.AvatarURL
+		}
+	}
+	return ""
 }
 
 func displayTitle(participants []ParticipantView, ownFBID int64) string {
