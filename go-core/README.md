@@ -1,7 +1,8 @@
 # go-core — Instagram protocol lab
 
-Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
-Instagram cookies, lists DM threads, reads recent messages, sends text and images/files,
+The desktop protocol lab for the Instagram DM implementation: a CLI that validates
+exported Instagram cookies, lists DM threads, reads recent messages, sends text and
+images/files,
 adds/removes reactions, edits and unsends messages, marks threads read, downloads
 attachments, mutes/pins threads, starts new DMs by recipient FBID, persists pending
 sends in a local outbox, and watches the DGW realtime stream.
