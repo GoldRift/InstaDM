@@ -1,0 +1,16 @@
+# Real Instagram cookies must never be committed.
+# Keep the tracked example at testdata/example-cookies.json so it does not
+# match this pattern.
+cookies*.json
+*.cookies
+
+# Local, unredacted response captures.
+fixtures/local/
+
+# Only explicitly redacted fixtures are tracked.
+fixtures/*.json
+!fixtures/mailbox.redacted.json
+!fixtures/thread.redacted.json
+
+# Local build output.
+/igcli

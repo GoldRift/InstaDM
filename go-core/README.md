@@ -1,0 +1,193 @@
+# go-core — Instagram protocol lab
+
+Levels 1–3 of the Instagram DM implementation: a desktop CLI that validates exported
+Instagram cookies, lists DM threads, reads recent messages, sends text, and watches the
+DGW realtime stream.
+
+It does **not** upload or download media, implement reactions/edits/unsend, create new
+DMs, or touch the Android app. Those are later levels.
+
+## Upstream dependency
+
+The protocol implementation comes from
+[`go.mau.fi/mautrix-meta`](https://github.com/mautrix/meta), pinned to a specific
+upstream commit:
+
+```text
+v0.2609.1-0.20261002183013-0e6bf6c054c0
+```
+
+`mautrix-meta` is AGPL-3.0. If this code is distributed, the corresponding source and
+license notices must be provided.
+
+The upstream module pins a patched `req` fork. Go ignores `replace` directives from
+dependency modules, so `go.mod` repeats that replacement explicitly. Do not remove it;
+without it, stock `req` fails to compile against the pinned `quic-go` version.
+
+## Requirements
+
+- Go 1.27.1 or newer
+- A secondary Instagram account. Do not test with a primary account.
+- Cookies exported from a browser session logged in to `instagram.com`.
+
+## Cookie export
+
+The CLI accepts any of these formats:
+
+1. Flat JSON:
+
+   ```json
+   {
+     "sessionid": "...",
+     "csrftoken": "...",
+     "ds_user_id": "123456789",
+     "mid": "...",
+     "ig_did": "...",
+     "rur": "...",
+     "shbid": "...",
+     "shbts": "..."
+   }
+   ```
+
+2. A Cookie-Editor style JSON array (`[{"name": "...", "value": "..."}]`).
+
+3. A raw `Cookie` header:
+
+   ```text
+   sessionid=...; csrftoken=...; ds_user_id=...
+   ```
+
+Required cookies are `sessionid`, `csrftoken`, and `ds_user_id`. The optional routing
+cookies should be included when the exporter provides them.
+
+Store real cookie files outside this repository, for example:
+
+```text
+~/.config/instadm/cookies.json
+```
+
+with permissions `0600`. `cookies*.json` is gitignored. The tracked example is
+`testdata/example-cookies.json` and contains placeholders only. The CLI never prints
+cookie values; keep `--log-level debug` off when sharing output, because the upstream
+library is more verbose at that level.
+
+## Usage
+
+```bash
+cd go-core
+
+# List DM threads
+go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json
+
+# Machine-readable output for a fixture
+go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json --json > /tmp/mailbox.json
+
+# Paste a Cookie header directly
+go run ./cmd/igcli mailbox --cookie-header "sessionid=...; csrftoken=...; ds_user_id=..."
+
+# Read cookies from stdin
+cat ~/.config/instadm/cookies.json | go run ./cmd/igcli mailbox --cookies -
+
+# Read the newest 20 messages in a thread
+# Use the short "id" field from mailbox --json as the thread ID.
+go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json
+
+# Read a smaller page
+go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json --limit 5
+
+# Machine-readable thread output
+go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json --json > /tmp/thread.json
+
+# Send a text message to an existing thread
+go run ./cmd/igcli send <thread-id> "hello from igcli" --cookies ~/.config/instadm/cookies.json
+
+# Send with an explicit OTID (for retries/reconciliation)
+go run ./cmd/igcli send <thread-id> "hello" --otid 1792364344000123 --cookies ~/.config/instadm/cookies.json
+
+# Watch DGW events until Ctrl-C
+go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
+
+# Watch for 30 seconds, only one thread, machine-readable NDJSON
+go run ./cmd/igcli watch --duration 30s --thread <thread-id> --json --cookies ~/.config/instadm/cookies.json
+```
+
+Flags:
+
+| Flag | Description |
+|---|---|
+| `--cookies <path>` | Cookie file, or `-` for stdin |
+| `--cookie-header <raw>` | Raw Cookie header |
+| `--json` | Normalized JSON instead of a table |
+| `--log-level <level>` | `error`, `warn` (default), `info`, `debug` |
+| `--timeout <duration>` | Network timeout, default `90s`; bootstrap timeout for `watch` |
+| `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
+| `--reply-to <message-id>` | `send`: reply to an existing message |
+| `--otid <otid>` | `send`: reuse a specific offline threading ID |
+| `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
+| `--thread <thread-id>` | `watch`: only print events for this thread |
+
+`IG_COOKIES` may contain a raw header or JSON cookie input instead of passing a flag.
+
+For the `thread` command, flags may be placed before or after `<thread-id>`, but do not
+split them across both positions (the Go flag parser stops at the first positional
+argument).
+
+## What the output contains
+
+The default table shows the viewer, `seq_id`, and one row per thread: short thread ID,
+thread FBID, title, last activity, folder, and flags (`unread`, `muted`, `pinned`,
+`group`).
+
+`--json` adds the long thread ID, thread key, subtype, and participants. The output
+contains no cookies or bootstrap tokens, but it still contains account and contact
+metadata (names, usernames, thread IDs). Treat fixture files as personal data and keep
+them out of version control unless they have been redacted.
+
+The `thread` table shows the thread metadata followed by one row per message: local
+timestamp, sender (`me` for your own messages), content kind, and text. Messages are
+printed oldest-to-newest. Media is represented as `[image]`, `[video]`, `[sticker]`, and
+so on; Level 2 does not download attachments or print CDN URLs. `--json` adds message
+IDs, offline threading IDs, sender FBIDs, and `has_more_older`/`oldest_cursor` for the
+next pagination step.
+
+One ID detail: the viewer's `fbid` in the mailbox is the profile ID from
+`PolarisViewer`, while message senders use the internal EIMU ID. `is_from_viewer` uses
+the EIMU ID, so the two numbers can differ for the same account.
+
+The `send` result includes the thread ID, canonical message ID, OTID, timestamp, and the
+sent text. Keep the OTID if a send times out; re-running with the same `--otid` is safer
+than generating a new one. Level 3 does not implement a durable outbox or automatic
+retries, and `send` only targets existing threads; new-DM creation via `recipient_igids`
+is deferred.
+
+The `watch` human output prints connection state, new messages, edits, deletes,
+reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). Message
+text is included in both forms, so treat watch output as sensitive. `seq_id` events are
+included in JSON but omitted from the human output to avoid noise.
+
+## Validation status
+
+- Build, cookie parsing, table rendering, thread normalization, and error paths are
+  covered by local tests.
+- Real-account acceptance passed:
+  - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
+    a DM thread;
+  - `thread` returned 20 messages with IDs, OTIDs, timestamps, and sender metadata, in
+    oldest-to-newest order, with `has_more_older=true`;
+  - `watch` connected to DGW and reported `connected` with a sequence ID;
+  - `send` returned a canonical message ID, OTID, and timestamp, and the DGW echo
+    arrived as `message.new` with matching message ID and OTID.
+- Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
+  `0600`.
+- `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,
+  redacted samples of the normalized shapes. Do not add unredacted captures under
+  `fixtures/`; the `.gitignore` only tracks these two files.
+
+## Development
+
+```bash
+cd go-core
+go build ./...
+go vet ./...
+go test ./...
+```

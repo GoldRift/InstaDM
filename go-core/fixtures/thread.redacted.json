@@ -1,0 +1,61 @@
+{
+  "protocol_version": "mautrix-meta@0e6bf6c054c0675176a93ee168333355fbd6a372",
+  "thread": {
+    "id": "1234567890",
+    "thread_fbid": "1234567890",
+    "thread_id": "100000000000000000000000000000000000001",
+    "thread_key": 200000000000000,
+    "subtype": "IG_ONLY_ONE_TO_ONE",
+    "is_group": false,
+    "title": "Test Participant",
+    "participants": [
+      {
+        "ig_id": "200000000000000",
+        "fbid": 200000000000000,
+        "username": "test_participant",
+        "name": "Test Participant"
+      }
+    ],
+    "last_activity_ms": 1700000000000,
+    "system_folder": "INBOX",
+    "marked_as_unread": false,
+    "is_muted": false,
+    "is_pinned": false
+  },
+  "messages": [
+    {
+      "id": "message-1",
+      "offline_threading_id": "otid-1",
+      "sender_fbid": 200000000000000,
+      "sender_name": "Test Participant",
+      "is_from_viewer": false,
+      "timestamp_ms": 1700000000000,
+      "kind": "text",
+      "content_type": "SlideMessageText",
+      "text": "Hello from the other side."
+    },
+    {
+      "id": "message-2",
+      "offline_threading_id": "otid-2",
+      "sender_fbid": 100000000000000,
+      "is_from_viewer": true,
+      "timestamp_ms": 1700000001000,
+      "kind": "text",
+      "content_type": "SlideMessageText",
+      "text": "Hello back."
+    },
+    {
+      "id": "message-3",
+      "offline_threading_id": "otid-3",
+      "sender_fbid": 200000000000000,
+      "sender_name": "Test Participant",
+      "is_from_viewer": false,
+      "timestamp_ms": 1700000002000,
+      "kind": "image",
+      "content_type": "SlideMessageImageContent",
+      "media_count": 1
+    }
+  ],
+  "has_more_older": true,
+  "oldest_cursor": "redacted-cursor"
+}
