@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 
@@ -118,10 +119,12 @@ fun ChatScreen(
     }
 
     // Mark the thread read whenever the newest server message changes while the
-    // chat is composed. InboxState deduplicates targets and ignores backgrounding.
+    // chat is composed, and again when the app returns to the foreground (a
+    // receipt may have been skipped while the chat was in the background).
     val readTarget = messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
-    LaunchedEffect(readTarget) {
-        if (readTarget.isNotBlank()) {
+    val isForeground = AppVisibility.isForeground
+    LaunchedEffect(readTarget, isForeground) {
+        if (isForeground && readTarget.isNotBlank()) {
             onMarkRead(readTarget)
         }
     }
