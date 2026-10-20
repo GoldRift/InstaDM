@@ -191,3 +191,9 @@ go build ./...
 go vet ./...
 go test ./...
 ```
+
+## License
+
+InstaDM is licensed under the GNU Affero General Public License, version 3 or
+later. See [`LICENSE`](../LICENSE) and
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
