@@ -104,6 +104,15 @@ go run ./cmd/igcli send <thread-id> "hello from igcli" --cookies ~/.config/insta
 # Send with an explicit OTID (for retries/reconciliation)
 go run ./cmd/igcli send <thread-id> "hello" --otid 1792364344000123 --cookies ~/.config/instadm/cookies.json
 
+# Retry transient failures with the same OTID
+go run ./cmd/igcli send <thread-id> "hello" --retry 3 --cookies ~/.config/instadm/cookies.json
+
+# Mark a thread read up to its newest message
+go run ./cmd/igcli mark-read <thread-id> --cookies ~/.config/instadm/cookies.json
+
+# Mark read up to a specific message
+go run ./cmd/igcli mark-read <thread-id> --message-id <message-id> --cookies ~/.config/instadm/cookies.json
+
 # Watch DGW events until Ctrl-C
 go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
 
@@ -123,6 +132,8 @@ Flags:
 | `--limit <n>` | Thread messages to fetch, 1–100, default `20` |
 | `--reply-to <message-id>` | `send`: reply to an existing message |
 | `--otid <otid>` | `send`: reuse a specific offline threading ID |
+| `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
+| `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
 | `--thread <thread-id>` | `watch`: only print events for this thread |
 
@@ -156,9 +167,17 @@ the EIMU ID, so the two numbers can differ for the same account.
 
 The `send` result includes the thread ID, canonical message ID, OTID, timestamp, and the
 sent text. Keep the OTID if a send times out; re-running with the same `--otid` is safer
-than generating a new one. Level 3 does not implement a durable outbox or automatic
-retries, and `send` only targets existing threads; new-DM creation via `recipient_igids`
-is deferred.
+than generating a new one. `--retry` retries transient failures with that same OTID.
+Permanent errors (expired session, challenge, checkpoint, rate limit) are not retried.
+A durable cross-process outbox belongs to the Android/Room stage, not this CLI. `send`
+only targets existing threads; new-DM creation via `recipient_igids` is deferred.
+
+`mark-read` resolves the short thread ID to the long thread ID required by read
+receipts, selects the newest message (or `--message-id`), sends the initial read
+mutation, then sends the validation mutation with the message timestamp. It prints the
+short and long thread IDs, message ID, timestamp, and whether Instagram validated the
+read. The CLI is stateless, so it does not persist a local read watermark; the Android
+app will do that. A specific `--message-id` must be within the newest 100 messages.
 
 The `watch` human output prints connection state, new messages, edits, deletes,
 reactions, and read receipts. `--json` emits one JSON object per line (NDJSON). Message
@@ -176,7 +195,8 @@ included in JSON but omitted from the human output to avoid noise.
     oldest-to-newest order, with `has_more_older=true`;
   - `watch` connected to DGW and reported `connected` with a sequence ID;
   - `send` returned a canonical message ID, OTID, and timestamp, and the DGW echo
-    arrived as `message.new` with matching message ID and OTID.
+    arrived as `message.new` with matching message ID and OTID;
+  - `mark-read` returned `validated=true` for the newest message.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,

@@ -232,6 +232,11 @@ func (c *Client) markUnbootstrapped() {
 
 const MaxTextLength = 1000
 
+// NewOTID returns a new epoch-based offline threading ID.
+func NewOTID() string {
+	return strconv.FormatInt(methods.GenerateEpochID(), 10)
+}
+
 type SendResult struct {
 	ProtocolVersion    string `json:"protocol_version"`
 	ThreadID           string `json:"thread_id"`

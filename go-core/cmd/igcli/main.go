@@ -28,14 +28,16 @@ Usage:
   igcli mailbox --cookies <path> [flags]
   igcli thread <thread-id> --cookies <path> [flags]
   igcli send <thread-id> "<text>" --cookies <path> [flags]
+  igcli mark-read <thread-id> --cookies <path> [flags]
   igcli watch --cookies <path> [flags]
   igcli help
 
 Commands:
-  mailbox   Validate the session and list DM threads
-  thread    Fetch a thread and print its most recent messages
-  send      Send a text message to an existing thread
-  watch     Connect to DGW and print realtime events until interrupted
+  mailbox    Validate the session and list DM threads
+  thread     Fetch a thread and print its most recent messages
+  send       Send a text message to an existing thread
+  mark-read  Mark a thread read up to the newest or a specific message
+  watch      Connect to DGW and print realtime events until interrupted
 
 Common flags:
   --cookies <path>        Cookie JSON file, or - to read from stdin
@@ -50,6 +52,10 @@ Thread flags:
 Send flags:
   --reply-to <message-id> Reply to a message ID
   --otid <otid>           Reuse a specific offline threading ID
+  --retry <n>             Retry transient failures with the same OTID (default: 0)
+
+Mark-read flags:
+  --message-id <id>       Mark read up to this message (default: newest message)
 
 Watch flags:
   --duration <duration>   Stop after this duration (0 = until interrupted)
@@ -61,8 +67,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread and send, put all flags before or after the positional arguments; do not
-split them across both positions.
+For thread, send, and mark-read, put all flags before or after the positional arguments;
+do not split them across both positions.
 `
 
 func main() {
@@ -85,6 +91,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runThread(args[1:], stdout, stderr)
 	case "send":
 		return runSend(args[1:], stdout, stderr)
+	case "mark-read":
+		return runMarkRead(args[1:], stdout, stderr)
 	case "watch":
 		return runWatch(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -220,6 +228,7 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 	addCommonFlags(flags, &options)
 	replyTo := flags.String("reply-to", "", "message ID to reply to")
 	otid := flags.String("otid", "", "reuse a specific offline threading ID")
+	retries := flags.Int("retry", 0, "retry transient send failures with the same OTID")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -239,10 +248,24 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 	if threadID == "" {
 		return errors.New("thread ID is empty")
 	}
+	if strings.TrimSpace(text) == "" {
+		return errors.New("text is required")
+	}
+	if length := len([]rune(text)); length > igcore.MaxTextLength {
+		return fmt.Errorf("text is %d characters; the maximum is %d", length, igcore.MaxTextLength)
+	}
 	if *otid != "" {
 		if _, err := strconv.ParseInt(*otid, 10, 64); err != nil {
 			return errors.New("--otid must be a numeric offline threading ID")
 		}
+	}
+	if *retries < 0 {
+		return errors.New("--retry must be zero or greater")
+	}
+
+	otidValue := *otid
+	if otidValue == "" {
+		otidValue = igcore.NewOTID()
 	}
 
 	client, err := newClient(options, stderr, nil)
@@ -254,7 +277,73 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := commandContext(options.timeout)
 	defer cancel()
 
-	result, err := client.SendText(ctx, threadID, text, *replyTo, *otid)
+	var result *igcore.SendResult
+	for attempt := 0; ; attempt++ {
+		result, err = client.SendText(ctx, threadID, text, *replyTo, otidValue)
+		if err == nil {
+			break
+		}
+		if attempt >= *retries || httpclient.IsPermanentRequestError(err) {
+			return fmt.Errorf("%w (otid %s)", describeError(err), otidValue)
+		}
+
+		delay := time.Duration(1<<min(attempt, 3)) * time.Second
+		fmt.Fprintf(stderr, "send failed (attempt %d); retrying with otid %s in %s: %v\n", attempt+1, otidValue, delay, err)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w (otid %s)", describeError(ctx.Err()), otidValue)
+		case <-time.After(delay):
+		}
+	}
+
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printSendResult(stdout, result)
+	return nil
+}
+
+func runMarkRead(args []string, stdout, stderr io.Writer) error {
+	// Accept "mark-read <id> --flags" by moving the leading positional after
+	// the flags.
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		args = append(append([]string{}, args[1:]...), args[0])
+	}
+
+	flags := flag.NewFlagSet("mark-read", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	messageID := flags.String("message-id", "", "mark read up to this message ID")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: igcli mark-read <thread-id> --cookies <path>")
+	}
+
+	threadID := strings.TrimSpace(flags.Arg(0))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.MarkThreadRead(ctx, threadID, *messageID)
 	if err != nil {
 		return describeError(err)
 	}
@@ -262,7 +351,7 @@ func runSend(args []string, stdout, stderr io.Writer) error {
 	if options.jsonOutput {
 		return encodeJSON(stdout, result)
 	}
-	printSendResult(stdout, result)
+	printMarkReadResult(stdout, result)
 	return nil
 }
 
@@ -568,6 +657,15 @@ func printSendResult(w io.Writer, result *igcore.SendResult) {
 	fmt.Fprintf(w, "  otid: %s\n", valueOrDash(result.OfflineThreadingID))
 	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
+}
+
+func printMarkReadResult(w io.Writer, result *igcore.MarkReadResult) {
+	fmt.Fprintln(w, "Marked read")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  long thread: %s\n", valueOrDash(result.LongThreadID))
+	fmt.Fprintf(w, "  message: %s\n", valueOrDash(result.MessageID))
+	fmt.Fprintf(w, "  timestamp: %s\n", formatMessageTimestamp(result.TimestampMS))
+	fmt.Fprintf(w, "  validated: %t\n", result.Validated)
 }
 
 type eventPrinter struct {

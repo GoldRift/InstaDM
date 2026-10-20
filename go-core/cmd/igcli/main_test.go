@@ -162,6 +162,44 @@ func TestPrintSendResult(t *testing.T) {
 	}
 }
 
+func TestPrintMarkReadResult(t *testing.T) {
+	result := &igcore.MarkReadResult{
+		ProtocolVersion: "test",
+		ThreadID:        "short-thread",
+		LongThreadID:    "long-thread",
+		MessageID:       "message-1",
+		TimestampMS:     1_700_000_000_000,
+		Validated:       true,
+	}
+
+	var output bytes.Buffer
+	printMarkReadResult(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Marked read", "short-thread", "long-thread", "message-1", "validated: true"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunMarkReadValidation(t *testing.T) {
+	t.Run("missing thread ID", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMarkRead(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli mark-read") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	t.Run("blank thread ID", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runMarkRead([]string{"", "--cookie-header", "sessionid=fake; csrftoken=fake; ds_user_id=1"}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "thread ID is empty") {
+			t.Errorf("error = %v, want empty thread ID error", err)
+		}
+	})
+}
+
 func TestFormatEvent(t *testing.T) {
 	message := &igcore.MessageView{
 		ID:          "message-1",
@@ -268,6 +306,14 @@ func TestRunSendValidation(t *testing.T) {
 		err := runSend([]string{"thread-id", "hello", "--otid", "abc", "--cookie-header", fakeCookies}, &stdout, &stderr)
 		if err == nil || !strings.Contains(err.Error(), "--otid must be a numeric") {
 			t.Errorf("error = %v, want --otid validation", err)
+		}
+	})
+
+	t.Run("negative retries", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runSend([]string{"thread-id", "hello", "--retry", "-1", "--cookie-header", fakeCookies}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "--retry must be") {
+			t.Errorf("error = %v, want retry validation", err)
 		}
 	})
 

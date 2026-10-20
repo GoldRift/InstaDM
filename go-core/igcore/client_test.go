@@ -69,6 +69,12 @@ func TestBuildSendTextRequestValidation(t *testing.T) {
 	}
 }
 
+func TestNewOTID(t *testing.T) {
+	if _, err := strconv.ParseInt(NewOTID(), 10, 64); err != nil {
+		t.Errorf("NewOTID is not numeric: %v", err)
+	}
+}
+
 func TestNewSendResult(t *testing.T) {
 	message := slidetypes.SentMessage{
 		MessageID:   "mid.$1",
