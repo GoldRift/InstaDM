@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -168,7 +169,7 @@ fun ChatScreen(
         captureUri = null
         capturePath = null
         if (success && uri != null) {
-            onSendMedia(Uri.parse(uri))
+            onSendMedia(uri.toUri())
         } else if (path != null) {
             runCatching { File(path).delete() }
         }

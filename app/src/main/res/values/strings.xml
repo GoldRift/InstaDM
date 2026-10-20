@@ -11,14 +11,11 @@
     <string name="chat_attach_camera">Take a photo</string>
     <string name="chat_attach_gallery">Choose a photo or video</string>
     <string name="chat_camera_unavailable">No camera app available</string>
-    <string name="chat_media_pending">Sending attachment</string>
     <string name="chat_media_failed">Couldn\'t send. Tap to retry.</string>
-    <string name="chat_media_retry">Retry sending</string>
     <string name="chat_media_too_large">That file is %1$s; the limit is %2$s.</string>
     <string name="chat_media_unsupported">Unsupported file type (%1$s).</string>
     <string name="chat_media_empty">That file is empty.</string>
     <string name="chat_media_unreadable">Couldn\'t read that file.</string>
-    <string name="chat_media_file">Attachment</string>
     <string name="chat_media_open">Open media</string>
     <string name="chat_media_close">Close</string>
     <string name="chat_media_unavailable">Media unavailable</string>

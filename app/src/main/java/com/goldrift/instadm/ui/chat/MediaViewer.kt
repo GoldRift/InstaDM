@@ -3,6 +3,7 @@ package com.goldrift.instadm.ui.chat
 import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -328,7 +329,7 @@ private fun LocalVisualThumbnail(
     ) {
         if (media.kind == "image") {
             SubcomposeAsyncImage(
-                model = Uri.parse(media.uri),
+                model = media.uri.toUri(),
                 contentDescription = stringResource(R.string.chat_media_open),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
