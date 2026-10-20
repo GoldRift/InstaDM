@@ -208,8 +208,8 @@ FBID, filename, detected MIME type, byte size, OTID, and timestamp. Images are l
 to 8 MiB and other files to 25 MiB; these are client-side limits. MIME type is detected
 from the file contents, with an extension fallback. The upload path is image/file first;
 the Android-only video fallback for accounts that reject web video uploads is not
-implemented. Captions are not supported, matching the send mutation; send text
-separately.
+implemented. Web upload has been accepted for PNG, JPEG, and MP4 in testing. Captions
+are not supported, matching the send mutation; send text separately.
 
 `media` lists the attachments on one message. With `--save`, it downloads the selected
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN
@@ -256,13 +256,14 @@ included in JSON but omitted from the human output to avoid noise.
     oldest-to-newest, with the next cursor and no overlap;
   - `react` added and removed a reaction, and `watch` reported matching
     `reaction.add`/`reaction.remove` deltas;
-  - `send-media` uploaded a generated PNG and sent it; the returned message ID and OTID
-    matched the `message.new` watch delta, which reported `kind=image` and
-    `media_count=1`;
-  - `thread --json` exposed the uploaded attachment's FBID, CDN URLs, preview URL, and
+  - `send-media` uploaded PNG, JPEG, and MP4 files and sent them; every returned message
+    ID and OTID matched its `message.new` watch delta, which reported `kind=image` or
+    `kind=video` with `media_count=1`;
+  - `thread --json` exposed each attachment's FBID, CDN URLs, preview URL, and
     64×64 dimensions;
-  - `media` listed the attachment and downloaded it; the PNG decoded to identical
-    pixels, although the CDN recompressed the file.
+  - `media` listed and downloaded all three: the PNG decoded to identical pixels, the
+    JPEG was 64×64 sRGB, and the MP4 was H.264 at 64×64 for 1 second. The CDN
+    recompressed the image bytes, so file hashes are not stable.
 - Test cookies live outside the repo at `~/.config/instadm/cookies.json` with mode
   `0600`.
 - `fixtures/mailbox.redacted.json` and `fixtures/thread.redacted.json` are synthetic,
