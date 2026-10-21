@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -81,6 +82,8 @@ Send-media flags:
   --reply-to <message-id> Reply to a message ID
   --otid <otid>           Reuse a specific offline threading ID
   --outbox <path>         Record pending sends and remove them on success
+  --voice                 Upload the file as an Instagram voice note
+  --waveform <json>       JSON array of voice amplitudes (0..1) for --voice
 
 Send-new flags:
   --otid <otid>           Reuse a specific offline threading ID
@@ -429,6 +432,8 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 	replyTo := flags.String("reply-to", "", "message ID to reply to")
 	otid := flags.String("otid", "", "reuse a specific offline threading ID")
 	outbox := flags.String("outbox", "", "record pending sends and remove them on success")
+	voice := flags.Bool("voice", false, "upload the audio file as a voice note")
+	waveform := flags.String("waveform", "", "JSON file with voice-note amplitudes (0..1)")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -469,6 +474,18 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 		otidValue = igcore.NewOTID()
 	}
 
+	waveformJSON := ""
+	if strings.TrimSpace(*waveform) != "" {
+		if !*voice {
+			return errors.New("--waveform requires --voice")
+		}
+		data, err := os.ReadFile(*waveform)
+		if err != nil {
+			return fmt.Errorf("waveform file: %w", err)
+		}
+		waveformJSON = string(data)
+	}
+
 	outboxFile := ""
 	if strings.TrimSpace(*outbox) != "" {
 		absolutePath, err := filepath.Abs(filePath)
@@ -486,6 +503,8 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 			ReplyTo:   strings.TrimSpace(*replyTo),
 			FilePath:  absolutePath,
 			Filename:  filepath.Base(absolutePath),
+			Voice:     *voice,
+			Waveform:  waveformJSON,
 			SizeBytes: info.Size(),
 			CreatedAt: time.Now().UTC(),
 		}); err != nil {
@@ -503,7 +522,7 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := commandContext(options.timeout)
 	defer cancel()
 
-	result, err := client.SendMedia(ctx, threadID, filePath, *replyTo, otidValue)
+	result, err := sendMediaOrVoice(client, ctx, threadID, filePath, *replyTo, otidValue, *voice, waveformJSON)
 	if err != nil {
 		markOutboxFailed(outboxFile, otidValue, err)
 		return fmt.Errorf("%w (otid %s)", describeError(err), otidValue)
@@ -520,6 +539,27 @@ func runSendMedia(args []string, stdout, stderr io.Writer) error {
 	}
 	printMediaSendResult(stdout, result)
 	return nil
+}
+
+func sendMediaOrVoice(
+	client *igcore.Client,
+	ctx context.Context,
+	threadID, filePath, replyTo, otid string,
+	voice bool,
+	waveformJSON string,
+) (*igcore.MediaSendResult, error) {
+	if !voice {
+		return client.SendMedia(ctx, threadID, filePath, replyTo, otid)
+	}
+	if waveformJSON == "" {
+		return client.SendVoice(ctx, threadID, filePath, replyTo, otid)
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("media file: %w", err)
+	}
+	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath)))
+	return client.SendVoiceBytes(ctx, threadID, filepath.Base(filePath), mimeType, data, waveformJSON, replyTo, otid)
 }
 
 func runSendNew(args []string, stdout, stderr io.Writer) error {

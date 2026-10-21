@@ -25,6 +25,8 @@ type outboxRecord struct {
 	ReplyTo   string    `json:"reply_to,omitempty"`
 	FilePath  string    `json:"file_path,omitempty"`
 	Filename  string    `json:"filename,omitempty"`
+	Voice     bool      `json:"voice,omitempty"`
+	Waveform  string    `json:"waveform,omitempty"`
 	SizeBytes int64     `json:"size_bytes,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Attempts  int       `json:"attempts"`
@@ -444,7 +446,23 @@ func runOutbox(args []string, stdout, stderr io.Writer) error {
 			case "text":
 				result.TextResult, sendErr = client.SendText(ctx, record.ThreadID, record.Text, record.ReplyTo, record.OTID)
 			case "media":
-				result.MediaResult, sendErr = client.SendMedia(ctx, record.ThreadID, record.FilePath, record.ReplyTo, record.OTID)
+				if record.Voice {
+					if record.Waveform != "" {
+						data, readErr := os.ReadFile(record.FilePath)
+						if readErr != nil {
+							sendErr = fmt.Errorf("media file: %w", readErr)
+						} else {
+							result.MediaResult, sendErr = client.SendVoiceBytes(
+								ctx, record.ThreadID, record.Filename, "", data,
+								record.Waveform, record.ReplyTo, record.OTID,
+							)
+						}
+					} else {
+						result.MediaResult, sendErr = client.SendVoice(ctx, record.ThreadID, record.FilePath, record.ReplyTo, record.OTID)
+					}
+				} else {
+					result.MediaResult, sendErr = client.SendMedia(ctx, record.ThreadID, record.FilePath, record.ReplyTo, record.OTID)
+				}
 			}
 			cancel()
 

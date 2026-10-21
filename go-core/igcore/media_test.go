@@ -374,3 +374,103 @@ func TestDownloadMediaPartRefreshesForbiddenURL(t *testing.T) {
 		t.Error("downloaded bytes differ from source")
 	}
 }
+
+func TestParseVoiceWaveform(t *testing.T) {
+	amplitudes, err := parseVoiceWaveform(`[0, 0.25, 2, -1, "x"]`)
+	if err == nil {
+		t.Fatal("expected a type error for a string amplitude")
+	}
+	_ = amplitudes
+
+	amplitudes, err = parseVoiceWaveform(`[0, 0.25, 2, -1]`)
+	if err != nil {
+		t.Fatalf("parseVoiceWaveform: %v", err)
+	}
+	want := []float64{0, 0.25, 1, 0}
+	if len(amplitudes) != len(want) {
+		t.Fatalf("amplitudes = %v, want %v", amplitudes, want)
+	}
+	for index := range want {
+		if amplitudes[index] != want[index] {
+			t.Errorf("amplitudes[%d] = %v, want %v", index, amplitudes[index], want[index])
+		}
+	}
+
+	empty, err := parseVoiceWaveform("  ")
+	if err != nil || empty != nil {
+		t.Errorf("empty waveform = %v, %v; want nil, nil", empty, err)
+	}
+}
+
+func TestParseVoiceWaveformCapsSamples(t *testing.T) {
+	raw := strings.Repeat("0.5,", maxVoiceWaveformSamples+20) + "0.5"
+	amplitudes, err := parseVoiceWaveform("[" + raw + "]")
+	if err != nil {
+		t.Fatalf("parseVoiceWaveform: %v", err)
+	}
+	if len(amplitudes) != maxVoiceWaveformSamples {
+		t.Errorf("sample count = %d, want %d", len(amplitudes), maxVoiceWaveformSamples)
+	}
+}
+
+func TestPrepareVoiceFile(t *testing.T) {
+	if err := prepareVoiceFile(nil); err == nil {
+		t.Error("nil file should fail")
+	}
+	if err := prepareVoiceFile(&mediaFile{MimeType: "image/png"}); err == nil || !strings.Contains(err.Error(), "voice notes must be audio") {
+		t.Errorf("image voice error = %v", err)
+	}
+	file := &mediaFile{MimeType: "audio/mp4"}
+	if err := prepareVoiceFile(file); err != nil {
+		t.Fatalf("prepareVoiceFile: %v", err)
+	}
+	if !file.Voice {
+		t.Error("file.Voice = false, want true")
+	}
+}
+
+func TestSendVoiceBytesValidation(t *testing.T) {
+	client := &Client{inner: &instameow.Client{}}
+	if _, err := client.SendVoiceBytes(context.Background(), "123", "voice.m4a", "audio/mp4", []byte("abc"), "", "", ""); err == nil {
+		t.Error("expected a transport error, not a validation error")
+	} else if strings.Contains(err.Error(), "voice notes must be audio") {
+		t.Errorf("audio was rejected: %v", err)
+	}
+	if _, err := client.SendVoiceBytes(context.Background(), "123", "voice.png", "image/png", encodeTestPNG(t), "", "", ""); err == nil || !strings.Contains(err.Error(), "voice notes must be audio") {
+		t.Errorf("image voice error = %v", err)
+	}
+	if _, err := client.SendVoiceBytes(context.Background(), "123", "voice.m4a", "audio/mp4", []byte("abc"), "[oops", "", ""); err == nil || !strings.Contains(err.Error(), "JSON array") {
+		t.Errorf("bad waveform error = %v", err)
+	}
+}
+
+func TestNewMercuryUploadVoice(t *testing.T) {
+	plain := newMercuryUpload(&mediaFile{Filename: "photo.png", MimeType: "image/png", Data: []byte("x")})
+	if plain.IsVoiceClip || plain.WaveformData != nil {
+		t.Errorf("plain upload = %+v", plain)
+	}
+
+	voice := newMercuryUpload(&mediaFile{
+		Filename: "voice.m4a",
+		MimeType: "audio/mp4",
+		Data:     []byte("x"),
+		Voice:    true,
+		Waveform: []float64{0, 0.5, 1},
+	})
+	if !voice.IsVoiceClip {
+		t.Error("IsVoiceClip = false, want true")
+	}
+	if voice.WaveformData == nil ||
+		voice.WaveformData.SamplingFrequency != VoiceWaveformSamplingFrequency ||
+		len(voice.WaveformData.Amplitudes) != 3 {
+		t.Errorf("WaveformData = %+v", voice.WaveformData)
+	}
+}
+
+func TestNewMediaSendResultVoice(t *testing.T) {
+	file := &mediaFile{MimeType: "audio/mp4", Voice: true, Waveform: []float64{0.1, 0.2}}
+	result := newMediaSendResult("thread-id", "otid-1", "attachment-id", file, slidetypes.SentMessage{})
+	if !result.Voice || !result.Waveform {
+		t.Errorf("result voice/waveform = %v/%v, want true/true", result.Voice, result.Waveform)
+	}
+}

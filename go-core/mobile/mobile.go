@@ -312,6 +312,21 @@ func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte,
 	return encode(result)
 }
 
+func (c *Client) SendVoiceJSON(threadID, filename, mimeType string, data []byte, waveformJSON, replyTo, otid string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.SendVoiceBytes(ctx, threadID, filename, mimeType, data, waveformJSON, replyTo, otid)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) ReactJSON(threadID, messageID, emoji string, remove bool, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {

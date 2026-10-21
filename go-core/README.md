@@ -179,6 +179,8 @@ Flags:
 | `--otid <otid>` | `send`, `send-new`, `send-media`, `edit`: reuse a specific offline threading ID |
 | `--retry <n>` | `send`: retry transient failures with the same OTID, default `0` |
 | `--outbox <path>` | `send`, `send-media`: persist pending sends in this JSON file |
+| `--voice` | `send-media`: upload the audio file as a voice note |
+| `--waveform <json>` | `send-media --voice`: JSON array of voice amplitudes (0..1) |
 | `--path <path>` | `outbox`: outbox JSON file |
 | `--id <otid>` | `outbox retry`/`remove`: select one pending OTID |
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
@@ -275,6 +277,13 @@ the Android-only video fallback for accounts that reject web video uploads is no
 implemented. Web upload has been accepted for PNG, JPEG, and MP4 in testing. Captions
 are not supported, matching the send mutation; send text separately.
 
+Pass `--voice` to upload an audio file with the `voice_clip` marker so Instagram renders
+a voice note instead of a generic audio attachment. `--waveform <json>` supplies a JSON
+array of amplitudes in the 0..1 range, uploaded as `voice_clip_waveform_data` with a
+sampling frequency of 9. The waveform is optional; without it the note still plays,
+just with a flat waveform. Voice uploads must be audio MIME types and share the 25 MiB
+cap.
+
 `media` lists the attachments on one message. With `--save`, it downloads the selected
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN
 URL is fresh; if the CDN rejects the URL with HTTP 403, it re-queries once and retries.
@@ -364,6 +373,7 @@ defer client.StopWatch()
 | `MuteJSON(threadID, muteSeconds, timeoutSeconds)` | Mute/unmute result JSON |
 | `PinJSON(threadID, pin, timeoutSeconds)` | Pin/unpin result JSON |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
+| `SendVoiceJSON(threadID, filename, mimeType, data, waveformJSON, replyTo, otid, timeoutSeconds)` | Upload/send in-memory audio as a voice note |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
 | `MarkReadJSON(threadID, messageID, longThreadID, timestampMS, timeoutSeconds)` | Read-receipt result JSON; the long ID and timestamp from a loaded thread avoid a re-query |
 | `DownloadMediaJSON(threadID, messageID, part, destPath, timeoutSeconds)` | Download one attachment to `destPath` |
@@ -379,9 +389,10 @@ memory, where the next bootstrap re-derives it.
 
 A `timeoutSeconds` value of zero or less uses 90 seconds. `SendMediaJSON` takes bytes
 rather than a path so Android can pass the result of reading a content URI; the Go side
-still enforces type and size limits. `DownloadMediaJSON` writes to a normal filesystem
-path, so Kotlin should pass a path under the app cache directory. Errors are returned to
-Kotlin as exceptions.
+still enforces type and size limits. `SendVoiceJSON` is the audio-only voice-note
+variant: `waveformJSON` is an optional JSON array of amplitudes (0..1) sampled at 9 Hz.
+`DownloadMediaJSON` writes to a normal filesystem path, so Kotlin should pass a path
+under the app cache directory. Errors are returned to Kotlin as exceptions.
 
 Build the Android AAR from the repository root:
 

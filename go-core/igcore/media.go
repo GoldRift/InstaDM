@@ -2,9 +2,11 @@ package igcore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -22,6 +24,15 @@ import (
 const (
 	MaxImageBytes = 8 * 1024 * 1024
 	MaxMediaBytes = 25 * 1024 * 1024
+
+	// VoiceWaveformSamplingFrequency is the sample rate Instagram expects for
+	// voice clip waveforms. The app samples MediaRecorder amplitudes at the
+	// same rate.
+	VoiceWaveformSamplingFrequency = 9
+
+	// maxVoiceWaveformSamples bounds the decoded waveform. A 60 second clip at
+	// the sampling frequency above is 540 samples.
+	maxVoiceWaveformSamples = 4000
 )
 
 type MediaSendResult struct {
@@ -32,6 +43,8 @@ type MediaSendResult struct {
 	Filename           string `json:"filename"`
 	MimeType           string `json:"mime_type"`
 	SizeBytes          int64  `json:"size_bytes"`
+	Voice              bool   `json:"voice,omitempty"`
+	Waveform           bool   `json:"waveform,omitempty"`
 	MessageID          string `json:"message_id,omitempty"`
 	ID                 string `json:"id,omitempty"`
 	TimestampMS        int64  `json:"timestamp_ms,omitempty"`
@@ -43,6 +56,8 @@ type mediaFile struct {
 	MimeType  string
 	SizeBytes int64
 	Data      []byte
+	Voice     bool
+	Waveform  []float64
 }
 
 // SendMedia uploads a local file through the web upload endpoint and sends the
@@ -88,6 +103,87 @@ func parseMediaThreadID(c *Client, threadID string) (string, int64, error) {
 	return threadID, threadIDInt, nil
 }
 
+// SendVoice uploads a local audio file as an Instagram voice note. The upload
+// carries the voice_clip marker, so Instagram renders a playable voice bubble
+// instead of a generic audio attachment.
+func (c *Client) SendVoice(ctx context.Context, threadID, filePath, replyTo, otid string) (*MediaSendResult, error) {
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := readMediaFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := prepareVoiceFile(file); err != nil {
+		return nil, err
+	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
+// SendVoiceBytes is the in-memory variant of SendVoice for mobile callers.
+// waveformJSON is an optional JSON array of amplitudes in the 0..1 range; an
+// empty string lets Instagram render the note without a waveform.
+func (c *Client) SendVoiceBytes(ctx context.Context, threadID, filename, mimeType string, data []byte, waveformJSON, replyTo, otid string) (*MediaSendResult, error) {
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := newMediaData(filename, mimeType, data)
+	if err != nil {
+		return nil, err
+	}
+	waveform, err := parseVoiceWaveform(waveformJSON)
+	if err != nil {
+		return nil, err
+	}
+	file.Waveform = waveform
+	if err := prepareVoiceFile(file); err != nil {
+		return nil, err
+	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
+// prepareVoiceFile marks an audio attachment as a voice clip. The MIME check
+// keeps callers from accidentally sending an image as a voice note.
+func prepareVoiceFile(file *mediaFile) error {
+	if file == nil {
+		return errors.New("media file is required")
+	}
+	if !strings.HasPrefix(file.MimeType, "audio/") {
+		return fmt.Errorf("voice notes must be audio; got %q", file.MimeType)
+	}
+	file.Voice = true
+	return nil
+}
+
+// parseVoiceWaveform decodes the amplitude array produced by the recorder.
+// Invalid or empty input is not fatal: the note is still sent, just without a
+// waveform.
+func parseVoiceWaveform(raw string) ([]float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var amplitudes []float64
+	if err := json.Unmarshal([]byte(raw), &amplitudes); err != nil {
+		return nil, fmt.Errorf("voice waveform must be a JSON array of numbers: %w", err)
+	}
+	if len(amplitudes) > maxVoiceWaveformSamples {
+		amplitudes = amplitudes[:maxVoiceWaveformSamples]
+	}
+	for index, amplitude := range amplitudes {
+		if math.IsNaN(amplitude) || amplitude < 0 {
+			amplitudes[index] = 0
+			continue
+		}
+		if amplitude > 1 {
+			amplitudes[index] = 1
+		}
+	}
+	return amplitudes, nil
+}
+
 func (c *Client) sendMediaFile(ctx context.Context, threadID string, threadIDInt int64, file *mediaFile, replyTo, otid string) (*MediaSendResult, error) {
 	if otid == "" {
 		otid = strconv.FormatInt(methods.GenerateEpochID(), 10)
@@ -96,11 +192,7 @@ func (c *Client) sendMediaFile(ctx context.Context, threadID string, threadIDInt
 		return nil, err
 	}
 
-	upload, err := c.inner.GetHTTP().SendMercuryUploadRequest(ctx, threadIDInt, &httpclient.MercuryUploadMedia{
-		Filename:  file.Filename,
-		MimeType:  file.MimeType,
-		MediaData: file.Data,
-	})
+	upload, err := c.inner.GetHTTP().SendMercuryUploadRequest(ctx, threadIDInt, newMercuryUpload(file))
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +228,24 @@ func buildSendMediaRequest(threadID, attachmentFBID, replyTo, otid string) *slid
 	return request
 }
 
+func newMercuryUpload(file *mediaFile) *httpclient.MercuryUploadMedia {
+	upload := &httpclient.MercuryUploadMedia{
+		Filename:  file.Filename,
+		MimeType:  file.MimeType,
+		MediaData: file.Data,
+	}
+	if file.Voice {
+		upload.IsVoiceClip = true
+		if len(file.Waveform) > 0 {
+			upload.WaveformData = &httpclient.WaveformData{
+				Amplitudes:        file.Waveform,
+				SamplingFrequency: VoiceWaveformSamplingFrequency,
+			}
+		}
+	}
+	return upload
+}
+
 func newMediaSendResult(threadID, otid, attachmentFBID string, file *mediaFile, message slidetypes.SentMessage) *MediaSendResult {
 	var timestampMS int64
 	if !message.TimestampMS.IsZero() {
@@ -149,6 +259,8 @@ func newMediaSendResult(threadID, otid, attachmentFBID string, file *mediaFile, 
 		Filename:           file.Filename,
 		MimeType:           file.MimeType,
 		SizeBytes:          file.SizeBytes,
+		Voice:              file.Voice,
+		Waveform:           len(file.Waveform) > 0,
 		MessageID:          message.MessageID,
 		ID:                 message.ID,
 		TimestampMS:        timestampMS,
