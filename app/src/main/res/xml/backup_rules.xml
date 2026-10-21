@@ -2,4 +2,8 @@
 <full-backup-content>
     <!-- Session bearer cookies are never backed up. Debug copies are adb-pushed. -->
     <exclude domain="external" path="cookies.json" />
+    <!-- Cached DM content is rebuilt from Instagram and stays on-device. -->
+    <exclude domain="database" path="instadm.db" />
+    <exclude domain="database" path="instadm.db-wal" />
+    <exclude domain="database" path="instadm.db-shm" />
 </full-backup-content>
