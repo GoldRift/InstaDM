@@ -78,7 +78,10 @@ immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
 autoplay while their row is visible. Tapping an attachment opens a full-screen
 viewer; it downloads the original through the Go core into the app cache (so expired
 thumbnail URLs still work) and plays videos with the platform player, including
-looping GIFs.
+looping GIFs. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
+out of the outbox into that cache once uploaded. The database keeps at most 1,000
+messages per thread, and a missing session clears the database, the media cache, and
+pending sends.
 The refresh button reloads the inbox and reconnects realtime when the stored
 session changed. Instagram rotates routing cookies on responses; the Go core
 exports the updated jar after successful calls and the app re-encrypts it when

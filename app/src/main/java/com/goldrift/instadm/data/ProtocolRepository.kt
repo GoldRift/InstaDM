@@ -10,6 +10,9 @@ import java.io.File
 /** Messages per thread page, for both the newest page and older pages. */
 private const val THREAD_PAGE_SIZE = 30
 
+/** Downloaded attachments are pruned LRU so the cache stays bounded. */
+internal const val MEDIA_CACHE_MAX_BYTES = 250L * 1024 * 1024
+
 /**
  * Serializes calls into the Go client and owns its lifetime. The Go side keeps
  * the session and socket; this repository only moves JSON across the boundary.
@@ -142,7 +145,10 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
     ): File = withClient {
         val cacheDir = sessionStore.mediaCacheDir
         val baseName = "${safeName(threadId)}_${safeName(messageId)}_$partIndex"
-        cachedMedia(cacheDir, baseName)?.let { return@withClient it }
+        cachedMedia(cacheDir, baseName)?.let {
+            it.setLastModified(System.currentTimeMillis())
+            return@withClient it
+        }
 
         val temp = File(cacheDir, "$baseName.download")
         temp.delete()
@@ -155,7 +161,13 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
             temp.copyTo(target, overwrite = true)
             temp.delete()
         }
+        pruneMediaCache(cacheDir, MEDIA_CACHE_MAX_BYTES, keep = target)
         target
+    }
+
+    /** Removes every downloaded attachment; safe to call from any screen. */
+    suspend fun clearMediaCache() = withContext(Dispatchers.IO) {
+        sessionStore.mediaCacheDir.listFiles()?.forEach { runCatching { it.delete() } }
     }
 
     private suspend fun <T> withClient(block: (GoClient) -> T): T = withContext(Dispatchers.IO) {
@@ -209,4 +221,26 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
 
     private fun safeName(value: String): String =
         value.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+}
+
+/**
+ * Deletes the least recently used files until the cache fits [maxBytes].
+ * [keep] (the file just downloaded) is never deleted.
+ */
+internal fun pruneMediaCache(directory: File, maxBytes: Long, keep: File?) {
+    val files = directory.listFiles()?.filter { it.isFile } ?: return
+    var total = files.sumOf { it.length() }
+    if (total <= maxBytes) return
+
+    val keepPath = keep?.absolutePath
+    val oldestFirst = files
+        .filter { it.absolutePath != keepPath }
+        .sortedBy { it.lastModified() }
+    for (file in oldestFirst) {
+        if (total <= maxBytes) break
+        val size = file.length()
+        if (runCatching { file.delete() }.getOrDefault(false)) {
+            total -= size
+        }
+    }
 }

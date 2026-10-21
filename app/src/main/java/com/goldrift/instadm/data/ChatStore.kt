@@ -316,6 +316,7 @@ class ChatStore(
                 senderFbid = viewerFbid(),
                 now = now,
             )
+            messageDao.prune(threadId, MESSAGE_RETENTION)
         }
     }
 
@@ -340,6 +341,8 @@ class ChatStore(
         db.withTransaction {
             if (messageId.isBlank()) {
                 messageDao.setStatus(localMessageId, MessageStatus.SENT)
+                val localUri = File(localPath).toURI().toString()
+                messageDao.setAttachmentFile(localMessageId, 0, localPath, localUri)
                 return@withTransaction
             }
             messageDao.delete(localMessageId)
@@ -382,6 +385,7 @@ class ChatStore(
                 senderFbid = viewerFbid(),
                 now = now,
             )
+            messageDao.prune(threadId, MESSAGE_RETENTION)
         }
     }
 
@@ -463,6 +467,12 @@ class ChatStore(
     suspend fun markMessagesSeen(threadId: String, watermarkMs: Long) {
         if (threadId.isBlank() || watermarkMs <= 0) return
         messageDao.markSeen(threadId, watermarkMs)
+    }
+
+    /** Records the local file for an attachment downloaded on demand. */
+    suspend fun markAttachmentReady(messageId: String, partIndex: Int, path: String) {
+        if (messageId.isBlank() || path.isBlank()) return
+        messageDao.markAttachmentReady(messageId, partIndex, path)
     }
 
     /** Removes every cached thread, message, and queue entry. */

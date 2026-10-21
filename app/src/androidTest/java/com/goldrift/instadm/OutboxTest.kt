@@ -55,6 +55,7 @@ class OutboxTest {
             sender = sender,
             mediaReader = MediaReader(context),
             outboxDir = dir,
+            mediaCacheDir = dir,
             scope = scope,
             clock = { now },
             retryBackoffMs = 10,

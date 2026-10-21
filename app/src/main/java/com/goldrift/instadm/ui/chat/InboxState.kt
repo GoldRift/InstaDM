@@ -96,7 +96,11 @@ class InboxState(
                 errorMessage = null
 
                 if (!repository.hasCookies()) {
-                    runCatching { chatStore.clear() }
+                    runCatching {
+                        chatStore.clear()
+                        outbox.clear()
+                        repository.clearMediaCache()
+                    }
                     items.clear()
                     status = InboxStatus.NoSession
                     return@launch
@@ -443,7 +447,11 @@ class InboxState(
         messageId: String,
         partIndex: Int,
         mediaType: String,
-    ): File = repository.downloadMedia(threadId, messageId, partIndex, mediaType)
+    ): File {
+        val file = repository.downloadMedia(threadId, messageId, partIndex, mediaType)
+        chatStore.markAttachmentReady(messageId, partIndex, file.absolutePath)
+        return file
+    }
 
     private fun previewFor(message: ChatMessage?): String = when {
         message == null -> ""

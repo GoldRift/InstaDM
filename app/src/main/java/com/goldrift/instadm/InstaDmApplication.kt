@@ -45,6 +45,7 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
             sender = ProtocolOutboxSender(repository),
             mediaReader = mediaReader,
             outboxDir = sessionStore.outboxDir,
+            mediaCacheDir = sessionStore.mediaCacheDir,
             scope = appScope,
         )
     }

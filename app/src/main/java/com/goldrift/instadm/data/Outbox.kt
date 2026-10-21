@@ -68,6 +68,7 @@ class Outbox(
     private val sender: OutboxSender,
     private val mediaReader: MediaReader,
     private val outboxDir: File,
+    private val mediaCacheDir: File,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val retryBackoffMs: Long = RETRY_BACKOFF_MS,
@@ -300,18 +301,41 @@ class Outbox(
             )
         } else {
             val path = payload.optString("file_path")
+            val localPath = moveToMediaCache(entry.otid, path)
             chatStore.completeOutgoingMedia(
                 localMessageId = localId,
                 threadId = entry.threadId,
                 result = result,
                 kind = payload.optString("kind"),
-                localPath = path,
+                localPath = localPath,
                 width = payload.optInt("width"),
                 height = payload.optInt("height"),
                 durationMs = payload.optLong("duration_ms"),
             )
+            pruneMediaCache(mediaCacheDir, MEDIA_CACHE_MAX_BYTES, keep = File(localPath))
         }
     }
+
+    /**
+     * Moves a sent attachment out of the outbox into the bounded media cache so
+     * the durable queue directory does not grow forever. The attachment row is
+     * then updated with the cache path.
+     */
+    private suspend fun moveToMediaCache(otid: String, path: String): String =
+        withContext(Dispatchers.IO) {
+            val source = File(path)
+            if (!source.isFile) return@withContext path
+            mediaCacheDir.mkdirs()
+            val target = File(mediaCacheDir, "outbox_$otid.${source.extension.ifBlank { "bin" }}")
+            val moved = runCatching { source.renameTo(target) }.getOrDefault(false)
+            if (!moved) {
+                runCatching {
+                    source.copyTo(target, overwrite = true)
+                    source.delete()
+                }
+            }
+            if (target.isFile) target.absolutePath else path
+        }
 
     /** Removes queued work and its copied attachments (used on logout). */
     suspend fun clear() {

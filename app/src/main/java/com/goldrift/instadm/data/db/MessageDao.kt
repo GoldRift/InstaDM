@@ -67,6 +67,18 @@ interface MessageDao {
     @Query("DELETE FROM attachments WHERE message_id = :messageId")
     suspend fun deleteAttachments(messageId: String)
 
+    @Query(
+        "UPDATE attachments SET local_path = :path, download_state = 'ready' " +
+            "WHERE message_id = :messageId AND part_index = :partIndex",
+    )
+    suspend fun markAttachmentReady(messageId: String, partIndex: Int, path: String)
+
+    @Query(
+        "UPDATE attachments SET local_path = :path, url = :uri, preview_url = :uri, " +
+            "download_state = 'ready' WHERE message_id = :messageId AND part_index = :partIndex",
+    )
+    suspend fun setAttachmentFile(messageId: String, partIndex: Int, path: String, uri: String)
+
     @Query("DELETE FROM reactions WHERE message_id = :messageId")
     suspend fun deleteReactions(messageId: String)
 
