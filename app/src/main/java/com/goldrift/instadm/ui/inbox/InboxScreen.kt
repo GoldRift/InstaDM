@@ -1,16 +1,13 @@
 package com.goldrift.instadm.ui.inbox
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -21,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -64,6 +62,7 @@ fun InboxScreen(
     realtimeStatus: RealtimeStatus = RealtimeStatus.Connected,
     onRefresh: () -> Unit = {},
     onLogin: () -> Unit = {},
+    selectedConversationId: String? = null,
 ) {
     val realtimeLabel = when (realtimeStatus) {
         RealtimeStatus.Connected -> stringResource(R.string.realtime_connected)
@@ -88,7 +87,7 @@ fun InboxScreen(
                     Column {
                         Text(
                             text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.semantics { heading() },
@@ -180,6 +179,7 @@ fun InboxScreen(
                             ) { conversation ->
                                 ConversationRow(
                                     conversation = conversation,
+                                    selected = conversation.id == selectedConversationId,
                                     onClick = { onConversationClick(conversation.id) },
                                 )
                                 HorizontalDivider(
@@ -235,9 +235,11 @@ private fun InboxMessage(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
+    selected: Boolean,
     onClick: () -> Unit,
 ) {
     val lastMessage = conversation.messages.lastOrNull()
@@ -248,28 +250,18 @@ private fun ConversationRow(
         ?: stringResource(R.string.inbox_tap_to_open)
     val timestamp = lastMessage?.timestamp ?: formatInboxTime(conversation.lastActivityMs)
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ConversationAvatar(
-            contact = conversation.contact,
-            isGroup = conversation.isGroup,
-            participants = conversation.participants,
-            size = 50.dp,
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = conversation.contact.name,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    ListItem(
+        selected = selected,
+        onClick = onClick,
+        leadingContent = {
+            ConversationAvatar(
+                contact = conversation.contact,
+                isGroup = conversation.isGroup,
+                participants = conversation.participants,
+                size = 50.dp,
             )
-            Spacer(Modifier.height(3.dp))
+        },
+        supportingContent = {
             Text(
                 text = preview,
                 style = MaterialTheme.typography.bodyMedium,
@@ -277,12 +269,20 @@ private fun ConversationRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-        Spacer(Modifier.width(10.dp))
+        },
+        trailingContent = {
+            Text(
+                text = timestamp,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    ) {
         Text(
-            text = timestamp,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = conversation.contact.name,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

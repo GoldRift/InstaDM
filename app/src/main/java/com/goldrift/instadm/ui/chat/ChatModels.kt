@@ -2,8 +2,10 @@ package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 enum class MessageSender { Me, Them }
 
@@ -188,6 +190,29 @@ private fun timeLabel(now: Long, minutesAgo: Int): String =
 
 fun currentTimeLabel(): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+
+private const val DAY_MS = 24L * 60L * 60L * 1000L
+
+/**
+ * Whole calendar days between two instants in [zone]; 0 means the same day and
+ * 1 means [fromMs] was yesterday relative to [toMs]. Used for chat date headers,
+ * which must follow the device's day boundary rather than a fixed 24h window.
+ */
+fun calendarDaysBetween(
+    fromMs: Long,
+    toMs: Long,
+    zone: TimeZone = TimeZone.getDefault(),
+): Long {
+    fun startOfDay(ms: Long): Long = Calendar.getInstance(zone).apply {
+        timeInMillis = ms
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    return (startOfDay(toMs) - startOfDay(fromMs)) / DAY_MS
+}
 
 /** Two-letter initials used by avatars, or "?" for an empty name. */
 fun initialsOf(name: String): String {

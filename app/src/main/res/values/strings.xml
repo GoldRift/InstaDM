@@ -4,6 +4,7 @@
     <string name="chat_direct_message">Direct message</string>
     <string name="chat_group">Group chat</string>
     <string name="chat_today">Today</string>
+    <string name="chat_yesterday">Yesterday</string>
     <string name="chat_seen">Seen</string>
     <string name="chat_sent">Sent</string>
     <string name="chat_no_messages">No messages yet</string>
@@ -53,6 +54,7 @@
     <string name="chat_edit_save">Save</string>
     <string name="chat_unsend_title">Unsend message?</string>
     <string name="chat_unsend_body">This removes the message for everyone.</string>
+    <string name="inbox_select_conversation">Choose a conversation to start messaging</string>
     <string name="inbox_you_prefix">You: %1$s</string>
     <string name="inbox_sender_prefix">%1$s: %2$s</string>
     <string name="inbox_sent_you">Sent you %1$s</string>

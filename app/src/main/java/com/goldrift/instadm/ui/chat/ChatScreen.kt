@@ -143,6 +143,8 @@ import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 
 private val OutgoingBubbleShape = RoundedCornerShape(
     topStart = 24.dp,
@@ -677,28 +679,41 @@ private fun MessageList(
                     previous?.sender != MessageSender.Them ||
                         (isGroup && previous?.senderFbid != message.senderFbid)
                     )
+            // The list is reversed, so the oldest message of a calendar day sits
+            // at the top of that day's block. A header at the top of this item
+            // therefore separates it from the previous (older) day.
+            val showDayHeader = message.timestampMs > 0 &&
+                (
+                    previous == null ||
+                        previous.timestampMs <= 0 ||
+                        calendarDaysBetween(previous.timestampMs, message.timestampMs) > 0
+                    )
 
-            MessageRow(
-                message = message,
-                senderInitials = senderInitials,
-                senderAvatarUrl = senderAvatarUrl,
-                showAvatar = showAvatar,
-                threadId = threadId,
-                isVisible = message.id in visibleMessageIds,
-                onOpenMedia = { media -> onOpenMedia(message.id, media) },
-                onLongPress = { if (message.isServerMessage()) onLongPress(message) },
-                actionsExpanded = actionMessageId == message.id,
-                onDismissActions = onDismissActions,
-                onReact = { emoji -> onReactAt(message.id, emoji) },
-                onCopy = { onCopyAt(message.id) },
-                onMoreEmoji = { onMoreEmojiAt(message.id) },
-                onEdit = { onEditAt(message.id) },
-                onUnsend = { onUnsendAt(message.id) },
-                onRetry = { onRetryMedia(message.id) },
-                onLoadMedia = onLoadMedia,
-                voicePlayer = voicePlayer,
-                modifier = Modifier.animateItem(),
-            )
+            Column(modifier = Modifier.animateItem()) {
+                if (showDayHeader) {
+                    DayHeader(timestampMs = message.timestampMs)
+                }
+                MessageRow(
+                    message = message,
+                    senderInitials = senderInitials,
+                    senderAvatarUrl = senderAvatarUrl,
+                    showAvatar = showAvatar,
+                    threadId = threadId,
+                    isVisible = message.id in visibleMessageIds,
+                    onOpenMedia = { media -> onOpenMedia(message.id, media) },
+                    onLongPress = { if (message.isServerMessage()) onLongPress(message) },
+                    actionsExpanded = actionMessageId == message.id,
+                    onDismissActions = onDismissActions,
+                    onReact = { emoji -> onReactAt(message.id, emoji) },
+                    onCopy = { onCopyAt(message.id) },
+                    onMoreEmoji = { onMoreEmojiAt(message.id) },
+                    onEdit = { onEditAt(message.id) },
+                    onUnsend = { onUnsendAt(message.id) },
+                    onRetry = { onRetryMedia(message.id) },
+                    onLoadMedia = onLoadMedia,
+                    voicePlayer = voicePlayer,
+                )
+            }
         }
 
         if (hasMoreOlder) {
@@ -709,10 +724,6 @@ private fun MessageList(
                     onRetry = onRetryOlder,
                 )
             }
-        }
-
-        item(key = "date", contentType = "date") {
-            DatePill()
         }
     }
 }
@@ -1369,8 +1380,19 @@ private fun OlderMessagesFooter(
     }
 }
 
+/** Sticky-looking date pill between calendar days, following the device locale. */
 @Composable
-private fun DatePill() {
+private fun DayHeader(timestampMs: Long) {
+    val today = stringResource(R.string.chat_today)
+    val yesterday = stringResource(R.string.chat_yesterday)
+    val label = remember(timestampMs, today, yesterday) {
+        val days = calendarDaysBetween(timestampMs, System.currentTimeMillis())
+        when (days) {
+            0L -> today
+            1L -> yesterday
+            else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(timestampMs))
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1382,7 +1404,7 @@ private fun DatePill() {
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             Text(
-                text = stringResource(R.string.chat_today),
+                text = label,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),

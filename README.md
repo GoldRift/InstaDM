@@ -81,6 +81,13 @@ duration limit; recording stops cleanly when the file reaches the same 25 MB upl
 cap as other attachments. Voice notes are playable inline in both directions, with
 tap-to-seek and a waveform; outgoing notes use the local file until Instagram's copy
 takes over.
+Chats group messages under `Today`, `Yesterday`, or a localized date header. On screens
+at least 840 dp wide the inbox and the open chat sit side by side, the list keeps the
+selected thread highlighted, and tapping another thread switches the right pane; narrower
+screens keep the one-screen-per-thread flow. Screen changes use the emphatic Material 3
+fade-and-slide transition. TalkBack users get a real record button (tap to start, tap to
+send) instead of the hold gesture, long-press actions on every message bubble, and an
+adjustable waveform for voice notes.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
 immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
