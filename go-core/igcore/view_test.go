@@ -20,7 +20,9 @@ func TestNewMailboxView(t *testing.T) {
 			FullName: "Me",
 			// The profile ID can differ from the internal EIMU ID (111) used
 			// by participants and message senders.
-			Fbid: "999",
+			Fbid:            "999",
+			ProfilePicURL:   "https://cdn.example.invalid/me-small.jpg",
+			ProfilePicURLHd: "https://cdn.example.invalid/me.jpg",
 		},
 	}
 	mailbox := &slidetypes.Mailbox{
@@ -57,6 +59,9 @@ func TestNewMailboxView(t *testing.T) {
 
 	if view.Viewer.Username != "me" || view.Viewer.FBID != 999 {
 		t.Errorf("viewer = %+v, want username me and profile fbid 999", view.Viewer)
+	}
+	if view.Viewer.AvatarURL != "https://cdn.example.invalid/me.jpg" {
+		t.Errorf("viewer avatar = %q, want the HD profile picture", view.Viewer.AvatarURL)
 	}
 	if view.SeqID != 42 {
 		t.Errorf("seq_id = %d, want 42", view.SeqID)

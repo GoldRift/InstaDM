@@ -32,6 +32,8 @@ type ViewerView struct {
 	Username string `json:"username"`
 	Name     string `json:"name"`
 	FBID     int64  `json:"fbid"`
+	// AvatarURL is the viewer's own profile picture, used by the inbox header.
+	AvatarURL string `json:"avatar_url,omitempty"`
 }
 
 type ParticipantView struct {
@@ -95,11 +97,16 @@ func newMailboxView(viewer *types.PolarisViewer, mailbox *slidetypes.Mailbox, ow
 	}
 
 	if viewer != nil {
+		avatarURL := viewer.Data.ProfilePicURLHd
+		if avatarURL == "" {
+			avatarURL = viewer.Data.ProfilePicURL
+		}
 		view.Viewer = ViewerView{
-			IGID:     viewer.ID,
-			Username: viewer.Data.Username,
-			Name:     viewer.Data.FullName,
-			FBID:     viewer.GetFBID(),
+			IGID:      viewer.ID,
+			Username:  viewer.Data.Username,
+			Name:      viewer.Data.FullName,
+			FBID:      viewer.GetFBID(),
+			AvatarURL: avatarURL,
 		}
 	}
 

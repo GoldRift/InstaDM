@@ -207,7 +207,8 @@ thread FBID, title, last activity, folder, and flags (`unread`, `muted`, `pinned
 `--json` adds the long thread ID, thread key, subtype, and participants. Threads also
 carry `avatar_url`: the group's custom image, or the other person's profile picture for a
 one-to-one chat. Each participant has its own `avatar_url` (used for group avatar
-collages when the group has no custom image) and an `is_viewer` flag. Instagram's CDN
+collages when the group has no custom image) and an `is_viewer` flag. The `viewer`
+object also carries `avatar_url` for the logged-in account's own picture. Instagram's CDN
 URLs are signed and expire, so refresh the mailbox before relying on them. The output
 contains no cookies or bootstrap tokens, but it still contains account and contact
 metadata (names, usernames, thread IDs). Treat fixture files as personal data and keep
