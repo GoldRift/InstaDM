@@ -282,7 +282,8 @@ a voice note instead of a generic audio attachment. `--waveform <json>` supplies
 array of amplitudes in the 0..1 range, uploaded as `voice_clip_waveform_data` with a
 sampling frequency of 9. The waveform is optional; without it the note still plays,
 just with a flat waveform. Voice uploads must be audio MIME types and share the 25 MiB
-cap.
+cap. The upload fields mirror `mautrix-meta`'s voice path; payload construction is
+unit-tested, but a live send is still unverified.
 
 `media` lists the attachments on one message. With `--save`, it downloads the selected
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN

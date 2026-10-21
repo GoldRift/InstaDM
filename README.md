@@ -138,6 +138,9 @@ Uploads reach a live account, so verify the composer and the pickers before send
   gallery opens the system photo picker.
 - Holding the mic records; releasing sends, sliding up locks, sliding left cancels.
   The first use asks for `RECORD_AUDIO`. The locked bar can pause, delete, or send.
+- Voice upload uses Instagram's `voice_clip` upload field with a waveform. The
+  payload is unit-tested, but a live send has not been exercised yet; check that the
+  note renders as a voice bubble in an official client.
 - Images are capped at 8 MB and other attachments at 25 MB, mirroring
   `go-core/igcore/media.go`. A larger file is rejected before uploading; a voice
   recording that reaches the cap stops and shows the same message.
