@@ -70,7 +70,7 @@ class VoicePlayer(context: Context) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audioManager =
-        appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
     private var player: MediaPlayer? = null
     private var ticker: Job? = null
@@ -94,6 +94,7 @@ class VoicePlayer(context: Context) {
         val current = player
         if (activeId == messageId && current != null) {
             if (!playing) {
+                if (!requestFocus()) return
                 val resumeAt = if (positionMs >= durationMs - 50) 0 else positionMs
                 runCatching { current.seekTo(resumeAt) }
                 if (runCatching { current.start() }.isSuccess) {
@@ -197,6 +198,7 @@ class VoicePlayer(context: Context) {
     }
 
     private fun requestFocus(): Boolean = try {
+        val manager = audioManager ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
@@ -208,10 +210,10 @@ class VoicePlayer(context: Context) {
                 .setOnAudioFocusChangeListener(focusListener)
                 .build()
             focusRequest = request
-            audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
+            manager.requestAudioFocus(
                 focusListener,
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
@@ -222,12 +224,13 @@ class VoicePlayer(context: Context) {
     }
 
     private fun abandonFocus() {
+        val manager = audioManager ?: return
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                focusRequest?.let { manager.abandonAudioFocusRequest(it) }
             } else {
                 @Suppress("DEPRECATION")
-                audioManager.abandonAudioFocus(focusListener)
+                manager.abandonAudioFocus(focusListener)
             }
         }
         focusRequest = null
@@ -290,11 +293,12 @@ fun VoiceNoteBubble(
     }
 
     val longClickLabel = stringResource(R.string.chat_message_actions)
+    val contentColor = LocalContentColor.current
     Row(
         modifier = modifier
             .widthIn(min = 200.dp, max = 270.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.35f))
+            .background(contentColor.copy(alpha = 0.07f))
             .combinedClickable(
                 onLongClickLabel = longClickLabel,
                 onLongClick = onLongClick,
@@ -303,7 +307,6 @@ fun VoiceNoteBubble(
             .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val contentColor = LocalContentColor.current
         Box(
             modifier = Modifier
                 .size(36.dp)
