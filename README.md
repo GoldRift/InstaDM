@@ -84,7 +84,10 @@ it differs. If no usable session exists, the inbox offers a `Log in` action.
 The app starts a `dataSync`/`remoteMessaging` foreground service that keeps the DGW
 watch connected while the UI is in the background. The status under the app name shows
 `Live`, `Connecting…`, `Reconnecting…`, `No realtime session`, or `Realtime error`.
-Incoming messages update the open thread and inbox immediately. When the app is in the
+Incoming messages update the open thread and inbox immediately and are written to Room by
+a process-scoped recorder, so new messages, edits, deletes, reactions, and read receipts
+survive a restart (and are stored even when the activity was never opened). When the app
+is in the
 background, they also post a notification in the `Messages` channel; Android 13+ asks
 for notification permission on first launch. The notification actions include `Stop`
 for the foreground service.

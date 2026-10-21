@@ -55,6 +55,9 @@ class ChatStore(
 
     suspend fun viewer(key: String): String? = metaDao.get(key)
 
+    suspend fun threadExists(threadId: String): Boolean =
+        threadId.isNotBlank() && threadDao.thread(threadId) != null
+
     suspend fun inboxSyncedAt(): Long? = metaDao.get(META_INBOX_SYNCED_AT)?.toLongOrNull()
 
     /** Applies `PolarisDirectInboxQuery` output: thread metadata and previews. */

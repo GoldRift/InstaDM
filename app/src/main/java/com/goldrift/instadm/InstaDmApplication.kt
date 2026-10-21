@@ -4,8 +4,10 @@ import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.goldrift.instadm.data.ChatStore
+import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.RealtimeRecorder
 import com.goldrift.instadm.data.SessionStore
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.ui.chat.InboxState
@@ -30,7 +32,20 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     val mediaReader by lazy { MediaReader(this) }
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }
-    val inboxState by lazy { InboxState(repository, chatStore, appScope, mediaReader) }
+    val mailboxSync by lazy { MailboxSync(repository, chatStore) }
+    val realtimeRecorder by lazy {
+        RealtimeRecorder(chatStore, appScope) { mailboxSync.fetchAndStore() }
+    }
+    val inboxState by lazy { InboxState(repository, chatStore, mailboxSync, appScope, mediaReader) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // The recorder is process-scoped so realtime deltas are stored even when
+        // only the foreground service is running.
+        if (sessionStore.hasStoredSession()) {
+            realtimeRecorder.start()
+        }
+    }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient {

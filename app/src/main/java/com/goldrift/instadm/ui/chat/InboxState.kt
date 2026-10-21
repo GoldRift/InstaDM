@@ -8,16 +8,14 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.goldrift.instadm.data.ChatStore
+import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.OfflineThreadingIds
 import com.goldrift.instadm.data.PickedMedia
-import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.ProtocolRepository
-import com.goldrift.instadm.data.RealtimeBus
-import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
-import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.service.AppVisibility
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,9 +37,6 @@ private const val READ_DEBOUNCE_MS = 1_000L
 /** Never send more than one read receipt per thread in this window. */
 private const val READ_MIN_INTERVAL_MS = 3_000L
 
-/** Avoid a mailbox refresh per message for a thread outside the first page. */
-private const val UNKNOWN_THREAD_REFRESH_MS = 60_000L
-
 /** Re-fetch the newest page when it is older than this. */
 private const val THREAD_STALE_MS = 30_000L
 
@@ -54,6 +49,7 @@ private const val THREAD_STALE_MS = 30_000L
 class InboxState(
     private val repository: ProtocolRepository,
     private val chatStore: ChatStore,
+    private val mailboxSync: MailboxSync,
     private val scope: CoroutineScope,
     private val mediaReader: MediaReader,
 ) {
@@ -62,7 +58,6 @@ class InboxState(
     private val markedRead = mutableMapOf<String, String>()
     private val readJobs = mutableMapOf<String, Job>()
     private val lastReadAt = mutableMapOf<String, Long>()
-    private val unknownThreadRefreshAt = mutableMapOf<String, Long>()
     private val inFlightSends = mutableSetOf<String>()
     private val messageCollectors = mutableSetOf<String>()
     private var refreshInFlight = false
@@ -73,9 +68,6 @@ class InboxState(
         private set
 
     init {
-        scope.launch {
-            RealtimeBus.events.collect { event -> applyRealtimeEvent(event) }
-        }
         scope.launch {
             chatStore.observeInbox().collect { rows -> applyInboxRows(rows) }
         }
@@ -114,7 +106,7 @@ class InboxState(
                 }
 
                 runCatching {
-                    chatStore.ingestMailbox(repository.loadMailbox())
+                    mailboxSync.fetchAndStore()
                 }
                     .onSuccess {
                         status = InboxStatus.Ready
@@ -625,134 +617,6 @@ class InboxState(
             }
         }
         readJobs[threadId] = job
-    }
-
-    private fun applyRealtimeEvent(event: RealtimeEvent) {
-        when (event.type) {
-            "message.new", "message.admin" -> applyNewMessage(event)
-            "message.edit" -> applyEdit(event)
-            "message.delete" -> applyDelete(event)
-            "read.receipt" -> applyReadReceipt(event)
-            "reaction.add", "reaction.remove" -> applyReactionEvent(event)
-        }
-    }
-
-    private fun applyNewMessage(event: RealtimeEvent) {
-        val message = event.message ?: return
-        if (event.threadId.isBlank() || message.id.isBlank()) return
-
-        scope.launch {
-            chatStore.ingestRealtimeMessage(event.threadId, message)
-        }
-
-        if (indexOfThread(event.threadId) < 0) {
-            // A thread outside the loaded page should not trigger a mailbox
-            // query for every message it receives.
-            val now = System.currentTimeMillis()
-            val last = unknownThreadRefreshAt[event.threadId] ?: 0L
-            if (now - last >= UNKNOWN_THREAD_REFRESH_MS) {
-                unknownThreadRefreshAt[event.threadId] = now
-                refresh()
-            }
-        }
-    }
-
-    private fun applyEdit(event: RealtimeEvent) {
-        val message = event.message ?: return
-        if (event.threadId.isBlank() || message.id.isBlank()) return
-
-        val index = indexOfThread(event.threadId)
-        if (index < 0) return
-        val conversation = items[index]
-        val messageIndex = conversation.messages.indexOfFirst { it.id == message.id }
-        if (messageIndex < 0) return
-
-        val messages = conversation.messages.toMutableList()
-        messages[messageIndex] = messages[messageIndex].copy(
-            text = message.text.ifBlank { messages[messageIndex].text },
-        )
-        items[index] = conversation.copy(
-            messages = messages,
-            preview = previewFor(messages.lastOrNull()),
-        )
-        scope.launch { chatStore.editMessageText(message.id, messages[messageIndex].text) }
-    }
-
-    private fun applyDelete(event: RealtimeEvent) {
-        val message = event.message ?: return
-        if (event.threadId.isBlank() || message.id.isBlank()) return
-
-        val index = indexOfThread(event.threadId)
-        if (index < 0) return
-        val conversation = items[index]
-        if (conversation.messages.none { it.id == message.id }) return
-
-        val messages = conversation.messages.filterNot { it.id == message.id }
-        items[index] = conversation.copy(
-            messages = messages,
-            preview = previewFor(messages.lastOrNull()),
-        )
-        scope.launch { chatStore.tombstoneMessage(message.id) }
-    }
-
-    private fun applyReactionEvent(event: RealtimeEvent) {
-        val messageID = event.message?.id.orEmpty()
-        if (event.threadId.isBlank() || messageID.isBlank() || event.reaction.isBlank()) return
-
-        val index = indexOfThread(event.threadId)
-        if (index < 0) return
-        val conversation = items[index]
-        val messages = applyReactionToMessages(
-            conversation.messages,
-            messageID,
-            event.reaction,
-            event.participantFbid,
-            event.fromViewer,
-            event.type == "reaction.remove",
-        )
-        if (messages !== conversation.messages) {
-            items[index] = conversation.copy(messages = messages)
-        }
-        scope.launch {
-            if (event.type == "reaction.remove") {
-                if (event.participantFbid != 0L) {
-                    chatStore.removeReaction(messageID, event.participantFbid)
-                } else if (event.fromViewer) {
-                    chatStore.removeViewerReaction(messageID)
-                }
-            } else {
-                chatStore.setReaction(
-                    messageId = messageID,
-                    senderFbid = if (event.fromViewer) chatStore.viewerFbid() else event.participantFbid,
-                    emoji = event.reaction,
-                    isFromViewer = event.fromViewer,
-                )
-            }
-        }
-    }
-
-    private fun applyReadReceipt(event: RealtimeEvent) {
-        val watermark = event.timestampMs
-        if (watermark <= 0 || event.threadId.isBlank()) return
-
-        val index = indexOfThread(event.threadId)
-        if (index < 0) return
-        val conversation = items[index]
-        val messages = applyReadReceiptToMessages(
-            conversation.messages,
-            watermark,
-            event.fromViewer,
-        )
-        if (messages !== conversation.messages) {
-            items[index] = conversation.copy(messages = messages)
-        }
-        scope.launch {
-            if (event.fromViewer) {
-                chatStore.markThreadRead(event.threadId, watermark)
-            } else {
-                chatStore.markMessagesSeen(event.threadId, watermark)
-            }
-        }
     }
 
     /** Downloads an attachment through the Go client into the app cache. */
