@@ -13,12 +13,23 @@ import androidx.room.RoomDatabase
  * backup in `backup_rules.xml` and `data_extraction_rules.xml`.
  */
 @Database(
-    entities = [AppMetaEntity::class],
+    entities = [
+        AppMetaEntity::class,
+        ThreadEntity::class,
+        ParticipantEntity::class,
+        MessageEntity::class,
+        AttachmentEntity::class,
+        ReactionEntity::class,
+        OutboxEntity::class,
+    ],
     version = 1,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
     abstract fun appMeta(): AppMetaDao
+    abstract fun threads(): ThreadDao
+    abstract fun messages(): MessageDao
+    abstract fun outbox(): OutboxDao
 
     companion object {
         const val NAME = "instadm.db"

@@ -3,9 +3,11 @@ package com.goldrift.instadm
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.SessionStore
+import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.ui.chat.InboxState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +28,8 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     val sessionStore by lazy { SessionStore(this) }
     val repository by lazy { ProtocolRepository(sessionStore) }
     val mediaReader by lazy { MediaReader(this) }
+    val database by lazy { InstaDmDatabase.build(this) }
+    val chatStore by lazy { ChatStore(database) }
     val inboxState by lazy { InboxState(repository, appScope, mediaReader) }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
