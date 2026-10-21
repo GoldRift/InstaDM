@@ -36,6 +36,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :messageId")
     suspend fun message(messageId: String): MessageEntity?
 
+    @Query("SELECT COUNT(*) FROM messages WHERE thread_id = :threadId")
+    suspend fun count(threadId: String): Int
+
     @Query("SELECT * FROM messages WHERE local_id = :localId LIMIT 1")
     suspend fun byLocalId(localId: String): MessageEntity?
 

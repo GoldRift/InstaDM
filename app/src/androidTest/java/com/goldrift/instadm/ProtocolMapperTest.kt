@@ -1,17 +1,21 @@
 package com.goldrift.instadm
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.goldrift.instadm.data.db.AttachmentEntity
+import com.goldrift.instadm.data.db.MessageEntity
+import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
+import com.goldrift.instadm.data.db.ReactionEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.MessageSender
-import com.goldrift.instadm.ui.chat.mapThread
+import com.goldrift.instadm.ui.chat.toChatMessage
 import com.goldrift.instadm.ui.chat.toConversation
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,86 +23,76 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ProtocolMapperTest {
     @Test
-    fun mapsMessageReactions() {        val json = JSONObject(
-            """
-            {
-              "thread": { "thread_fbid": "thread-fbid" },
-              "messages": [
-                {
-                  "id": "mid.1",
-                  "text": "hello",
-                  "is_from_viewer": true,
-                  "timestamp_ms": 1700000000000,
-                  "kind": "text",
-                  "reactions": [
-                    { "emoji": "❤️", "sender_fbid": 111, "is_from_viewer": true },
-                    { "emoji": "😂", "sender_fbid": 222 }
-                  ]
-                }
-              ]
-            }
-            """.trimIndent(),
-        )
-        val conversation = Conversation(
-            id = "thread-1",
-            contact = Contact(id = "thread-1", name = "Test User", initials = "TU"),
+    fun mapsPersistedMessageWithReactionsAndSeenState() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.1",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_000_000,
+                kind = "text",
+                text = "hello",
+                isFromViewer = true,
+                seen = true,
+                otid = "otid-1",
+            ),
+            attachments = emptyList(),
+            reactions = listOf(
+                ReactionEntity(messageId = "mid.1", senderFbid = 111, emoji = "❤️", isFromViewer = true),
+                ReactionEntity(messageId = "mid.1", senderFbid = 222, emoji = "😂"),
+            ),
         )
 
-        val mapped = mapThread(json, conversation)
-        val reactions = mapped.messages.single().reactions
+        val chat = message.toChatMessage()
 
-        assertEquals(2, reactions.size)
-        assertEquals("❤️", reactions[0].emoji)
-        assertEquals(111L, reactions[0].senderFbid)
-        assertTrue(reactions[0].isFromViewer)
-        assertEquals("😂", reactions[1].emoji)
-        assertEquals(222L, reactions[1].senderFbid)
-        assertEquals(false, reactions[1].isFromViewer)
+        assertEquals("mid.1", chat.id)
+        assertEquals("hello", chat.text)
+        assertEquals(MessageSender.Me, chat.sender)
+        assertEquals(1_700_000_000_000, chat.timestampMs)
+        assertTrue(chat.seen)
+        assertFalse(chat.pending)
+        assertEquals("otid-1", chat.offlineThreadingId)
+        assertEquals(2, chat.reactions.size)
+        assertEquals("❤️", chat.reactions[0].emoji)
+        assertEquals(111L, chat.reactions[0].senderFbid)
+        assertTrue(chat.reactions[0].isFromViewer)
+        assertEquals("😂", chat.reactions[1].emoji)
+        assertEquals(222L, chat.reactions[1].senderFbid)
+        assertFalse(chat.reactions[1].isFromViewer)
     }
 
     @Test
-    fun mapsThreadAvatarsAndParticipants() {
-        val json = JSONObject(
-            """
-            {
-              "thread": {
-                "thread_fbid": "thread-fbid",
-                "title": "Weekend plans",
-                "avatar_url": "https://cdn.example.invalid/group.jpg",
-                "participants": [
-                  { "fbid": 111, "name": "Me", "avatar_url": "https://cdn.example.invalid/me.jpg", "is_viewer": true },
-                  { "fbid": 222, "name": "Alice", "avatar_url": "https://cdn.example.invalid/alice.jpg" },
-                  { "fbid": 333, "username": "bob", "avatar_url": "https://cdn.example.invalid/bob.jpg" }
-                ]
-              },
-              "messages": [
-                {
-                  "id": "mid.1",
-                  "sender_fbid": 222,
-                  "sender_name": "Alice",
-                  "text": "hello",
-                  "timestamp_ms": 1700000000000,
-                  "kind": "text"
-                }
-              ]
-            }
-            """.trimIndent(),
-        )
-        val conversation = Conversation(
-            id = "thread-1",
-            contact = Contact(id = "thread-1", name = "Old title", initials = "OT"),
+    fun mapsPersistedMediaIntoTheBubble() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.2",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_001_000,
+                kind = "image",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.2",
+                    partIndex = 0,
+                    kind = "image",
+                    url = "https://cdn.example.invalid/image.jpg",
+                    previewUrl = "https://cdn.example.invalid/image-preview.jpg",
+                    width = 800,
+                    height = 600,
+                ),
+            ),
+            reactions = emptyList(),
         )
 
-        val mapped = mapThread(json, conversation)
+        val chat = message.toChatMessage()
 
-        assertEquals("Weekend plans", mapped.contact.name)
-        assertEquals("https://cdn.example.invalid/group.jpg", mapped.contact.avatarUrl)
-        assertEquals(2, mapped.participants.size)
-        assertEquals(222L, mapped.participants[0].fbid)
-        assertEquals("https://cdn.example.invalid/alice.jpg", mapped.participants[0].avatarUrl)
-        assertEquals("bob", mapped.participants[1].name)
-        assertEquals(222L, mapped.messages.single().senderFbid)
-        assertEquals("Alice", mapped.messages.single().senderName)
+        assertEquals(MessageSender.Them, chat.sender)
+        assertEquals(1, chat.media.size)
+        assertEquals("image", chat.media.single().type)
+        assertEquals("https://cdn.example.invalid/image.jpg", chat.media.single().url)
+        assertEquals("https://cdn.example.invalid/image-preview.jpg", chat.media.single().thumbnailUrl)
+        assertEquals(800, chat.media.single().width)
+        assertEquals(600, chat.media.single().height)
     }
 
     @Test
@@ -141,7 +135,7 @@ class ProtocolMapperTest {
     }
 
     @Test
-    fun keepsLoadedMessagesAndPagingWhenTheInboxRefreshes() {
+    fun keepsLoadedMessagesWhenTheInboxRefreshes() {
         val previous = Conversation(
             id = "thread-1",
             contact = Contact(id = "thread-1", name = "Alice", initials = "A"),
@@ -158,7 +152,12 @@ class ProtocolMapperTest {
             oldestCursor = "cursor",
         )
         val row = ThreadWithParticipants(
-            thread = ThreadEntity(id = "thread-1", title = "Alice"),
+            thread = ThreadEntity(
+                id = "thread-1",
+                title = "Alice",
+                hasMoreOlder = true,
+                oldestCursor = "cursor",
+            ),
             participants = emptyList(),
         )
 

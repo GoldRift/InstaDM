@@ -15,6 +15,7 @@ import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
+import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.service.AppVisibility
@@ -41,6 +42,9 @@ private const val READ_MIN_INTERVAL_MS = 3_000L
 /** Avoid a mailbox refresh per message for a thread outside the first page. */
 private const val UNKNOWN_THREAD_REFRESH_MS = 60_000L
 
+/** Re-fetch the newest page when it is older than this. */
+private const val THREAD_STALE_MS = 30_000L
+
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
  * [ProtocolRepository]; this class only applies JSON and realtime results to UI
@@ -60,6 +64,7 @@ class InboxState(
     private val lastReadAt = mutableMapOf<String, Long>()
     private val unknownThreadRefreshAt = mutableMapOf<String, Long>()
     private val inFlightSends = mutableSetOf<String>()
+    private val messageCollectors = mutableSetOf<String>()
     private var refreshInFlight = false
 
     var status by mutableStateOf(InboxStatus.Loading)
@@ -112,7 +117,6 @@ class InboxState(
                     chatStore.ingestMailbox(repository.loadMailbox())
                 }
                     .onSuccess {
-                        markThreadsStale()
                         status = InboxStatus.Ready
                     }
                     .onFailure { error ->
@@ -130,7 +134,6 @@ class InboxState(
         scope.launch {
             runCatching { chatStore.ingestMailbox(mailbox) }
                 .onSuccess {
-                    markThreadsStale()
                     errorMessage = null
                     status = InboxStatus.Ready
                 }
@@ -152,55 +155,67 @@ class InboxState(
         }
     }
 
-    /**
-     * A mailbox refresh can change read receipts and bring newer messages, so
-     * the next open re-fetches the thread. Threads stay visible in the inbox
-     * because their messages are kept in memory.
-     */
-    private fun markThreadsStale() {
-        for (index in items.indices) {
-            if (items[index].messagesLoaded) {
-                items[index] = items[index].copy(messagesLoaded = false)
-            }
-        }
-    }
-
     fun loadThread(threadId: String) {
         val conversation = conversation(threadId) ?: return
-        if (conversation.messagesLoaded || isLoading(threadId)) return
+        startMessageCollector(threadId)
+        if (isLoading(threadId)) return
+
+        val now = System.currentTimeMillis()
+        val syncedAt = conversation.messagesSyncedAt
+        if (syncedAt > 0 && now - syncedAt < THREAD_STALE_MS) return
 
         loadingThreads[threadId] = true
         scope.launch {
             runCatching { repository.loadThread(threadId) }
-                .onSuccess { json ->
-                    update(threadId) { current ->
-                        val loaded = mapThread(json, current)
-                        val loadedIDs = loaded.messages.mapTo(HashSet()) { it.id }
-                        val loadedOtids = loaded.messages
-                            .mapNotNullTo(HashSet()) { message ->
-                                message.offlineThreadingId.takeIf { it.isNotBlank() }
-                            }
-                        val inFlight = current.messages.filter { message ->
-                            when {
-                                message.id in loadedIDs -> false
-                                message.id in inFlightSends -> true
-                                message.offlineThreadingId.isNotBlank() ->
-                                    message.offlineThreadingId !in loadedOtids
-                                message.pending && message.text.isNotBlank() ->
-                                    loaded.messages.none { loadedMessage ->
-                                        loadedMessage.sender == message.sender &&
-                                            loadedMessage.text == message.text
-                                    }
-                                else -> true
-                            }
-                        }
-                        loaded.copy(messages = loaded.messages + inFlight)
-                    }
-                }
+                .onSuccess { json -> chatStore.ingestThread(json) }
                 .onFailure { error ->
                     errorMessage = describeError(error)
+                    // Cached messages stay visible; only a thread with nothing
+                    // to show falls back to the empty/loading state.
+                    if (conversation(threadId)?.messages.isNullOrEmpty()) {
+                        update(threadId) { it.copy(messagesLoaded = false) }
+                    }
                 }
             loadingThreads.remove(threadId)
+        }
+    }
+
+    /** Starts the database collector for a thread once per process. */
+    private fun startMessageCollector(threadId: String) {
+        if (!messageCollectors.add(threadId)) return
+        scope.launch {
+            chatStore.observeThread(threadId).collect { rows ->
+                applyThreadMessages(threadId, rows)
+            }
+        }
+    }
+
+    /**
+     * Rebuilds an open thread from the database. Optimistic sends are still
+     * memory-only until the outbox lands, so they are carried over here.
+     */
+    private fun applyThreadMessages(threadId: String, rows: List<MessageWithMedia>) {
+        update(threadId) { current ->
+            val stored = rows.map { it.toChatMessage() }
+            val storedIds = stored.mapTo(HashSet()) { it.id }
+            val storedOtids = stored.mapNotNullTo(HashSet()) { message ->
+                message.offlineThreadingId.takeIf { it.isNotBlank() }
+            }
+            val pending = current.messages.filter { message ->
+                !message.isServerMessage() &&
+                    message.id !in storedIds &&
+                    (message.offlineThreadingId.isBlank() ||
+                        message.offlineThreadingId !in storedOtids)
+            }
+            val merged = (stored + pending).sortedWith(
+                compareBy<ChatMessage>({ it.timestampMs }, { it.id }),
+            )
+            current.copy(
+                messages = merged,
+                messagesLoaded = stored.isNotEmpty() || current.messagesLoaded,
+                isLoadingOlder = false,
+                olderError = false,
+            )
         }
     }
 
@@ -215,21 +230,10 @@ class InboxState(
         if (!conversation.hasMoreOlder || conversation.oldestCursor.isBlank()) return
 
         val cursor = conversation.oldestCursor
-        update(threadId) { it.copy(isLoadingOlder = true) }
+        update(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
         scope.launch {
             runCatching { repository.loadOlder(threadId, cursor) }
-                .onSuccess { json ->
-                    update(threadId) { current ->
-                        val page = mapOlderPage(json, current)
-                        // A page that adds nothing while still claiming more
-                        // would retrigger the scroll loader forever.
-                        if (page.messages.size == current.messages.size) {
-                            page.copy(hasMoreOlder = false)
-                        } else {
-                            page
-                        }
-                    }
-                }
+                .onSuccess { json -> chatStore.ingestOlderPage(json) }
                 .onFailure { error ->
                     errorMessage = describeError(error)
                     update(threadId) { current ->
@@ -287,6 +291,7 @@ class InboxState(
                             },
                         )
                     }
+                    chatStore.ingestSentText(threadId, result, text)
                 }
                 .onFailure { error ->
                     update(threadId) { conversation ->
@@ -464,6 +469,14 @@ class InboxState(
 
         scope.launch {
             runCatching { repository.react(threadId, messageId, emoji, remove) }
+                .onSuccess {
+                    val viewer = chatStore.viewerFbid()
+                    if (remove) {
+                        chatStore.removeReaction(messageId, viewer)
+                    } else {
+                        chatStore.setReaction(messageId, viewer, emoji, isFromViewer = true)
+                    }
+                }
                 .onFailure { error ->
                     updateMessage(threadId, messageId) { current ->
                         current.copy(
@@ -495,6 +508,7 @@ class InboxState(
                 .onSuccess { result ->
                     val serverText = result.optString("text").ifBlank { text }
                     updateMessage(threadId, messageId) { it.copy(text = serverText) }
+                    chatStore.editMessageText(messageId, serverText)
                 }
                 .onFailure { error ->
                     updateMessage(threadId, messageId) { current ->
@@ -528,6 +542,7 @@ class InboxState(
 
         scope.launch {
             runCatching { repository.unsend(threadId, messageId) }
+                .onSuccess { chatStore.tombstoneMessage(messageId) }
                 .onFailure { error ->
                     update(threadId) { current ->
                         if (current.messages.any { it.id == messageId }) {
@@ -584,6 +599,7 @@ class InboxState(
 
                 val current = conversation(threadId) ?: return@launch
                 val currentTarget = current.messages.firstOrNull { it.id == target }
+                val targetTimestamp = currentTarget?.timestampMs ?: 0L
                 lastReadAt[threadId] = System.currentTimeMillis()
                 sent = true
                 runCatching {
@@ -591,8 +607,10 @@ class InboxState(
                         threadId = threadId,
                         messageId = target,
                         longThreadId = current.longThreadId,
-                        timestampMs = currentTarget?.timestampMs ?: 0L,
+                        timestampMs = targetTimestamp,
                     )
+                }.onSuccess {
+                    chatStore.markThreadRead(threadId, targetTimestamp)
                 }.onFailure {
                     if (markedRead[threadId] == target) {
                         markedRead.remove(threadId)
@@ -623,8 +641,11 @@ class InboxState(
         val message = event.message ?: return
         if (event.threadId.isBlank() || message.id.isBlank()) return
 
-        val index = indexOfThread(event.threadId)
-        if (index < 0) {
+        scope.launch {
+            chatStore.ingestRealtimeMessage(event.threadId, message)
+        }
+
+        if (indexOfThread(event.threadId) < 0) {
             // A thread outside the loaded page should not trigger a mailbox
             // query for every message it receives.
             val now = System.currentTimeMillis()
@@ -633,50 +654,7 @@ class InboxState(
                 unknownThreadRefreshAt[event.threadId] = now
                 refresh()
             }
-            return
         }
-
-        val timestamp = message.timestampMs.takeIf { it > 0 }
-            ?: event.timestampMs.takeIf { it > 0 }
-            ?: System.currentTimeMillis()
-        val incoming = ChatMessage(
-            id = message.id,
-            text = message.text.ifBlank {
-                if (message.media.isEmpty()) messagePlaceholder(message.kind) else ""
-            },
-            sender = if (message.isFromViewer) MessageSender.Me else MessageSender.Them,
-            senderFbid = message.senderFbid,
-            senderName = message.senderName,
-            timestamp = formatMessageTime(timestamp),
-            timestampMs = timestamp,
-            media = message.media,
-            offlineThreadingId = message.offlineThreadingId,
-        )
-
-        val conversation = items[index]
-        val messages = conversation.messages.toMutableList()
-        val existingIndex = messages.indexOfFirst { it.id == incoming.id }
-        if (existingIndex >= 0) {
-            messages[existingIndex] = incoming.copy(seen = messages[existingIndex].seen)
-        } else {
-            val pendingIndex = if (message.isFromViewer) {
-                messages.indexOfFirst { candidate -> matchesPendingSend(candidate, message) }
-            } else {
-                -1
-            }
-            if (pendingIndex >= 0) {
-                messages[pendingIndex] = incoming
-            } else {
-                messages += incoming
-            }
-        }
-
-        items[index] = conversation.copy(
-            messages = messages,
-            lastActivityMs = maxOf(conversation.lastActivityMs, timestamp),
-            preview = previewFor(incoming),
-        )
-        resortConversations()
     }
 
     private fun applyEdit(event: RealtimeEvent) {
@@ -697,6 +675,7 @@ class InboxState(
             messages = messages,
             preview = previewFor(messages.lastOrNull()),
         )
+        scope.launch { chatStore.editMessageText(message.id, messages[messageIndex].text) }
     }
 
     private fun applyDelete(event: RealtimeEvent) {
@@ -713,6 +692,7 @@ class InboxState(
             messages = messages,
             preview = previewFor(messages.lastOrNull()),
         )
+        scope.launch { chatStore.tombstoneMessage(message.id) }
     }
 
     private fun applyReactionEvent(event: RealtimeEvent) {
@@ -733,6 +713,22 @@ class InboxState(
         if (messages !== conversation.messages) {
             items[index] = conversation.copy(messages = messages)
         }
+        scope.launch {
+            if (event.type == "reaction.remove") {
+                if (event.participantFbid != 0L) {
+                    chatStore.removeReaction(messageID, event.participantFbid)
+                } else if (event.fromViewer) {
+                    chatStore.removeViewerReaction(messageID)
+                }
+            } else {
+                chatStore.setReaction(
+                    messageId = messageID,
+                    senderFbid = if (event.fromViewer) chatStore.viewerFbid() else event.participantFbid,
+                    emoji = event.reaction,
+                    isFromViewer = event.fromViewer,
+                )
+            }
+        }
     }
 
     private fun applyReadReceipt(event: RealtimeEvent) {
@@ -749,6 +745,13 @@ class InboxState(
         )
         if (messages !== conversation.messages) {
             items[index] = conversation.copy(messages = messages)
+        }
+        scope.launch {
+            if (event.fromViewer) {
+                chatStore.markThreadRead(event.threadId, watermark)
+            } else {
+                chatStore.markMessagesSeen(event.threadId, watermark)
+            }
         }
     }
 

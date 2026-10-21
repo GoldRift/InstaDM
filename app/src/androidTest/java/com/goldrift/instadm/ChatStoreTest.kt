@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.ChatStore
+import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -11,6 +12,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -167,6 +169,157 @@ class ChatStoreTest {
         assertNull(store.inboxSyncedAt())
     }
 
+    @Test
+    fun newerMailboxStubMarksTheThreadStale() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        assertEquals(now, store.conversationThread("thread-1").messagesSyncedAt)
+
+        store.ingestMailbox(JSONObject(MAILBOX_NEWER))
+
+        val thread = store.conversationThread("thread-1")
+        assertEquals("message-3", thread.lastMessageId)
+        assertEquals(0L, thread.messagesSyncedAt)
+    }
+
+    @Test
+    fun unchangedMailboxKeepsTheThreadFresh() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        store.ingestMailbox(JSONObject(MAILBOX))
+
+        assertEquals(now, store.conversationThread("thread-1").messagesSyncedAt)
+    }
+
+    @Test
+    fun realtimeMessageUpdatesThePreviewWithoutTouchingThePage() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+
+        store.ingestRealtimeMessage(
+            "thread-1",
+            RealtimeMessage(
+                id = "message-3",
+                offlineThreadingId = "otid-3",
+                text = "brand new",
+                senderName = "Test Participant",
+                senderFbid = 222,
+                isFromViewer = false,
+                timestampMs = 1_700_000_003_000,
+                kind = "text",
+            ),
+        )
+
+        val messages = store.observeThread("thread-1").first()
+        assertEquals(1, messages.size)
+        assertEquals("message-3", messages.single().message.id)
+        assertEquals("brand new", messages.single().message.text)
+
+        val thread = store.conversationThread("thread-1")
+        assertEquals("message-3", thread.lastMessageId)
+        assertEquals("brand new", thread.lastMessageText)
+        assertEquals(1_700_000_003_000L, thread.lastActivityMs)
+        assertEquals(0L, thread.messagesSyncedAt)
+    }
+
+    @Test
+    fun olderPageDoesNotOverwriteANewerRealtimePreview() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestRealtimeMessage(
+            "thread-1",
+            RealtimeMessage(
+                id = "message-3",
+                text = "brand new",
+                senderName = "Test Participant",
+                senderFbid = 222,
+                isFromViewer = false,
+                timestampMs = 1_700_000_003_000,
+                kind = "text",
+            ),
+        )
+
+        store.ingestThread(JSONObject(THREAD))
+
+        val thread = store.conversationThread("thread-1")
+        assertEquals("message-3", thread.lastMessageId)
+        assertEquals("brand new", thread.lastMessageText)
+        assertEquals(3, store.observeThread("thread-1").first().size)
+    }
+
+    @Test
+    fun sentTextIsStoredImmediately() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+
+        store.ingestSentText(
+            "thread-1",
+            JSONObject(
+                """
+                {
+                  "message_id": "message-9",
+                  "offline_threading_id": "otid-9",
+                  "timestamp_ms": 1700000009000,
+                  "text": "sent from the app"
+                }
+                """.trimIndent(),
+            ),
+            fallbackText = "sent from the app",
+        )
+
+        val message = store.observeThread("thread-1").first().single().message
+        assertEquals("message-9", message.id)
+        assertEquals("sent from the app", message.text)
+        assertTrue(message.isFromViewer)
+        assertEquals("otid-9", message.otid)
+        assertEquals("sent from the app", store.conversationThread("thread-1").lastMessageText)
+    }
+
+    @Test
+    fun editAndTombstoneUpdateThePreview() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+
+        store.editMessageText("message-1", "edited hello")
+        assertEquals("edited hello", store.observeThread("thread-1").first()[0].message.text)
+
+        store.tombstoneMessage("message-2")
+        val messages = store.observeThread("thread-1").first()
+        assertEquals(1, messages.size)
+        assertEquals("message-1", messages.single().message.id)
+        val thread = store.conversationThread("thread-1")
+        assertEquals("message-1", thread.lastMessageId)
+        assertEquals("edited hello", thread.lastMessageText)
+    }
+
+    @Test
+    fun olderPageThatAddsNothingStopsPaging() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-1",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1700000000000,
+                      "kind": "text",
+                      "text": "hello"
+                    }
+                  ],
+                  "has_more_older": true,
+                  "oldest_cursor": "same-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val thread = store.conversationThread("thread-1")
+        assertFalse(thread.hasMoreOlder)
+        assertEquals("same-cursor", thread.oldestCursor)
+    }
+
     private suspend fun ChatStore.conversationThread(threadId: String) =
         db.threads().thread(threadId) ?: error("missing thread $threadId")
 
@@ -258,6 +411,36 @@ class ChatStoreTest {
               ],
               "has_more_older": true,
               "oldest_cursor": "older-cursor"
+            }
+        """.trimIndent()
+
+        val MAILBOX_NEWER = """
+            {
+              "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111 },
+              "threads": [
+                {
+                  "id": "thread-1",
+                  "thread_fbid": "thread-1",
+                  "thread_id": "long-thread-1",
+                  "thread_key": 222,
+                  "is_group": false,
+                  "title": "Test Participant",
+                  "participants": [
+                    { "ig_id": "ig-other", "fbid": 222, "username": "other", "name": "Test Participant" }
+                  ],
+                  "last_activity_ms": 1700000003000,
+                  "folder": "PRIMARY",
+                  "system_folder": "INBOX",
+                  "last_message": {
+                    "id": "message-3",
+                    "sender_fbid": 222,
+                    "is_from_viewer": false,
+                    "timestamp_ms": 1700000003000,
+                    "kind": "text",
+                    "text": "brand new"
+                  }
+                }
+              ]
             }
         """.trimIndent()
 

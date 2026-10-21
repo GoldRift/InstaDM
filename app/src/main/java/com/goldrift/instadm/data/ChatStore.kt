@@ -42,6 +42,9 @@ class ChatStore(
     private val messageDao = db.messages()
     private val metaDao = db.appMeta()
 
+    @Volatile
+    private var cachedViewerFbid: Long? = null
+
     fun observeInbox(): Flow<List<ThreadWithParticipants>> = threadDao.observeInbox()
 
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
@@ -140,11 +143,15 @@ class ChatStore(
             if (threadDao.thread(threadId) == null) {
                 threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
             }
+            val before = messageDao.count(threadId)
             upsertServerMessages(threadId, json.optJSONArray("messages") ?: JSONArray(), now)
+            val added = messageDao.count(threadId) - before
+            // A page that adds nothing while still claiming more would make the
+            // scroll loader retry forever.
             threadDao.updateOlderPage(
                 threadId = threadId,
                 cursor = json.optString("oldest_cursor"),
-                hasMore = json.optBoolean("has_more_older"),
+                hasMore = json.optBoolean("has_more_older") && added > 0,
                 now = now,
             )
             messageDao.prune(threadId, MESSAGE_RETENTION)
@@ -157,8 +164,190 @@ class ChatStore(
         threadDao.updateReadWatermark(threadId, watermarkMs, clock())
     }
 
+    /** The viewer's own FBID, used to key optimistic reactions. */
+    suspend fun viewerFbid(): Long {
+        cachedViewerFbid?.let { return it }
+        return (metaDao.get(META_VIEWER_FBID)?.toLongOrNull() ?: 0L)
+            .also { cachedViewerFbid = it }
+    }
+
+    /** Applies a `message.new` realtime event. */
+    suspend fun ingestRealtimeMessage(threadId: String, message: RealtimeMessage) {
+        if (threadId.isBlank() || message.id.isBlank()) return
+
+        val now = clock()
+        val timestamp = message.timestampMs.takeIf { it > 0 } ?: now
+        db.withTransaction {
+            if (threadDao.thread(threadId) == null) {
+                threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
+            }
+            val existing = messageDao.message(message.id)
+            if (existing?.status == MessageStatus.DELETED) return@withTransaction
+
+            val entity = MessageEntity(
+                id = message.id,
+                localId = existing?.localId,
+                threadId = threadId,
+                senderFbid = message.senderFbid,
+                senderName = message.senderName,
+                timestampMs = timestamp,
+                kind = message.kind.ifBlank {
+                    if (message.media.isEmpty()) "text" else "media"
+                },
+                text = message.text,
+                otid = message.offlineThreadingId,
+                isFromViewer = message.isFromViewer,
+                status = MessageStatus.SENT,
+                seen = existing?.seen ?: false,
+                mediaCount = message.media.size,
+            )
+            messageDao.upsertMessage(entity)
+
+            if (message.media.isNotEmpty()) {
+                messageDao.deleteAttachments(message.id)
+                messageDao.upsertAttachments(
+                    message.media.mapIndexed { index, media ->
+                        media.toAttachmentEntity(message.id, index)
+                    },
+                )
+            }
+
+            threadDao.updateLastMessage(
+                threadId = threadId,
+                messageId = entity.id,
+                timestampMs = timestamp,
+                text = entity.text,
+                kind = entity.kind,
+                fromViewer = entity.isFromViewer,
+                senderFbid = entity.senderFbid,
+                now = now,
+            )
+            messageDao.prune(threadId, MESSAGE_RETENTION)
+        }
+    }
+
+    /** Stores the server message returned by a successful text send. */
+    suspend fun ingestSentText(threadId: String, result: JSONObject, fallbackText: String) {
+        val messageId = result.optString("message_id").ifBlank { result.optString("id") }
+        if (threadId.isBlank() || messageId.isBlank()) return
+
+        val now = clock()
+        val timestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
+        val text = result.optString("text").ifBlank { fallbackText }
+        db.withTransaction {
+            if (threadDao.thread(threadId) == null) {
+                threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
+            }
+            messageDao.upsertMessage(
+                MessageEntity(
+                    id = messageId,
+                    threadId = threadId,
+                    timestampMs = timestamp,
+                    kind = "text",
+                    text = text,
+                    otid = result.optString("offline_threading_id"),
+                    isFromViewer = true,
+                    status = MessageStatus.SENT,
+                ),
+            )
+            threadDao.updateLastMessage(
+                threadId = threadId,
+                messageId = messageId,
+                timestampMs = timestamp,
+                text = text,
+                kind = "text",
+                fromViewer = true,
+                senderFbid = viewerFbid(),
+                now = now,
+            )
+            messageDao.prune(threadId, MESSAGE_RETENTION)
+        }
+    }
+
+    /** Applies an edit (local action or realtime `message.edit`). */
+    suspend fun editMessageText(messageId: String, text: String) {
+        val now = clock()
+        db.withTransaction {
+            messageDao.editText(messageId, text, now)
+            val message = messageDao.message(messageId) ?: return@withTransaction
+            threadDao.setLastMessage(
+                threadId = message.threadId,
+                messageId = message.id,
+                timestampMs = message.timestampMs,
+                text = text,
+                kind = message.kind,
+                fromViewer = message.isFromViewer,
+                senderFbid = message.senderFbid,
+                now = now,
+            )
+        }
+    }
+
+    /** Applies a local unsend or a realtime `message.delete`. */
+    suspend fun tombstoneMessage(messageId: String) {
+        val now = clock()
+        db.withTransaction {
+            val message = messageDao.message(messageId) ?: return@withTransaction
+            messageDao.tombstone(messageId, now)
+            val newest = messageDao.newest(message.threadId)
+            if (newest != null) {
+                threadDao.setLastMessage(
+                    threadId = message.threadId,
+                    messageId = newest.id,
+                    timestampMs = newest.timestampMs,
+                    text = newest.text,
+                    kind = newest.kind,
+                    fromViewer = newest.isFromViewer,
+                    senderFbid = newest.senderFbid,
+                    now = now,
+                )
+            } else {
+                threadDao.clearLastMessage(message.threadId, now)
+            }
+        }
+    }
+
+    /** Upserts one reaction, replacing the sender's previous emoji. */
+    suspend fun setReaction(
+        messageId: String,
+        senderFbid: Long,
+        emoji: String,
+        isFromViewer: Boolean,
+    ) {
+        if (messageId.isBlank() || emoji.isBlank()) return
+        if (senderFbid == 0L && !isFromViewer) return
+        messageDao.upsertReactions(
+            listOf(
+                ReactionEntity(
+                    messageId = messageId,
+                    senderFbid = senderFbid,
+                    emoji = emoji,
+                    isFromViewer = isFromViewer,
+                    timestampMs = clock(),
+                ),
+            ),
+        )
+    }
+
+    suspend fun removeReaction(messageId: String, senderFbid: Long) {
+        if (messageId.isBlank()) return
+        messageDao.deleteReaction(messageId, senderFbid)
+    }
+
+    suspend fun removeViewerReaction(messageId: String) {
+        if (messageId.isBlank()) return
+        messageDao.deleteViewerReaction(messageId)
+    }
+
+    /** Applies another participant's read receipt to the viewer's messages. */
+    suspend fun markMessagesSeen(threadId: String, watermarkMs: Long) {
+        if (threadId.isBlank() || watermarkMs <= 0) return
+        messageDao.markSeen(threadId, watermarkMs)
+    }
+
     /** Removes every cached thread, message, and queue entry. */
     suspend fun clear() = withContext(Dispatchers.IO) {
+        cachedViewerFbid = null
         db.clearAllTables()
     }
 
@@ -245,11 +434,13 @@ class ChatStore(
     }
 
     private suspend fun saveViewer(viewer: JSONObject) {
+        val fbid = viewer.optLong("fbid")
+        cachedViewerFbid = fbid.takeIf { it > 0 }
         val entries = buildList {
             add(AppMetaEntity(META_VIEWER_ID, viewer.optString("ig_id")))
             add(AppMetaEntity(META_VIEWER_USERNAME, viewer.optString("username")))
             add(AppMetaEntity(META_VIEWER_NAME, viewer.optString("name")))
-            add(AppMetaEntity(META_VIEWER_FBID, viewer.optLong("fbid").toString()))
+            add(AppMetaEntity(META_VIEWER_FBID, fbid.toString()))
         }
         entries.filter { it.value.isNotBlank() && it.value != "0" }.forEach { metaDao.put(it) }
     }
@@ -265,12 +456,24 @@ internal fun threadEntity(
 
     val preview = json.optJSONObject("last_message")
     val previewTs = preview?.optLong("timestamp_ms") ?: 0L
+    val previewId = preview?.optString("id").orEmpty()
     val mailboxActivity = json.optLong("last_activity_ms")
     val lastActivity = when {
         mailboxActivity > 0 -> mailboxActivity
         previewTs > 0 -> previewTs
         else -> previous?.lastActivityMs ?: 0L
     }
+    // Only adopt the inbox stub when it is at least as new as the stored
+    // preview; a loaded page can be ahead of the mailbox snapshot.
+    val adoptPreview = preview != null &&
+        (previous == null || previewTs >= previous.lastMessageTs)
+    // A newer inbox stub means the cached page no longer ends at the newest
+    // message, so the thread is refetched when it is opened.
+    val previewAdvanced = adoptPreview && (
+        previous == null ||
+            previewTs > previous.lastMessageTs ||
+            (previewId.isNotBlank() && previewId != previous.lastMessageId)
+        )
 
     return ThreadEntity(
         id = id,
@@ -294,30 +497,30 @@ internal fun threadEntity(
         readWatermarkMs = previous?.readWatermarkMs ?: 0,
         oldestCursor = previous?.oldestCursor.orEmpty(),
         hasMoreOlder = previous?.hasMoreOlder ?: false,
-        messagesSyncedAt = previous?.messagesSyncedAt ?: 0,
-        lastMessageId = if (preview != null) {
-            preview.optString("id")
+        messagesSyncedAt = if (previewAdvanced) 0 else previous?.messagesSyncedAt ?: 0,
+        lastMessageId = if (adoptPreview) {
+            previewId
         } else {
             previous?.lastMessageId.orEmpty()
         },
-        lastMessageTs = if (preview != null) previewTs else previous?.lastMessageTs ?: 0,
-        lastMessageText = if (preview != null) {
-            preview.optString("text")
+        lastMessageTs = if (adoptPreview) previewTs else previous?.lastMessageTs ?: 0,
+        lastMessageText = if (adoptPreview) {
+            preview?.optString("text").orEmpty()
         } else {
             previous?.lastMessageText.orEmpty()
         },
-        lastMessageKind = if (preview != null) {
-            preview.optString("kind")
+        lastMessageKind = if (adoptPreview) {
+            preview?.optString("kind").orEmpty()
         } else {
             previous?.lastMessageKind.orEmpty()
         },
-        lastMessageFromViewer = if (preview != null) {
-            preview.optBoolean("is_from_viewer")
+        lastMessageFromViewer = if (adoptPreview) {
+            preview?.optBoolean("is_from_viewer") ?: false
         } else {
             previous?.lastMessageFromViewer ?: false
         },
-        lastMessageSenderFbid = if (preview != null) {
-            preview.optLong("sender_fbid")
+        lastMessageSenderFbid = if (adoptPreview) {
+            preview?.optLong("sender_fbid") ?: 0
         } else {
             previous?.lastMessageSenderFbid ?: 0
         },
@@ -415,3 +618,16 @@ internal fun reactions(json: JSONObject, messageId: String): List<ReactionEntity
     }
     return result
 }
+
+/** Maps a normalized media item into its cache row. */
+internal fun MessageMedia.toAttachmentEntity(messageId: String, partIndex: Int): AttachmentEntity =
+    AttachmentEntity(
+        messageId = messageId,
+        partIndex = partIndex,
+        kind = type.ifBlank { "media" },
+        url = url.ifBlank { fallbackUrl },
+        previewUrl = previewUrl.ifBlank { previewFallbackUrl },
+        width = width,
+        height = height,
+        durationMs = durationMs.toLong(),
+    )

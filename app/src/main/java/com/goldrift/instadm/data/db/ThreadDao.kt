@@ -72,6 +72,39 @@ interface ThreadDao {
         now: Long,
     )
 
+    /** Unconditional preview update after an edit or tombstone. */
+    @Query(
+        """
+        UPDATE threads SET
+            last_message_id = :messageId,
+            last_message_ts = :timestampMs,
+            last_message_text = :text,
+            last_message_kind = :kind,
+            last_message_from_viewer = :fromViewer,
+            last_message_sender_fbid = :senderFbid,
+            updated_at = :now
+        WHERE id = :threadId
+        """,
+    )
+    suspend fun setLastMessage(
+        threadId: String,
+        messageId: String,
+        timestampMs: Long,
+        text: String,
+        kind: String,
+        fromViewer: Boolean,
+        senderFbid: Long,
+        now: Long,
+    )
+
+    @Query(
+        "UPDATE threads SET last_message_id = '', last_message_ts = 0, " +
+            "last_message_text = '', last_message_kind = '', " +
+            "last_message_from_viewer = 0, last_message_sender_fbid = 0, " +
+            "updated_at = :now WHERE id = :threadId",
+    )
+    suspend fun clearLastMessage(threadId: String, now: Long)
+
     @Query(
         """
         UPDATE threads SET

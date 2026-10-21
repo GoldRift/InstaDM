@@ -40,6 +40,8 @@ data class Conversation(
     /** Instagram's long thread ID (`thread_id`), needed for read receipts. */
     val longThreadId: String = "",
     val systemFolder: String = "",
+    /** When the newest page was fetched; 0 means it was never loaded. */
+    val messagesSyncedAt: Long = 0,
     /** True while Instagram reports more messages older than [oldestCursor]. */
     val hasMoreOlder: Boolean = false,
     /** Cursor for the next older page; blank until the newest page is loaded. */
