@@ -338,7 +338,7 @@ private fun ConversationRow(
 @Preview(name = "Inbox light", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun InboxLightPreview() {
-    InstaDMTheme(darkTheme = false) {
+    InstaDMTheme(darkTheme = false, dynamicColor = false) {
         InboxScreen(
             conversations = sampleConversations(),
             onConversationClick = {},
@@ -352,11 +352,11 @@ private fun InboxLightPreview() {
     showBackground = true,
     widthDp = 390,
     heightDp = 844,
-    backgroundColor = 0xFF1D2023,
+    backgroundColor = 0xFF10131C,
 )
 @Composable
 private fun InboxDarkPreview() {
-    InstaDMTheme(darkTheme = true) {
+    InstaDMTheme(darkTheme = true, dynamicColor = false) {
         InboxScreen(
             conversations = sampleConversations(),
             onConversationClick = {},

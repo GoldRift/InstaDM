@@ -1776,7 +1776,7 @@ private val CANCEL_DISTANCE = 96.dp
 @Preview(name = "Chat light", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun ChatScreenLightPreview() {
-    InstaDMTheme(darkTheme = false) {
+    InstaDMTheme(darkTheme = false, dynamicColor = false) {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = false,
@@ -1791,11 +1791,11 @@ private fun ChatScreenLightPreview() {
     showBackground = true,
     widthDp = 390,
     heightDp = 844,
-    backgroundColor = 0xFF111318,
+    backgroundColor = 0xFF10131C,
 )
 @Composable
 private fun ChatScreenDarkPreview() {
-    InstaDMTheme(darkTheme = true) {
+    InstaDMTheme(darkTheme = true, dynamicColor = false) {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = true,

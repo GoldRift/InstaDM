@@ -28,11 +28,16 @@ val InstaDMShapes = Shapes(
     extraExtraLarge = RoundedCornerShape(44.dp),
 )
 
+/**
+ * Dynamic color is on by default: on Android 12+ the OS generates the scheme
+ * from the user's wallpaper, so the app shares the exact palette every other
+ * Material app on the device is using. Previews and screenshots pass
+ * `dynamicColor = false` to stay on the seeded fallback.
+ */
 @Composable
 fun InstaDMTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Off by default so the neutral expressive palette stays consistent; opt in if desired.
-    dynamicColor: Boolean = false,
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
@@ -52,11 +57,7 @@ fun InstaDMTheme(
         typography = Typography,
     ) {
         CompositionLocalProvider(
-            LocalMessageBubbleColors provides if (darkTheme) {
-                DarkMessageBubbleColors
-            } else {
-                LightMessageBubbleColors
-            },
+            LocalMessageBubbleColors provides messageBubbleColors(colorScheme, darkTheme),
             content = content,
         )
     }
