@@ -1546,6 +1546,9 @@ private fun MicButton(
 ) {
     val lockThreshold = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
     val cancelThreshold = with(LocalDensity.current) { CANCEL_DISTANCE.toPx() }
+    val start = rememberUpdatedState(onStart)
+    val move = rememberUpdatedState(onMove)
+    val release = rememberUpdatedState(onRelease)
     Box(
         modifier = Modifier
             .size(40.dp)
@@ -1556,7 +1559,7 @@ private fun MicButton(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    onStart()
+                    start.value()
                     var locked = false
                     var cancelled = false
                     while (true) {
@@ -1566,10 +1569,10 @@ private fun MicButton(
                         val dx = change.position.x - down.position.x
                         locked = dy < -lockThreshold
                         cancelled = !locked && dx < -cancelThreshold
-                        onMove(locked, cancelled)
+                        move.value(locked, cancelled)
                         if (!change.pressed) break
                     }
-                    onRelease(locked, cancelled)
+                    release.value(locked, cancelled)
                 }
             },
         contentAlignment = Alignment.Center,
