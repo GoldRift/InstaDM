@@ -30,6 +30,16 @@ func TestRedactedFixturesUnmarshal(t *testing.T) {
 		mailbox.Threads[0].Participants[0].AvatarURL == "" {
 		t.Error("mailbox fixture thread is missing avatar metadata")
 	}
+	preview := mailbox.Threads[0].LastMessage
+	if preview == nil {
+		t.Fatal("mailbox fixture thread is missing last_message")
+	}
+	if preview.ID == "" || preview.Kind != "text" || preview.Text == "" {
+		t.Errorf("mailbox fixture last_message = %+v, want a text preview", preview)
+	}
+	if preview.TimestampMS == 0 || preview.IsFromViewer {
+		t.Errorf("mailbox fixture last_message = %+v, want an incoming message with a timestamp", preview)
+	}
 
 	threadData, err := os.ReadFile(filepath.Join("..", "fixtures", "thread.redacted.json"))
 	if err != nil {

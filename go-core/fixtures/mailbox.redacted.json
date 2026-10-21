@@ -33,7 +33,17 @@
       "system_folder": "INBOX",
       "marked_as_unread": false,
       "is_muted": false,
-      "is_pinned": false
+      "is_pinned": false,
+      "last_message": {
+        "id": "message-0001",
+        "sender_fbid": 200000000000000,
+        "sender_name": "Test Participant",
+        "is_from_viewer": false,
+        "timestamp_ms": 1700000000000,
+        "kind": "text",
+        "text": "hello from the fixture",
+        "snippet": "hello from the fixture"
+      }
     }
   ]
 }

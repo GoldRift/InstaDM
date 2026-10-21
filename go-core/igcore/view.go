@@ -61,6 +61,26 @@ type ThreadView struct {
 	MarkedAsUnread bool              `json:"marked_as_unread"`
 	IsMuted        bool              `json:"is_muted"`
 	IsPinned       bool              `json:"is_pinned"`
+	// LastMessage is the inbox preview stub. The inbox only returns partial
+	// messages, so it is safe for a one-line preview and must never be treated
+	// as history.
+	LastMessage *MessagePreviewView `json:"last_message,omitempty"`
+}
+
+// MessagePreviewView is the newest message Instagram includes in the inbox.
+// It is intentionally smaller than MessageView: no media URLs (they are signed
+// and expire) and no reactions, only what an inbox row needs.
+type MessagePreviewView struct {
+	ID           string `json:"id,omitempty"`
+	SenderFBID   int64  `json:"sender_fbid,omitempty"`
+	SenderName   string `json:"sender_name,omitempty"`
+	IsFromViewer bool   `json:"is_from_viewer"`
+	TimestampMS  int64  `json:"timestamp_ms"`
+	Kind         string `json:"kind"`
+	Text         string `json:"text,omitempty"`
+	// Snippet is Instagram's own inbox text, used when the stub's content is
+	// not enough to build a preview (for example link/XMA messages).
+	Snippet string `json:"snippet,omitempty"`
 }
 
 func newMailboxView(viewer *types.PolarisViewer, mailbox *slidetypes.Mailbox, ownFBID int64) *MailboxView {
@@ -135,7 +155,65 @@ func newThreadView(thread *slidetypes.ThreadInfo, ownFBID int64) ThreadView {
 		view.Title = displayTitle(view.Participants, ownFBID)
 	}
 
+	view.LastMessage = lastMessagePreview(thread.SlideMessages, ownFBID, participantNames(thread))
+
 	return view
+}
+
+// lastMessagePreview picks the newest inbox stub. The inbox returns messages
+// newest-first, but older pages and some thread types are not guaranteed to be
+// ordered, so compare timestamps instead of trusting the edge order.
+func lastMessagePreview(page *slidetypes.SlideMessages, ownFBID int64, participants map[int64]string) *MessagePreviewView {
+	if page == nil {
+		return nil
+	}
+
+	var newest *slidetypes.Message
+	for _, edge := range page.Edges {
+		message := edge.Node
+		if message == nil {
+			continue
+		}
+		if newest == nil || message.TimestampMS.UnixMilli() > newest.TimestampMS.UnixMilli() {
+			newest = message
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+
+	kind, text, _ := describeMessageContent(newest)
+
+	senderFBID := newest.SenderFBID
+	senderName := ""
+	if newest.Sender != nil {
+		if senderFBID == 0 {
+			senderFBID = newest.Sender.UserDict.InteropMessagingUserFBID
+		}
+		senderName = newest.Sender.Name
+		if senderName == "" {
+			senderName = displayName(&newest.Sender.UserDict)
+		}
+	}
+	if senderName == "" {
+		senderName = participants[senderFBID]
+	}
+
+	id := newest.MessageID
+	if id == "" {
+		id = newest.ID
+	}
+
+	return &MessagePreviewView{
+		ID:           id,
+		SenderFBID:   senderFBID,
+		SenderName:   senderName,
+		IsFromViewer: ownFBID != 0 && senderFBID == ownFBID,
+		TimestampMS:  newest.TimestampMS.UnixMilli(),
+		Kind:         kind,
+		Text:         text,
+		Snippet:      newest.IGDSnippet,
+	}
 }
 
 // threadAvatarURL picks the conversation photo. Groups use the custom thread

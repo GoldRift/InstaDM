@@ -515,3 +515,81 @@ func TestNewThreadViewDirectAvatarWithoutViewerID(t *testing.T) {
 		t.Error("is_viewer = true without a known viewer FBID")
 	}
 }
+
+func TestNewThreadViewAddsLastMessagePreview(t *testing.T) {
+	timestamp := jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_123_000)}
+	thread := &slidetypes.ThreadInfo{
+		ID:                      "dm-id",
+		LastActivityTimestampMS: timestamp,
+		Users: []*slidetypes.User{
+			{ID: "ig-other", InteropMessagingUserFBID: 222, Username: "other", FullName: "Other Person"},
+			{ID: "ig-me", InteropMessagingUserFBID: 111, FullName: "Me"},
+		},
+		SlideMessages: &slidetypes.SlideMessages{
+			Edges: []slidetypes.Node[*slidetypes.Message]{
+				{
+					Node: &slidetypes.Message{
+						MessageID:          "message-1",
+						SenderFBID:         222,
+						TimestampMS:        timestamp,
+						Content:            slidetypes.MessageContentWrapper{Content: &slidetypes.MessageContentText{TextBody: "see you soon"}},
+						OfflineThreadingID: "otid-1",
+					},
+				},
+			},
+		},
+	}
+
+	view := newThreadView(thread, 111)
+
+	preview := view.LastMessage
+	if preview == nil {
+		t.Fatal("last_message = nil, want the inbox stub")
+	}
+	if preview.ID != "message-1" || preview.Text != "see you soon" || preview.Kind != "text" {
+		t.Errorf("last_message = %+v, want message-1/text/see you soon", preview)
+	}
+	if preview.IsFromViewer {
+		t.Error("is_from_viewer = true for the other participant's message")
+	}
+	if preview.SenderName != "Other Person" {
+		t.Errorf("sender_name = %q, want the participant's full name", preview.SenderName)
+	}
+	if preview.TimestampMS != timestamp.UnixMilli() {
+		t.Errorf("timestamp_ms = %d, want %d", preview.TimestampMS, timestamp.UnixMilli())
+	}
+}
+
+func TestNewThreadViewPrefersNewestLastMessage(t *testing.T) {
+	older := jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_000)}
+	newer := jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_500_000)}
+	thread := &slidetypes.ThreadInfo{
+		ID: "dm-id",
+		SlideMessages: &slidetypes.SlideMessages{
+			Edges: []slidetypes.Node[*slidetypes.Message]{
+				{Node: &slidetypes.Message{MessageID: "old", SenderFBID: 111, TimestampMS: older}},
+				{Node: &slidetypes.Message{MessageID: "new", SenderFBID: 111, TimestampMS: newer, IGDSnippet: "latest"}},
+			},
+		},
+	}
+
+	view := newThreadView(thread, 111)
+
+	if view.LastMessage == nil || view.LastMessage.ID != "new" {
+		t.Fatalf("last_message = %+v, want the newest edge", view.LastMessage)
+	}
+	if !view.LastMessage.IsFromViewer {
+		t.Error("is_from_viewer = false for the viewer's own message")
+	}
+	if view.LastMessage.Snippet != "latest" {
+		t.Errorf("snippet = %q, want the inbox snippet", view.LastMessage.Snippet)
+	}
+}
+
+func TestNewThreadViewWithoutStubsHasNoLastMessage(t *testing.T) {
+	view := newThreadView(&slidetypes.ThreadInfo{ID: "dm-id"}, 111)
+
+	if view.LastMessage != nil {
+		t.Errorf("last_message = %+v, want nil without slide_messages", view.LastMessage)
+	}
+}

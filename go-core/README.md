@@ -211,6 +211,13 @@ contains no cookies or bootstrap tokens, but it still contains account and conta
 metadata (names, usernames, thread IDs). Treat fixture files as personal data and keep
 them out of version control unless they have been redacted.
 
+Each thread also carries `last_message`, the newest stub Instagram includes in the
+mailbox. It is enough for an inbox preview (`id`, `timestamp_ms`, `kind`, `text`,
+`snippet`, `sender_fbid`, `sender_name`, `is_from_viewer`) but it is not full message
+history: the inbox omits attachments and other fields, so the app must fetch the thread
+before showing it as a chat bubble. The stub deliberately has no media URLs because they
+are signed and expire.
+
 The `thread` table shows the thread metadata followed by one row per message: local
 timestamp, sender (`me` for your own messages), content kind, and text. Messages are
 printed oldest-to-newest. Media is represented as `[image]`, `[video]`, `[sticker]`, and
