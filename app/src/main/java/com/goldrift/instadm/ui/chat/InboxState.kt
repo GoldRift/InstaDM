@@ -11,9 +11,11 @@ import androidx.compose.runtime.setValue
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.OfflineThreadingIds
 import com.goldrift.instadm.data.PickedMedia
+import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
+import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.service.AppVisibility
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +49,7 @@ private const val UNKNOWN_THREAD_REFRESH_MS = 60_000L
 @Stable
 class InboxState(
     private val repository: ProtocolRepository,
+    private val chatStore: ChatStore,
     private val scope: CoroutineScope,
     private val mediaReader: MediaReader,
 ) {
@@ -67,6 +70,9 @@ class InboxState(
     init {
         scope.launch {
             RealtimeBus.events.collect { event -> applyRealtimeEvent(event) }
+        }
+        scope.launch {
+            chatStore.observeInbox().collect { rows -> applyInboxRows(rows) }
         }
     }
 
@@ -96,16 +102,22 @@ class InboxState(
                 errorMessage = null
 
                 if (!repository.hasCookies()) {
+                    runCatching { chatStore.clear() }
                     items.clear()
                     status = InboxStatus.NoSession
                     return@launch
                 }
 
-                runCatching { repository.loadMailbox() }
-                    .onSuccess { mailbox -> applyMailbox(mailbox) }
+                runCatching {
+                    chatStore.ingestMailbox(repository.loadMailbox())
+                }
+                    .onSuccess {
+                        markThreadsStale()
+                        status = InboxStatus.Ready
+                    }
                     .onFailure { error ->
-                        status = InboxStatus.Error
                         errorMessage = describeError(error)
+                        status = if (items.isEmpty()) InboxStatus.Error else InboxStatus.Ready
                     }
             } finally {
                 refreshInFlight = false
@@ -115,12 +127,42 @@ class InboxState(
 
     /** Applies the mailbox returned by login validation without another fetch. */
     fun applyMailbox(mailbox: JSONObject) {
+        scope.launch {
+            runCatching { chatStore.ingestMailbox(mailbox) }
+                .onSuccess {
+                    markThreadsStale()
+                    errorMessage = null
+                    status = InboxStatus.Ready
+                }
+                .onFailure { error ->
+                    errorMessage = describeError(error)
+                    status = if (items.isEmpty()) InboxStatus.Error else InboxStatus.Ready
+                }
+        }
+    }
+
+    /** Rebuilds the inbox list from the database, keeping in-memory messages. */
+    private fun applyInboxRows(rows: List<ThreadWithParticipants>) {
         val existing = items.associateBy { it.id }
-        val updated = mapMailbox(mailbox, existing)
+        val mapped = rows.map { row -> row.toConversation(existing[row.thread.id]) }
         items.clear()
-        items.addAll(updated)
-        errorMessage = null
-        status = InboxStatus.Ready
+        items.addAll(mapped)
+        if (mapped.isNotEmpty() && status == InboxStatus.Loading) {
+            status = InboxStatus.Ready
+        }
+    }
+
+    /**
+     * A mailbox refresh can change read receipts and bring newer messages, so
+     * the next open re-fetches the thread. Threads stay visible in the inbox
+     * because their messages are kept in memory.
+     */
+    private fun markThreadsStale() {
+        for (index in items.indices) {
+            if (items[index].messagesLoaded) {
+                items[index] = items[index].copy(messagesLoaded = false)
+            }
+        }
     }
 
     fun loadThread(threadId: String) {

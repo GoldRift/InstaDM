@@ -1,5 +1,8 @@
 package com.goldrift.instadm.ui.chat
 
+import com.goldrift.instadm.data.db.ParticipantEntity
+import com.goldrift.instadm.data.db.ThreadEntity
+import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.data.parseMedia
 import org.json.JSONArray
@@ -9,48 +12,60 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/** Maps the normalized Go JSON into the Compose models. */
-fun mapMailbox(
-    json: JSONObject,
-    existing: Map<String, Conversation>,
-): List<Conversation> {
-    val threads = json.optJSONArray("threads") ?: return emptyList()
-    val result = ArrayList<Conversation>(threads.length())
-    for (index in 0 until threads.length()) {
-        val thread = threads.optJSONObject(index) ?: continue
-        val threadID = thread.optString("id")
-        if (threadID.isBlank()) continue
+/**
+ * Maps a persisted inbox row into the Compose model. Messages loaded earlier in
+ * the process are carried over so a database update does not discard them.
+ */
+fun ThreadWithParticipants.toConversation(previous: Conversation?): Conversation {
+    val thread = this.thread
+    val name = thread.title.ifBlank { participantTitle(participants) }
+    return Conversation(
+        id = thread.id,
+        contact = Contact(
+            id = thread.id,
+            name = name,
+            initials = initialsOf(name),
+            avatarUrl = thread.avatarUrl,
+        ),
+        messages = previous?.messages.orEmpty(),
+        lastActivityMs = thread.lastActivityMs,
+        preview = inboxPreview(thread),
+        isGroup = thread.isGroup,
+        participants = participants.filterNot { it.isViewer }.map { participant ->
+            ConversationParticipant(
+                fbid = participant.fbid,
+                name = participant.name.ifBlank { participant.username },
+                initials = initialsOf(participant.name.ifBlank { participant.username }),
+                avatarUrl = participant.avatarUrl,
+            )
+        },
+        messagesLoaded = previous?.messagesLoaded ?: false,
+        threadFbid = thread.threadFbid,
+        longThreadId = thread.longThreadId,
+        systemFolder = thread.systemFolder,
+        hasMoreOlder = previous?.hasMoreOlder ?: thread.hasMoreOlder,
+        oldestCursor = previous?.oldestCursor?.takeIf { it.isNotBlank() }
+            ?: thread.oldestCursor,
+        isLoadingOlder = previous?.isLoadingOlder ?: false,
+        olderError = previous?.olderError ?: false,
+    )
+}
 
-        val title = threadTitle(thread)
-        val previous = existing[threadID]
-        result += Conversation(
-            id = threadID,
-            contact = Contact(
-                id = threadID,
-                name = title,
-                initials = initialsOf(title),
-                avatarUrl = thread.optString("avatar_url"),
-            ),
-            messages = previous?.messages.orEmpty(),
-            lastActivityMs = thread.optLong("last_activity_ms"),
-            preview = previous?.preview.orEmpty(),
-            isGroup = thread.optBoolean("is_group"),
-            participants = mapParticipants(thread.optJSONArray("participants")),
-            // Reload the thread when it is reopened after a mailbox refresh so
-            // read receipts and newer messages are not left stale.
-            messagesLoaded = false,
-            threadFbid = thread.optString("thread_fbid").ifBlank {
-                previous?.threadFbid.orEmpty()
-            },
-            longThreadId = thread.optString("thread_id").ifBlank {
-                previous?.longThreadId.orEmpty()
-            },
-            systemFolder = thread.optString("system_folder").ifBlank {
-                previous?.systemFolder.orEmpty()
-            },
-        )
+/** One-line inbox preview built from the denormalized last-message columns. */
+internal fun inboxPreview(thread: ThreadEntity): String {
+    val label = thread.lastMessageText.ifBlank {
+        if (thread.lastMessageKind.isBlank()) "" else messagePlaceholder(thread.lastMessageKind)
     }
-    return result.sortedByDescending { it.lastActivityMs }
+    if (label.isBlank()) return ""
+    return if (thread.lastMessageFromViewer) "You: $label" else label
+}
+
+private fun participantTitle(participants: List<ParticipantEntity>): String {
+    val names = participants
+        .filterNot { it.isViewer }
+        .map { it.name.ifBlank { it.username } }
+        .filter { it.isNotBlank() }
+    return if (names.isEmpty()) "(unknown)" else names.joinToString(", ")
 }
 
 fun mapThread(json: JSONObject, conversation: Conversation): Conversation {
@@ -157,23 +172,6 @@ private fun parseReactions(reactions: JSONArray?): List<MessageReaction> {
         )
     }
     return result
-}
-
-private fun threadTitle(thread: JSONObject): String {
-    val title = thread.optString("title")
-    if (title.isNotBlank()) return title
-
-    val participants = thread.optJSONArray("participants")
-    if (participants != null) {
-        for (index in 0 until participants.length()) {
-            val participant = participants.optJSONObject(index) ?: continue
-            if (participant.optBoolean("is_viewer")) continue
-            val name = participant.optString("name")
-                .ifBlank { participant.optString("username") }
-            if (name.isNotBlank()) return name
-        }
-    }
-    return "Instagram user"
 }
 
 /**

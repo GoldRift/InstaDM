@@ -51,7 +51,11 @@ adb shell am start -n com.goldrift.instadm/.MainActivity
 The debug `cookies.json` is excluded from Android backup. The encrypted session
 is kept only in `noBackupFilesDir`.
 
-The inbox loads the mailbox from the Go core. Conversation rows and chat headers show
+The inbox loads the mailbox from the Go core and persists it in Room, so a cold start
+shows the last conversation list and message previews before the network request
+finishes. Previews come from the `last_message` stub Instagram includes in the mailbox;
+they are not full messages, so opening a chat still fetches its newest page.
+Conversation rows and chat headers show
 profile pictures from the mailbox payload: a direct chat uses the other person's picture,
 a group uses its custom photo, and a group without one falls back to a collage of its
 members. Opening a thread refreshes the title and photo along with the newest messages.

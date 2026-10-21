@@ -30,7 +30,7 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     val mediaReader by lazy { MediaReader(this) }
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }
-    val inboxState by lazy { InboxState(repository, appScope, mediaReader) }
+    val inboxState by lazy { InboxState(repository, chatStore, appScope, mediaReader) }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient {
