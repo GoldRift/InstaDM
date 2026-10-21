@@ -640,7 +640,7 @@ private fun MessageList(
         state = listState,
         reverseLayout = true,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (isTyping) {
@@ -1063,8 +1063,7 @@ private fun ReactionBar(
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 6.dp,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
@@ -1113,8 +1112,7 @@ private fun MessageMenu(
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 6.dp,
         modifier = Modifier.widthIn(min = 210.dp, max = 280.dp),
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
@@ -1157,8 +1155,7 @@ private fun EmojiPickerDialog(
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
-            shadowElevation = 12.dp,
+            shadowElevation = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
@@ -1448,7 +1445,7 @@ private fun MessageComposer(
                 modifier = Modifier
                     .navigationBarsPadding()
                     .imePadding()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Surface(

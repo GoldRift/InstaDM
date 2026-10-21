@@ -292,7 +292,6 @@ fun LoginScreen(
                             .padding(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         shape = MaterialTheme.shapes.medium,
-                        tonalElevation = 3.dp,
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
