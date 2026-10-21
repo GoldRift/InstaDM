@@ -1,10 +1,12 @@
 package com.goldrift.instadm.ui.chat
 
 import android.app.Activity
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
 import android.widget.Toast
@@ -12,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -22,6 +25,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +64,9 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,6 +83,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -88,9 +97,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -108,9 +123,14 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.emoji2.emojipicker.EmojiPickerView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.RecordedVoice
+import com.goldrift.instadm.data.VoiceRecorder
+import com.goldrift.instadm.data.VoiceRecordingState
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
@@ -149,9 +169,12 @@ fun ChatScreen(
     onReact: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onEdit: (messageId: String, text: String) -> Unit = { _, _ -> },
     onUnsend: (messageId: String) -> Unit = {},
+    onSendVoice: (RecordedVoice) -> Unit = {},
 ) {
     val messages = conversation.messages
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var draft by remember { mutableStateOf("") }
     var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
@@ -160,6 +183,10 @@ fun ChatScreen(
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
     var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
     var capturePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var recordingLocked by remember { mutableStateOf(false) }
+    var recordingCancel by remember { mutableStateOf(false) }
+    val voiceRecorder = remember { VoiceRecorder(context) }
+    val voicePlayer = remember { VoicePlayer(context) }
     val listState = rememberLazyListState()
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -197,6 +224,75 @@ fun ChatScreen(
         galleryLauncher.launch(
             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
         )
+    }
+
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(context, R.string.chat_mic_permission, Toast.LENGTH_LONG).show()
+        }
+    }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    fun hasMicPermission(): Boolean = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.RECORD_AUDIO,
+    ) == PackageManager.PERMISSION_GRANTED
+
+    fun startRecording() {
+        if (!hasMicPermission()) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        keyboard?.hide()
+        voicePlayer.pause()
+        recordingLocked = false
+        recordingCancel = false
+        voiceRecorder.start()
+    }
+
+    fun finishRecording() {
+        val recorded = voiceRecorder.stop()
+        recordingLocked = false
+        recordingCancel = false
+        if (recorded != null) {
+            onSendVoice(recorded)
+        } else if (voiceRecorder.errorMessage == null) {
+            Toast.makeText(context, R.string.chat_recording_too_short, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(voiceRecorder.isRecording) {
+        if (!voiceRecorder.isRecording) {
+            recordingLocked = false
+            recordingCancel = false
+        }
+    }
+
+    LaunchedEffect(voiceRecorder.errorMessage) {
+        voiceRecorder.errorMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            voiceRecorder.clearError()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceRecorder.release()
+            voicePlayer.release()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                voicePlayer.pause()
+                voiceRecorder.cancel()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -253,6 +349,34 @@ fun ChatScreen(
                 onSend = ::sendMessage,
                 onCamera = ::takePhoto,
                 onPickMedia = ::pickMedia,
+                recorder = voiceRecorder,
+                locked = recordingLocked,
+                cancelCandidate = recordingCancel,
+                onMicStart = ::startRecording,
+                onMicMove = { lock, cancel ->
+                    if (lock && !recordingLocked) {
+                        recordingLocked = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                    if (!recordingLocked) recordingCancel = cancel
+                },
+                onMicRelease = { lock, cancel ->
+                    if (!lock && voiceRecorder.isRecording) {
+                        if (cancel) {
+                            voiceRecorder.cancel()
+                            recordingLocked = false
+                            recordingCancel = false
+                        } else {
+                            finishRecording()
+                        }
+                    }
+                },
+                onRecordingSend = ::finishRecording,
+                onRecordingDelete = {
+                    voiceRecorder.cancel()
+                    recordingLocked = false
+                    recordingCancel = false
+                },
             )
         },
     ) { innerPadding ->
@@ -341,6 +465,7 @@ fun ChatScreen(
                         },
                         onRetryMedia = onRetryMedia,
                         onLoadMedia = onLoadMedia,
+                        voicePlayer = voicePlayer,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -471,6 +596,7 @@ private fun MessageList(
     onUnsendAt: (messageId: String) -> Unit,
     onRetryMedia: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
+    voicePlayer: VoicePlayer,
     modifier: Modifier = Modifier,
 ) {
     val reversed = messages.asReversed()
@@ -563,6 +689,7 @@ private fun MessageList(
                 onUnsend = { onUnsendAt(message.id) },
                 onRetry = { onRetryMedia(message.id) },
                 onLoadMedia = onLoadMedia,
+                voicePlayer = voicePlayer,
                 modifier = Modifier.animateItem(),
             )
         }
@@ -602,6 +729,7 @@ private fun MessageRow(
     onUnsend: () -> Unit,
     onRetry: () -> Unit,
     onLoadMedia: MediaLoader?,
+    voicePlayer: VoicePlayer,
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
@@ -657,6 +785,7 @@ private fun MessageRow(
                         onOpenMedia = onOpenMedia,
                         onLongPress = onLongPress,
                         onLoadMedia = onLoadMedia,
+                        voicePlayer = voicePlayer,
                     )
                 }
 
@@ -742,14 +871,16 @@ private fun MessageBubbleContent(
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
     onLoadMedia: MediaLoader?,
+    voicePlayer: VoicePlayer,
 ) {
     val media = message.media.filter { it.isVisual }
+    val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
-    val hasVisual = media.isNotEmpty() || localMedia != null
+    val hasAttachment = media.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null
     Column(
         modifier = Modifier.padding(
-            horizontal = if (hasVisual) 4.dp else 14.dp,
-            vertical = if (hasVisual) 4.dp else 9.dp,
+            horizontal = if (hasAttachment) 4.dp else 14.dp,
+            vertical = if (hasAttachment) 4.dp else 9.dp,
         ),
     ) {
         media.forEachIndexed { index, item ->
@@ -765,7 +896,21 @@ private fun MessageBubbleContent(
             )
         }
 
-        if (media.isEmpty() && localMedia != null) {
+        if (voiceNotes.isNotEmpty()) {
+            if (media.isNotEmpty()) Spacer(Modifier.height(4.dp))
+            voiceNotes.forEach { item ->
+                VoiceNoteBubble(
+                    media = item,
+                    threadId = threadId,
+                    messageId = message.id,
+                    player = voicePlayer,
+                    loadMedia = onLoadMedia,
+                    onLongClick = onLongPress,
+                )
+            }
+        }
+
+        if (media.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
             LocalMediaThumbnail(
                 media = localMedia,
                 onLongClick = onLongPress,
@@ -777,8 +922,8 @@ private fun MessageBubbleContent(
                 text = message.text,
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.padding(
-                    horizontal = if (hasVisual) 10.dp else 0.dp,
-                    vertical = if (hasVisual) 6.dp else 0.dp,
+                    horizontal = if (hasAttachment) 10.dp else 0.dp,
+                    vertical = if (hasAttachment) 6.dp else 0.dp,
                 ),
             )
         }
@@ -1242,109 +1387,147 @@ private fun MessageComposer(
     onSend: () -> Unit,
     onCamera: () -> Unit,
     onPickMedia: () -> Unit,
+    recorder: VoiceRecorder,
+    locked: Boolean,
+    cancelCandidate: Boolean,
+    onMicStart: () -> Unit,
+    onMicMove: (Boolean, Boolean) -> Unit,
+    onMicRelease: (Boolean, Boolean) -> Unit,
+    onRecordingSend: () -> Unit,
+    onRecordingDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val showActions = draft.isBlank()
+    val recording = recorder.isRecording
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Row(
-            modifier = Modifier
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        if (recording && locked) {
+            LockedRecordingBar(
+                recorder = recorder,
+                onDelete = onRecordingDelete,
+                onSend = onRecordingSend,
+            )
+        } else {
+            Row(
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Row(
-                    modifier = Modifier
-                        .heightIn(min = 52.dp)
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
-                    if (showActions) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onCamera),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.PhotoCamera,
-                                contentDescription = stringResource(R.string.chat_attach_camera),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                    }
-
-                    BasicTextField(
-                        value = draft,
-                        onValueChange = onDraftChange,
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(start = if (showActions) 0.dp else 12.dp, end = 8.dp),
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        maxLines = 4,
-                        decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (draft.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.chat_message_hint),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                innerTextField()
+                            .heightIn(min = 52.dp)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (showActions) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .alpha(if (recording) 0f else 1f)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clickable(enabled = !recording, onClick = onCamera),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PhotoCamera,
+                                    contentDescription = stringResource(R.string.chat_attach_camera),
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp),
+                                )
                             }
-                        },
-                    )
+                            Spacer(Modifier.width(10.dp))
+                        }
 
-                    if (showActions) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .clickable(onClick = onPickMedia),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Image,
-                                contentDescription = stringResource(R.string.chat_attach_gallery),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp),
+                        if (recording) {
+                            RecordingStatus(
+                                recorder = recorder,
+                                cancelCandidate = cancelCandidate,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 12.dp, end = 8.dp),
+                            )
+                        } else {
+                            BasicTextField(
+                                value = draft,
+                                onValueChange = onDraftChange,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(
+                                        start = if (showActions) 0.dp else 12.dp,
+                                        end = 8.dp,
+                                    ),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                maxLines = 4,
+                                decorationBox = { innerTextField ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (draft.isEmpty()) {
+                                            Text(
+                                                text = stringResource(R.string.chat_message_hint),
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
                             )
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .width(56.dp)
-                                .height(40.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onSend),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = stringResource(R.string.chat_send),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(20.dp),
+
+                        if (showActions) {
+                            MicButton(
+                                recording = recording,
+                                onStart = onMicStart,
+                                onMove = onMicMove,
+                                onRelease = onMicRelease,
                             )
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .alpha(if (recording) 0f else 1f)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = !recording, onClick = onPickMedia),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Image,
+                                    contentDescription = stringResource(R.string.chat_attach_gallery),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .width(56.dp)
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clickable(onClick = onSend),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = stringResource(R.string.chat_send),
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -1352,6 +1535,203 @@ private fun MessageComposer(
         }
     }
 }
+
+/** Hold-to-record mic. Slide up to lock, slide left to cancel, release to send. */
+@Composable
+private fun MicButton(
+    recording: Boolean,
+    onStart: () -> Unit,
+    onMove: (Boolean, Boolean) -> Unit,
+    onRelease: (Boolean, Boolean) -> Unit,
+) {
+    val lockThreshold = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
+    val cancelThreshold = with(LocalDensity.current) { CANCEL_DISTANCE.toPx() }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(
+                if (recording) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
+            )
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    onStart()
+                    var locked = false
+                    var cancelled = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        val dy = change.position.y - down.position.y
+                        val dx = change.position.x - down.position.x
+                        locked = dy < -lockThreshold
+                        cancelled = !locked && dx < -cancelThreshold
+                        onMove(locked, cancelled)
+                        if (!change.pressed) break
+                    }
+                    onRelease(locked, cancelled)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Mic,
+            contentDescription = stringResource(R.string.chat_mic_record),
+            tint = if (recording) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+@Composable
+private fun RecordingStatus(
+    recorder: VoiceRecorder,
+    cancelCandidate: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(
+                    if (recorder.state == VoiceRecordingState.Paused) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                ),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = formatMediaDuration(recorder.elapsedMs.toInt()),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(10.dp))
+        RecordingWaveform(
+            amplitudes = recorder.waveform,
+            modifier = Modifier
+                .weight(1f)
+                .height(24.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = stringResource(
+                if (cancelCandidate) R.string.chat_recording_cancel_hint
+                else R.string.chat_recording_slide_up,
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (cancelCandidate) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun LockedRecordingBar(
+    recorder: VoiceRecorder,
+    onDelete: () -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val paused = recorder.state == VoiceRecordingState.Paused
+    Row(
+        modifier = modifier
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = stringResource(R.string.chat_recording_delete),
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Row(
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (paused) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        ),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = formatMediaDuration(recorder.elapsedMs.toInt()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(10.dp))
+                RecordingWaveform(
+                    amplitudes = recorder.waveform,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(24.dp),
+                )
+            }
+        }
+        IconButton(
+            onClick = { if (paused) recorder.resume() else recorder.pause() },
+        ) {
+            Icon(
+                imageVector = if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                contentDescription = stringResource(
+                    if (paused) R.string.chat_recording_resume else R.string.chat_recording_pause,
+                ),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable(onClick = onSend),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Send,
+                contentDescription = stringResource(R.string.chat_recording_send),
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+private val LOCK_DISTANCE = 72.dp
+private val CANCEL_DISTANCE = 96.dp
+
 
 @Preview(name = "Chat light", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable

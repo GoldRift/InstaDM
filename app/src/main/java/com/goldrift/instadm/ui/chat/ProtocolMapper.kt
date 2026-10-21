@@ -8,6 +8,7 @@ import com.goldrift.instadm.data.db.ParticipantEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.messagePlaceholder
+import com.goldrift.instadm.data.parseWaveform
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -84,6 +85,8 @@ private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(
     height = height,
     durationMs = durationMs.toInt(),
     partIndex = partIndex,
+    localPath = localPath,
+    waveform = parseWaveform(waveform),
 )
 
 /** One-line inbox preview built from the denormalized last-message columns. */

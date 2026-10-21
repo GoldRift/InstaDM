@@ -94,8 +94,18 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         mimeType: String,
         data: ByteArray,
         otid: String,
+        voice: Boolean = false,
+        waveformJson: String = "",
     ): JSONObject = withClient {
-        it.sendMedia(threadId, fileName, mimeType, data, otid = otid)
+        it.sendMedia(
+            threadId,
+            fileName,
+            mimeType,
+            data,
+            otid = otid,
+            voice = voice,
+            waveformJson = waveformJson,
+        )
     }
 
     /**
@@ -211,6 +221,11 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
             }
 
     private fun extensionFor(mimeType: String, mediaType: String): String = when {
+        mimeType.startsWith("audio/mp4") || mimeType == "audio/aac" -> "m4a"
+        mimeType.startsWith("audio/mpeg") || mimeType == "audio/mp3" -> "mp3"
+        mimeType.startsWith("audio/wav") || mimeType == "audio/x-wav" -> "wav"
+        mimeType.startsWith("audio/ogg") || mimeType == "audio/opus" -> "ogg"
+        mimeType.startsWith("audio/") || mediaType == "audio" -> "m4a"
         mimeType.startsWith("video/") || mediaType == "video" -> "mp4"
         mimeType == "image/gif" -> "gif"
         mimeType == "image/webp" -> "webp"

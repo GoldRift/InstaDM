@@ -7,6 +7,7 @@ import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.OutboxSender
+import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.data.db.MessageStatus
 import com.goldrift.instadm.data.db.OutboxState
@@ -133,6 +134,49 @@ class OutboxTest {
     }
 
     @Test
+    fun queuedVoiceNoteIsPlayableBeforeUpload() = runBlocking {
+        val recording = File(dir.apply { mkdirs() }, "voice.m4a").apply {
+            writeBytes(ByteArray(1024) { 1 })
+        }
+        val localId = outbox.enqueueVoiceNote(
+            "thread-1",
+            RecordedVoice(
+                file = recording,
+                fileName = "voice.m4a",
+                mimeType = "audio/mp4",
+                durationMs = 1_500,
+                waveform = listOf(0.2f, 0.6f),
+            ),
+        )
+
+        val pending = store.observeThread("thread-1").first().single()
+        assertEquals(localId, pending.message.id)
+        assertEquals("audio", pending.message.kind)
+        val attachment = pending.attachments.single()
+        assertEquals("audio", attachment.kind)
+        assertEquals(1_500L, attachment.durationMs)
+        assertEquals("audio/mp4", attachment.mimeType)
+        assertEquals("[0.2,0.6]", attachment.waveform)
+        assertTrue(File(attachment.localPath).isFile)
+        assertTrue(File(attachment.localPath).length() > 0)
+
+        val entry = db.outbox().byLocalMessage(localId)!!
+        val payload = JSONObject(entry.payloadJson)
+        assertTrue(payload.optBoolean("voice"))
+        assertEquals("[0.2,0.6]", payload.optString("waveform"))
+
+        // The fake sender rejects media, so the queue settles as failed while
+        // keeping the same payload for a retry.
+        outbox.drain()
+        val failed = withTimeout(5_000) {
+            store.observeThread("thread-1").first { rows ->
+                rows.singleOrNull()?.message?.status == MessageStatus.FAILED
+            }
+        }
+        assertEquals("audio", failed.single().message.kind)
+    }
+
+    @Test
     fun interruptedSendIsRetriedAfterRestart() = runBlocking {
         val localId = outbox.enqueueText("thread-1", "after crash")
         val entry = db.outbox().byLocalMessage(localId)!!
@@ -180,6 +224,8 @@ class OutboxTest {
             mimeType: String,
             data: ByteArray,
             otid: String,
+            voice: Boolean,
+            waveformJson: String,
         ): JSONObject = error("media is not used in these tests")
     }
 

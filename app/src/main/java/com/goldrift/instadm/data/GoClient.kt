@@ -50,8 +50,23 @@ class GoClient(cookiesJson: String) : Closeable {
         replyTo: String = "",
         otid: String = "",
         timeoutSeconds: Int = 180,
+        voice: Boolean = false,
+        waveformJson: String = "",
     ): JSONObject = JSONObject(
-        client.sendMediaJSON(threadId, filename, mimeType, data, replyTo, otid, timeoutSeconds),
+        if (voice) {
+            client.sendVoiceJSON(
+                threadId,
+                filename,
+                mimeType,
+                data,
+                waveformJson,
+                replyTo,
+                otid,
+                timeoutSeconds,
+            )
+        } else {
+            client.sendMediaJSON(threadId, filename, mimeType, data, replyTo, otid, timeoutSeconds)
+        },
     )
 
     /**

@@ -125,6 +125,9 @@ fun InstaDmApp() {
                         navController.popBackStack()
                     },
                     onSendMedia = { uri -> inboxState.sendMedia(threadId, uri) },
+                    onSendVoice = { recording ->
+                        inboxState.sendVoiceNote(threadId, recording)
+                    },
                     onRetryMedia = { messageId -> inboxState.retryMedia(threadId, messageId) },
                     isLoading = inboxState.isLoading(threadId),
                     errorMessage = inboxState.errorMessage,

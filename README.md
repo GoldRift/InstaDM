@@ -7,9 +7,9 @@ An Android Instagram DM client built around a Go protocol core.
   download, mute/pin, new DMs, a durable outbox, and DGW realtime watch. See
   [`go-core/README.md`](go-core/README.md).
 - [`app/`](app/) — Android Jetpack Compose app. It embeds the Go core through the
-  generated `igcore.aar`, loads the real inbox and threads, sends text and media
-  from the camera or gallery, renders inline image/video attachments, and keeps a
-  realtime watch alive in a foreground service.
+  generated `igcore.aar`, loads the real inbox and threads, sends text, media, and
+  voice notes from the camera, gallery, or microphone, renders inline image/video/voice
+  attachments, and keeps a realtime watch alive in a foreground service.
 
 ## Build
 
@@ -72,6 +72,13 @@ error. Attachments can be captured with the camera button or picked from the sys
 photo
 picker; the composer shows the local copy immediately and clears the pending tick
 once the upload finishes. A failed upload keeps the bubble so it can be retried.
+The mic sits left of the gallery icon and records a voice note while held. Releasing
+sends it, sliding up locks the recorder so the finger can be lifted, and sliding left
+cancels. A locked recording can be paused, resumed, deleted, or sent. There is no
+duration limit; recording stops cleanly when the file reaches the same 25 MB upload
+cap as other attachments. Voice notes are playable inline in both directions, with
+tap-to-seek and a waveform; outgoing notes use the local file until Instagram's copy
+takes over.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
 immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
@@ -125,12 +132,15 @@ adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.Androi
 
 Uploads reach a live account, so verify the composer and the pickers before sending:
 
-- The empty composer shows the camera circle, `Message…`, and the gallery icon.
-  Typing replaces the left and right actions with the primary send button.
+- The empty composer shows the camera circle, `Message…`, the mic, and the gallery
+  icon. Typing replaces the left and right actions with the primary send button.
 - The camera writes into `cacheDir/outgoing` through the app `FileProvider`; the
   gallery opens the system photo picker.
+- Holding the mic records; releasing sends, sliding up locks, sliding left cancels.
+  The first use asks for `RECORD_AUDIO`. The locked bar can pause, delete, or send.
 - Images are capped at 8 MB and other attachments at 25 MB, mirroring
-  `go-core/igcore/media.go`. A larger file is rejected before uploading.
+  `go-core/igcore/media.go`. A larger file is rejected before uploading; a voice
+  recording that reaches the cap stops and shows the same message.
 - HEIC images and other unsupported MIME types are rejected with a readable error.
 - In airplane mode, a picked photo keeps a failed bubble; reconnecting and tapping
   the retry label uploads it.
@@ -141,11 +151,11 @@ The Go core implements text and media send/download, reactions, edits, unsend,
 mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff with a
 post-subscribe flap brake, a durable send outbox, and cookie-jar export for
 session persistence. The Android app adds in-app WebView login with encrypted
-session storage, loads real mailbox/thread JSON, sends text and media (camera or
-gallery) through the AAR with optimistic bubbles and retry, applies realtime
-events from a foreground watch service, marks open threads read with coalesced
-receipts, and renders inline media with full-screen image and video viewers and
-seen ticks driven by real read receipts.
+session storage, loads real mailbox/thread JSON, sends text, media, and voice notes
+through the AAR with optimistic bubbles and retry, applies realtime events from a
+foreground watch service, marks open threads read with coalesced receipts, and renders
+inline media with full-screen image/video viewers, inline voice playback, and seen
+ticks driven by real read receipts.
 
 ### Planned session lifecycle
 

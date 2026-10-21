@@ -71,7 +71,7 @@ fun messagePreview(text: String, kind: String): String =
 fun messagePlaceholder(kind: String): String = when (kind) {
     "image" -> "[image]"
     "video" -> "[video]"
-    "audio" -> "[audio]"
+    "audio" -> "[voice message]"
     "gif" -> "[gif]"
     "sticker" -> "[sticker]"
     "media" -> "[media]"

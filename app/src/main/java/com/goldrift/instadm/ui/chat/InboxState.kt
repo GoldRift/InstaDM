@@ -12,6 +12,7 @@ import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
@@ -250,6 +251,19 @@ class InboxState(
             runCatching {
                 outbox.enqueueMedia(threadId, mediaReader.prepare(uri))
             }.onFailure { error -> errorMessage = describeError(error) }
+        }
+    }
+
+    /**
+     * Queues a finished voice recording. The outbox writes the optimistic
+     * bubble first, so the note is playable before the upload completes.
+     */
+    fun sendVoiceNote(threadId: String, recording: RecordedVoice) {
+        if (conversation(threadId) == null) return
+        errorMessage = null
+        scope.launch {
+            runCatching { outbox.enqueueVoiceNote(threadId, recording) }
+                .onFailure { error -> errorMessage = describeError(error) }
         }
     }
 

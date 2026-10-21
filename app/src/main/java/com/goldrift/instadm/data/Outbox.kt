@@ -37,6 +37,8 @@ interface OutboxSender {
         mimeType: String,
         data: ByteArray,
         otid: String,
+        voice: Boolean = false,
+        waveformJson: String = "",
     ): JSONObject
 }
 
@@ -54,7 +56,17 @@ class ProtocolOutboxSender(private val repository: ProtocolRepository) : OutboxS
         mimeType: String,
         data: ByteArray,
         otid: String,
-    ): JSONObject = repository.sendMedia(threadId, fileName, mimeType, data, otid)
+        voice: Boolean,
+        waveformJson: String,
+    ): JSONObject = repository.sendMedia(
+        threadId,
+        fileName,
+        mimeType,
+        data,
+        otid,
+        voice = voice,
+        waveformJson = waveformJson,
+    )
 }
 
 /**
@@ -223,6 +235,95 @@ class Outbox(
         return localId
     }
 
+    /**
+     * Copies a finished voice recording into app-private storage and queues it
+     * as a voice note. The recorder writes to the cache, which the system may
+     * evict; the copy is what survives process death and retries.
+     */
+    suspend fun enqueueVoiceNote(threadId: String, recording: RecordedVoice): String {
+        if (!recording.file.isFile) error("recording file is missing")
+        val otid = OfflineThreadingIds.next()
+        val extension = extensionFor(recording.mimeType, "audio")
+        val file = withContext(Dispatchers.IO) {
+            if (recording.file.length() > MediaPolicy.MAX_MEDIA_BYTES) {
+                error("recording is larger than the voice-note limit")
+            }
+            outboxDir.mkdirs()
+            val target = File(outboxDir, "$otid.$extension")
+            recording.file.copyTo(target, overwrite = true)
+            recording.file.delete()
+            target
+        }
+        val waveform = waveformJson(recording.waveform)
+
+        val now = clock()
+        val localId = "local:${UUID.randomUUID()}"
+        val localUri = file.toURI().toString()
+        db.withTransaction {
+            messageDao.upsertMessage(
+                MessageEntity(
+                    id = localId,
+                    localId = localId,
+                    threadId = threadId,
+                    timestampMs = now,
+                    kind = "audio",
+                    otid = otid,
+                    isFromViewer = true,
+                    status = MessageStatus.PENDING,
+                    mediaCount = 1,
+                ),
+            )
+            messageDao.upsertAttachments(
+                listOf(
+                    AttachmentEntity(
+                        messageId = localId,
+                        partIndex = 0,
+                        kind = "audio",
+                        url = localUri,
+                        previewUrl = localUri,
+                        durationMs = recording.durationMs.toLong(),
+                        mimeType = recording.mimeType,
+                        localPath = file.absolutePath,
+                        waveform = waveform.takeIf { it.isNotBlank() },
+                        downloadState = AttachmentEntity.DOWNLOAD_READY,
+                    ),
+                ),
+            )
+            outboxDao.insert(
+                OutboxEntity(
+                    threadId = threadId,
+                    kind = "media",
+                    payloadJson = JSONObject()
+                        .put("file_path", file.absolutePath)
+                        .put("file_name", recording.fileName)
+                        .put("mime_type", recording.mimeType)
+                        .put("kind", "audio")
+                        .put("duration_ms", recording.durationMs)
+                        .put("voice", true)
+                        .put("waveform", waveform)
+                        .toString(),
+                    localMessageId = localId,
+                    otid = otid,
+                    state = OutboxState.PENDING,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            threadDao.updateLastMessage(
+                threadId = threadId,
+                messageId = localId,
+                timestampMs = now,
+                text = "",
+                kind = "audio",
+                fromViewer = true,
+                senderFbid = chatStore.viewerFbid(),
+                now = now,
+            )
+        }
+        wake.trySend(Unit)
+        return localId
+    }
+
     /** Re-queues a failed outgoing message. */
     suspend fun retry(localMessageId: String) {
         val entry = outboxDao.byLocalMessage(localMessageId) ?: return
@@ -282,6 +383,8 @@ class Outbox(
                     mimeType = payload.optString("mime_type"),
                     data = withContext(Dispatchers.IO) { file.readBytes() },
                     otid = entry.otid,
+                    voice = payload.optBoolean("voice"),
+                    waveformJson = payload.optString("waveform"),
                 )
             }
 
@@ -311,6 +414,7 @@ class Outbox(
                 width = payload.optInt("width"),
                 height = payload.optInt("height"),
                 durationMs = payload.optLong("duration_ms"),
+                waveform = payload.optString("waveform"),
             )
             pruneMediaCache(mediaCacheDir, MEDIA_CACHE_MAX_BYTES, keep = File(localPath))
         }

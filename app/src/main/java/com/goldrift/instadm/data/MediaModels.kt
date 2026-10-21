@@ -17,7 +17,18 @@ data class MessageMedia(
     val height: Int = 0,
     val durationMs: Int = 0,
     val partIndex: Int = 0,
+    /** Local file for a downloaded or just-sent attachment, when known. */
+    val localPath: String = "",
+    /** Voice-note amplitudes (0..1) for the waveform. */
+    val waveform: List<Float> = emptyList(),
 ) {
+    val isAudio: Boolean
+        get() = type == "audio"
+
+    /** Playable voice note: audio with a local file or a downloadable URL. */
+    val isVoiceNote: Boolean
+        get() = isAudio && (localPath.isNotBlank() || fullUrl.isNotBlank())
+
     val isVideo: Boolean
         get() = type == "video" ||
             type == "gif" ||
@@ -86,7 +97,37 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
             height = item.optInt("height"),
             durationMs = item.optInt("duration_ms"),
             partIndex = index,
+            waveform = parseWaveform(item.optJSONArray("waveform")),
         )
     }
     return result
+}
+
+/** Parses a waveform array into amplitudes in the 0..1 range. */
+fun parseWaveform(json: JSONArray?): List<Float> {
+    if (json == null || json.length() == 0) return emptyList()
+    val result = ArrayList<Float>(json.length())
+    for (index in 0 until json.length()) {
+        val value = json.optDouble(index, 0.0)
+        if (value.isNaN()) {
+            result += 0f
+        } else {
+            result += value.coerceIn(0.0, 1.0).toFloat()
+        }
+    }
+    return result
+}
+
+/** Parses a persisted waveform column. Invalid JSON yields no waveform. */
+fun parseWaveform(raw: String?): List<Float> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return runCatching { parseWaveform(JSONArray(raw)) }.getOrDefault(emptyList())
+}
+
+/** Serializes amplitudes for Room and the Go waveform field. */
+fun waveformJson(waveform: List<Float>): String {
+    if (waveform.isEmpty()) return ""
+    return waveform.joinToString(prefix = "[", postfix = "]", separator = ",") { value ->
+        value.coerceIn(0f, 1f).toString()
+    }
 }

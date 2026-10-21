@@ -1,6 +1,7 @@
 package com.goldrift.instadm
 
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.waveformJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -72,5 +73,28 @@ class MediaModelsTest {
 
         assertFalse(media.isVisual)
         assertFalse(media.isVideo)
+    }
+
+    @Test
+    fun recognizesVoiceNotes() {
+        val downloaded = MessageMedia(
+            type = "audio",
+            url = "https://cdn.example/voice.m4a",
+            localPath = "/tmp/voice.m4a",
+            waveform = listOf(0.2f, 0.8f),
+        )
+        val remote = MessageMedia(type = "audio", url = "https://cdn.example/voice.m4a")
+
+        assertTrue(downloaded.isVoiceNote)
+        assertTrue(remote.isVoiceNote)
+        assertFalse(MessageMedia(type = "image", url = "u").isVoiceNote)
+        assertEquals(listOf(0.2f, 0.8f), downloaded.waveform)
+    }
+
+    @Test
+    fun serializesWaveformAmplitudes() {
+        assertEquals("", waveformJson(emptyList()))
+        assertEquals("[0.25,1.0]", waveformJson(listOf(0.25f, 2f)))
+        assertEquals("[0.0,0.5]", waveformJson(listOf(-1f, 0.5f)))
     }
 }

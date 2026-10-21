@@ -575,7 +575,7 @@ private sealed interface MediaLoadState {
     data object Failed : MediaLoadState
 }
 
-private fun formatMediaDuration(milliseconds: Int): String {
+internal fun formatMediaDuration(milliseconds: Int): String {
     val totalSeconds = milliseconds / 1000
     return String.format(Locale.US, "%d:%02d", totalSeconds / 60, totalSeconds % 60)
 }

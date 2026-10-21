@@ -34,6 +34,8 @@ data class AttachmentEntity(
     @ColumnInfo(name = "duration_ms") val durationMs: Long = 0,
     @ColumnInfo(name = "mime_type") val mimeType: String = "",
     @ColumnInfo(name = "local_path") val localPath: String = "",
+    /** JSON array of amplitudes (0..1) for voice notes, when Instagram sends one. */
+    val waveform: String? = null,
     @ColumnInfo(name = "download_state") val downloadState: String = DOWNLOAD_NONE,
 ) {
     companion object {

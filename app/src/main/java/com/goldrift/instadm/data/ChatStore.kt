@@ -215,10 +215,18 @@ class ChatStore(
             messageDao.upsertMessage(entity)
 
             if (message.media.isNotEmpty()) {
+                val previousMedia = messageDao.attachments(message.id).associateBy { it.partIndex }
                 messageDao.deleteAttachments(message.id)
                 messageDao.upsertAttachments(
                     message.media.mapIndexed { index, media ->
-                        media.toAttachmentEntity(message.id, index)
+                        val item = media.toAttachmentEntity(message.id, index)
+                        previousMedia[index]?.let { cached ->
+                            item.copy(
+                                localPath = cached.localPath,
+                                downloadState = cached.downloadState,
+                                waveform = item.waveform ?: cached.waveform,
+                            )
+                        } ?: item
                     },
                 )
             }
@@ -334,6 +342,7 @@ class ChatStore(
         width: Int,
         height: Int,
         durationMs: Long,
+        waveform: String = "",
     ) {
         val messageId = result.optString("message_id").ifBlank { result.optString("id") }
         val now = clock()
@@ -370,6 +379,7 @@ class ChatStore(
                         width = width,
                         height = height,
                         durationMs = durationMs,
+                        waveform = waveform.takeIf { it.isNotBlank() },
                         localPath = localPath,
                         downloadState = AttachmentEntity.DOWNLOAD_READY,
                     ),
@@ -519,7 +529,11 @@ class ChatStore(
             val previousMedia = messageDao.attachments(id).associateBy { it.partIndex }
             val media = attachments(message, id).map { item ->
                 previousMedia[item.partIndex]?.let { cached ->
-                    item.copy(localPath = cached.localPath, downloadState = cached.downloadState)
+                    item.copy(
+                        localPath = cached.localPath,
+                        downloadState = cached.downloadState,
+                        waveform = item.waveform ?: cached.waveform,
+                    )
                 } ?: item
             }
             messageDao.deleteAttachments(id)
@@ -734,6 +748,9 @@ internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEn
             width = media.optInt("width"),
             height = media.optInt("height"),
             durationMs = media.optLong("duration_ms"),
+            waveform = media.optJSONArray("waveform")
+                ?.let { waveformJson(parseWaveform(it)) }
+                ?.takeIf { it.isNotBlank() },
         )
     }
     return result
@@ -769,4 +786,5 @@ internal fun MessageMedia.toAttachmentEntity(messageId: String, partIndex: Int):
         width = width,
         height = height,
         durationMs = durationMs.toLong(),
+        waveform = waveformJson(waveform).takeIf { it.isNotBlank() },
     )
