@@ -593,3 +593,24 @@ func TestNewThreadViewWithoutStubsHasNoLastMessage(t *testing.T) {
 		t.Errorf("last_message = %+v, want nil without slide_messages", view.LastMessage)
 	}
 }
+
+func TestNormalizeWaveform(t *testing.T) {
+	if got := normalizeWaveform(nil); got != nil {
+		t.Errorf("normalizeWaveform(nil) = %v, want nil", got)
+	}
+
+	normalized := normalizeWaveform([]any{0.0, 0.5, 1.0})
+	if len(normalized) != 3 || normalized[1] != 0.5 || normalized[2] != 1 {
+		t.Errorf("normalized = %v", normalized)
+	}
+
+	scaled := normalizeWaveform([]any{0.0, 127.5, 255.0})
+	if len(scaled) != 3 || scaled[1] != 0.5 || scaled[2] != 1 {
+		t.Errorf("scaled = %v", scaled)
+	}
+
+	wrapped := normalizeWaveform([]any{map[string]any{"amplitude": 0.25}, "skip", -1.0})
+	if len(wrapped) != 2 || wrapped[0] != 0.25 || wrapped[1] != 0 {
+		t.Errorf("wrapped = %v", wrapped)
+	}
+}

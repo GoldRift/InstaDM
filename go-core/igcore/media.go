@@ -30,9 +30,9 @@ const (
 	// same rate.
 	VoiceWaveformSamplingFrequency = 9
 
-	// maxVoiceWaveformSamples bounds the decoded waveform. A 60 second clip at
-	// the sampling frequency above is 540 samples.
-	maxVoiceWaveformSamples = 4000
+	// maxVoiceWaveformSamples bounds the decoded waveform. At the sampling
+	// frequency above this covers just over three minutes of audio.
+	maxVoiceWaveformSamples = 2000
 )
 
 type MediaSendResult struct {
@@ -114,6 +114,11 @@ func (c *Client) SendVoice(ctx context.Context, threadID, filePath, replyTo, oti
 	file, err := readMediaFile(filePath)
 	if err != nil {
 		return nil, err
+	}
+	// M4A files sometimes sniff as video/mp4 because they share the MP4
+	// container. Trust an audio extension over content detection.
+	if byExtension := mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath))); strings.HasPrefix(byExtension, "audio/") {
+		file.MimeType = strings.TrimSpace(strings.Split(byExtension, ";")[0])
 	}
 	if err := prepareVoiceFile(file); err != nil {
 		return nil, err

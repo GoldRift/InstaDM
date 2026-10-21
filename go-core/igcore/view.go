@@ -1,6 +1,8 @@
 package igcore
 
 import (
+	"encoding/json"
+	"math"
 	"strings"
 
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
@@ -300,15 +302,16 @@ type ReactionView struct {
 }
 
 type MediaView struct {
-	Type               string `json:"type"`
-	AttachmentFBID     string `json:"attachment_fbid,omitempty"`
-	URL                string `json:"url,omitempty"`
-	FallbackURL        string `json:"fallback_url,omitempty"`
-	PreviewURL         string `json:"preview_url,omitempty"`
-	PreviewFallbackURL string `json:"preview_fallback_url,omitempty"`
-	Width              int    `json:"width,omitempty"`
-	Height             int    `json:"height,omitempty"`
-	DurationMS         int    `json:"duration_ms,omitempty"`
+	Type               string    `json:"type"`
+	AttachmentFBID     string    `json:"attachment_fbid,omitempty"`
+	URL                string    `json:"url,omitempty"`
+	FallbackURL        string    `json:"fallback_url,omitempty"`
+	PreviewURL         string    `json:"preview_url,omitempty"`
+	PreviewFallbackURL string    `json:"preview_fallback_url,omitempty"`
+	Width              int       `json:"width,omitempty"`
+	Height             int       `json:"height,omitempty"`
+	DurationMS         int       `json:"duration_ms,omitempty"`
+	Waveform           []float64 `json:"waveform,omitempty"`
 }
 
 type MessageView struct {
@@ -534,6 +537,7 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 				AttachmentFBID: attachment.AttachmentFBID,
 				URL:            attachment.AttachmentCDNURL,
 				DurationMS:     attachment.PlayableDurationMS,
+				Waveform:       normalizeWaveform(attachment.WaveformData),
 			})
 		}
 	case *slidetypes.MessageContentAnimatedMedia:
@@ -561,6 +565,69 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 		}
 	}
 	return media
+}
+
+// normalizeWaveform converts Instagram's audio waveform data into amplitudes in
+// the 0..1 range. Entries are normally numbers, but some payloads wrap them in
+// an object; non-numeric entries are skipped. Values above 1 are assumed to be
+// the 0..255 scale used by some clients.
+func normalizeWaveform(raw []any) []float64 {
+	if len(raw) == 0 {
+		return nil
+	}
+	waveform := make([]float64, 0, len(raw))
+	maxValue := 0.0
+	for _, item := range raw {
+		value, ok := waveformValue(item)
+		if !ok {
+			continue
+		}
+		if value < 0 || math.IsNaN(value) {
+			value = 0
+		}
+		waveform = append(waveform, value)
+		if value > maxValue {
+			maxValue = value
+		}
+		if len(waveform) >= maxVoiceWaveformSamples {
+			break
+		}
+	}
+	if len(waveform) == 0 {
+		return nil
+	}
+	if maxValue > 1.5 {
+		maxValue = 255
+	} else {
+		maxValue = 1
+	}
+	for index, value := range waveform {
+		waveform[index] = math.Min(value/maxValue, 1)
+	}
+	return waveform
+}
+
+func waveformValue(item any) (float64, bool) {
+	switch value := item.(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	case json.Number:
+		parsed, err := value.Float64()
+		return parsed, err == nil
+	case map[string]any:
+		for _, key := range []string{"amplitude", "value", "height"} {
+			if nested, ok := value[key]; ok {
+				return waveformValue(nested)
+			}
+		}
+	}
+	return 0, false
 }
 
 func attachmentView(attachment *slidetypes.Attachment, kind string) (MediaView, bool) {
