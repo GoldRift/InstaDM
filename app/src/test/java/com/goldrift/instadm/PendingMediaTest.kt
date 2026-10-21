@@ -4,7 +4,7 @@ import com.goldrift.instadm.data.OfflineThreadingIds
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.PendingMedia
-import com.goldrift.instadm.ui.chat.previewLabel
+import com.goldrift.instadm.ui.chat.toPreview
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -26,7 +26,10 @@ class PendingMediaTest {
             ),
         )
 
-        assertEquals("[image]", message.previewLabel())
+        val preview = message.toPreview()
+
+        assertEquals("image", preview.kind)
+        assertTrue(preview.fromViewer)
     }
 
     @Test

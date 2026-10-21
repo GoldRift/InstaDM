@@ -64,17 +64,3 @@ data class RealtimeMessage(
 )
 
 enum class RealtimeStatus { Stopped, Connecting, Connected, Reconnecting, NoSession, Error }
-
-fun messagePreview(text: String, kind: String): String =
-    text.ifBlank { messagePlaceholder(kind) }
-
-fun messagePlaceholder(kind: String): String = when (kind) {
-    "image" -> "[image]"
-    "video" -> "[video]"
-    "audio" -> "[voice message]"
-    "gif" -> "[gif]"
-    "sticker" -> "[sticker]"
-    "media" -> "[media]"
-    "link" -> "[link]"
-    else -> if (kind.isBlank()) "" else "[$kind]"
-}

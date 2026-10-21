@@ -31,6 +31,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,9 +41,11 @@ import com.goldrift.instadm.R
 import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxStatus
-import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.formatInboxTime
+import com.goldrift.instadm.ui.chat.label
+import com.goldrift.instadm.ui.chat.render
 import com.goldrift.instadm.ui.chat.sampleConversations
+import com.goldrift.instadm.ui.chat.toPreview
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 
@@ -230,13 +233,11 @@ private fun ConversationRow(
     onClick: () -> Unit,
 ) {
     val lastMessage = conversation.messages.lastOrNull()
-    val preview = when {
-        lastMessage == null && conversation.preview.isNotBlank() -> conversation.preview
-        lastMessage == null -> stringResource(R.string.inbox_tap_to_open)
-        lastMessage.sender == MessageSender.Me ->
-            stringResource(R.string.inbox_you_prefix, lastMessage.text)
-        else -> lastMessage.text
-    }
+    val resources = LocalContext.current.resources
+    val preview = ((lastMessage?.toPreview() ?: conversation.preview)
+        .label(conversation.isGroup)
+        ?.render { id, args -> resources.getString(id, *args.toTypedArray()) })
+        ?: stringResource(R.string.inbox_tap_to_open)
     val timestamp = lastMessage?.timestamp ?: formatInboxTime(conversation.lastActivityMs)
 
     Row(

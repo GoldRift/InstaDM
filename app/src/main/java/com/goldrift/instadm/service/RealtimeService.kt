@@ -24,7 +24,9 @@ import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.data.SessionStore
-import com.goldrift.instadm.data.messagePreview
+import com.goldrift.instadm.ui.chat.ConversationPreview
+import com.goldrift.instadm.ui.chat.label
+import com.goldrift.instadm.ui.chat.render
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -275,7 +277,15 @@ class RealtimeService : Service() {
             return
         }
 
-        val preview = messagePreview(message.text, message.kind)
+        val preview = ConversationPreview(
+            kind = message.kind,
+            text = message.text,
+            fromViewer = message.isFromViewer,
+            senderName = message.senderName,
+        )
+            .label(isGroup = false)
+            ?.render { id, args -> getString(id, *args.toTypedArray()) }
+            .orEmpty()
             .ifBlank { getString(R.string.notification_message) }
             .take(500)
         val title = message.senderName.ifBlank { getString(R.string.notification_new_message) }

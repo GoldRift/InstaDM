@@ -50,6 +50,17 @@
     <string name="chat_unsend_title">Unsend message?</string>
     <string name="chat_unsend_body">This removes the message for everyone.</string>
     <string name="inbox_you_prefix">You: %1$s</string>
+    <string name="inbox_sender_prefix">%1$s: %2$s</string>
+    <string name="inbox_sent_you">Sent you %1$s</string>
+    <string name="inbox_sent_by">%1$s sent %2$s</string>
+    <string name="inbox_you_sent">You sent %1$s</string>
+    <string name="inbox_noun_photo">a photo</string>
+    <string name="inbox_noun_video">a video</string>
+    <string name="inbox_noun_voice">a voice message</string>
+    <string name="inbox_noun_sticker">a sticker</string>
+    <string name="inbox_noun_gif">a GIF</string>
+    <string name="inbox_noun_link">a link</string>
+    <string name="inbox_noun_attachment">an attachment</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_refresh">Refresh</string>
     <string name="inbox_no_session_title">No session</string>

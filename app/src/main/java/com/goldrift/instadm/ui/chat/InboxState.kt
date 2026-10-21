@@ -360,12 +360,7 @@ class InboxState(
         if (!message.canUnsend()) return
 
         val remaining = conversation.messages.filterNot { it.id == messageId }
-        update(threadId) {
-            it.copy(
-                messages = remaining,
-                preview = previewFor(remaining.lastOrNull()),
-            )
-        }
+        update(threadId) { it.copy(messages = remaining) }
         errorMessage = null
 
         scope.launch {
@@ -378,10 +373,7 @@ class InboxState(
                         } else {
                             val restored = current.messages.toMutableList()
                             restored.add(index.coerceIn(0, restored.size), message)
-                            current.copy(
-                                messages = restored,
-                                preview = previewFor(restored.lastOrNull()),
-                            )
+                            current.copy(messages = restored)
                         }
                     }
                     errorMessage = describeError(error)
@@ -467,12 +459,6 @@ class InboxState(
         return file
     }
 
-    private fun previewFor(message: ChatMessage?): String = when {
-        message == null -> ""
-        message.sender == MessageSender.Me -> "You: ${message.previewLabel()}"
-        else -> message.previewLabel()
-    }
-
     private fun indexOfThread(threadId: String): Int {
         if (threadId.isBlank()) return -1
         return items.indexOfFirst { conversation ->
@@ -503,10 +489,7 @@ class InboxState(
 
             val messages = conversation.messages.toMutableList()
             messages[index] = updated
-            conversation.copy(
-                messages = messages,
-                preview = previewFor(messages.lastOrNull()),
-            )
+            conversation.copy(messages = messages)
         }
     }
 

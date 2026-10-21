@@ -54,7 +54,9 @@ is kept only in `noBackupFilesDir`.
 The inbox loads the mailbox from the Go core and persists it in Room, so a cold start
 shows the last conversation list and message previews before the network request
 finishes. Previews come from the `last_message` stub Instagram includes in the mailbox;
-they are not full messages, so opening a chat still fetches its newest page.
+they are not full messages, so opening a chat still fetches its newest page. Rows describe
+the newest attachment the same way a message reads ("Sent you a video", "Maya sent a photo",
+"You sent a voice message"), and an image/video caption is shown instead of the label.
 Conversation rows and chat headers show
 profile pictures from the mailbox payload: a direct chat uses the other person's picture,
 a group uses its custom photo, and a group without one falls back to a collage of its

@@ -1,6 +1,7 @@
 package com.goldrift.instadm
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.db.AttachmentEntity
 import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageWithMedia
@@ -11,7 +12,10 @@ import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.Conversation
+import com.goldrift.instadm.ui.chat.ConversationPreview
 import com.goldrift.instadm.ui.chat.MessageSender
+import com.goldrift.instadm.ui.chat.label
+import com.goldrift.instadm.ui.chat.render
 import com.goldrift.instadm.ui.chat.toChatMessage
 import com.goldrift.instadm.ui.chat.toConversation
 import org.junit.Assert.assertEquals
@@ -46,6 +50,7 @@ class ProtocolMapperTest {
 
         assertEquals("mid.1", chat.id)
         assertEquals("hello", chat.text)
+        assertEquals("text", chat.kind)
         assertEquals(MessageSender.Me, chat.sender)
         assertEquals(1_700_000_000_000, chat.timestampMs)
         assertTrue(chat.seen)
@@ -115,13 +120,15 @@ class ProtocolMapperTest {
 
         assertEquals("Alice", conversation.contact.name)
         assertEquals("https://cdn.example.invalid/alice.jpg", conversation.contact.avatarUrl)
-        assertEquals("see you soon", conversation.preview)
+        assertEquals("text", conversation.preview.kind)
+        assertEquals("see you soon", conversation.preview.text)
+        assertFalse(conversation.preview.fromViewer)
         assertEquals(1_700_000_000_000, conversation.lastActivityMs)
         assertTrue(conversation.messages.isEmpty())
     }
 
     @Test
-    fun prefixesTheViewerLastMessageAndUsesKindPlaceholder() {
+    fun rendersTheViewerMediaPreview() {
         val row = ThreadWithParticipants(
             thread = ThreadEntity(
                 id = "thread-1",
@@ -131,7 +138,38 @@ class ProtocolMapperTest {
             participants = emptyList(),
         )
 
-        assertEquals("You: [image]", row.toConversation(null).preview)
+        val conversation = row.toConversation(null)
+
+        assertEquals("image", conversation.preview.kind)
+        assertTrue(conversation.preview.fromViewer)
+        assertEquals("You sent a photo", conversation.preview.render(conversation.isGroup))
+    }
+
+    @Test
+    fun attributesGroupPreviewsToTheSender() {
+        val row = ThreadWithParticipants(
+            thread = ThreadEntity(
+                id = "group-1",
+                isGroup = true,
+                lastMessageKind = "video",
+                lastMessageSenderFbid = 2,
+            ),
+            participants = listOf(
+                ParticipantEntity(threadId = "group-1", igUserId = "ig-a", fbid = 1, name = "Alice"),
+                ParticipantEntity(threadId = "group-1", igUserId = "ig-b", fbid = 2, name = "Bob"),
+                ParticipantEntity(threadId = "group-1", igUserId = "ig-me", fbid = 3, name = "Me", isViewer = true),
+            ),
+        )
+
+        val conversation = row.toConversation(null)
+
+        assertEquals("Bob", conversation.preview.senderName)
+        assertEquals("Bob sent a video", conversation.preview.render(conversation.isGroup))
+    }
+
+    private fun ConversationPreview.render(isGroup: Boolean): String? {
+        val resources = InstrumentationRegistry.getInstrumentation().targetContext.resources
+        return label(isGroup)?.render { id, args -> resources.getString(id, *args.toTypedArray()) }
     }
 
     @Test

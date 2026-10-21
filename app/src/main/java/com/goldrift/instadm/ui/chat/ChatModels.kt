@@ -1,7 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
-import com.goldrift.instadm.data.messagePlaceholder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -31,7 +30,8 @@ data class Conversation(
     val contact: Contact,
     val messages: List<ChatMessage> = emptyList(),
     val lastActivityMs: Long = 0,
-    val preview: String = "",
+    /** Mailbox stub for threads whose messages are not loaded yet. */
+    val preview: ConversationPreview = ConversationPreview(),
     val isGroup: Boolean = false,
     /** Other members, excluding the viewer; used for the group avatar collage. */
     val participants: List<ConversationParticipant> = emptyList(),
@@ -57,6 +57,8 @@ data class ChatMessage(
     val sender: MessageSender,
     val timestamp: String,
     val timestampMs: Long = 0,
+    /** Content kind, used by inbox previews (`text`, `image`, `video`, ...). */
+    val kind: String = "",
     val seen: Boolean = false,
     val pending: Boolean = false,
     val failed: Boolean = false,
@@ -100,13 +102,6 @@ fun ChatMessage.isServerMessage(): Boolean =
         !id.startsWith("local-") &&
         !id.startsWith("message-")
 
-/** One-line label for inbox previews; falls back to the media placeholder. */
-fun ChatMessage.previewLabel(): String = text.ifBlank {
-    localMedia?.kind?.let { messagePlaceholder(it) }
-        ?: media.firstOrNull()?.let { messagePlaceholder(it.type) }
-        ?: ""
-}
-
 /** Fixed demo conversations used by Compose previews. */
 fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversation> = listOf(
     Conversation(
@@ -138,8 +133,9 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
             message("dev-101", "did you get a chance to look at the deck?", MessageSender.Them, now, 42),
             message("dev-102", "skimming it now — the intro slide is great", MessageSender.Me, now, 40, seen = true),
             message("dev-103", "awesome, ping me with notes", MessageSender.Them, now, 38),
+            message("dev-104", "", MessageSender.Them, now, 37, kind = "image"),
         ),
-        lastActivityMs = now - 38 * 60_000L,
+        lastActivityMs = now - 37 * 60_000L,
         messagesLoaded = true,
     ),
     Conversation(
@@ -173,6 +169,7 @@ private fun message(
     sender: MessageSender,
     now: Long,
     minutesAgo: Int,
+    kind: String = "",
     seen: Boolean = false,
     reactions: List<MessageReaction> = emptyList(),
 ): ChatMessage = ChatMessage(
@@ -181,6 +178,7 @@ private fun message(
     sender = sender,
     timestamp = timeLabel(now, minutesAgo),
     timestampMs = now - minutesAgo * 60_000L,
+    kind = kind,
     seen = seen,
     reactions = reactions,
 )

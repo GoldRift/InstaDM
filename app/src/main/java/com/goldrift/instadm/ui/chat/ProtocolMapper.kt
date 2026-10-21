@@ -7,7 +7,6 @@ import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
-import com.goldrift.instadm.data.messagePlaceholder
 import com.goldrift.instadm.data.parseWaveform
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -31,7 +30,16 @@ fun ThreadWithParticipants.toConversation(previous: Conversation?): Conversation
         ),
         messages = previous?.messages.orEmpty(),
         lastActivityMs = thread.lastActivityMs,
-        preview = inboxPreview(thread),
+        preview = ConversationPreview(
+            kind = thread.lastMessageKind,
+            text = thread.lastMessageText,
+            fromViewer = thread.lastMessageFromViewer,
+            senderName = if (thread.isGroup) {
+                participantName(participants, thread.lastMessageSenderFbid)
+            } else {
+                ""
+            },
+        ),
         isGroup = thread.isGroup,
         participants = participants.filterNot { it.isViewer }.map { participant ->
             ConversationParticipant(
@@ -60,6 +68,7 @@ fun MessageWithMedia.toChatMessage(): ChatMessage = ChatMessage(
     sender = if (message.isFromViewer) MessageSender.Me else MessageSender.Them,
     timestamp = formatMessageTime(message.timestampMs),
     timestampMs = message.timestampMs,
+    kind = message.kind,
     seen = message.seen,
     pending = message.status == MessageStatus.PENDING ||
         message.status == MessageStatus.SENDING,
@@ -89,13 +98,12 @@ private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(
     waveform = parseWaveform(waveform),
 )
 
-/** One-line inbox preview built from the denormalized last-message columns. */
-internal fun inboxPreview(thread: ThreadEntity): String {
-    val label = thread.lastMessageText.ifBlank {
-        if (thread.lastMessageKind.isBlank()) "" else messagePlaceholder(thread.lastMessageKind)
-    }
-    if (label.isBlank()) return ""
-    return if (thread.lastMessageFromViewer) "You: $label" else label
+/** Display name of a group participant, used to attribute the newest message. */
+private fun participantName(participants: List<ParticipantEntity>, fbid: Long): String {
+    if (fbid == 0L) return ""
+    return participants.firstOrNull { it.fbid == fbid && !it.isViewer }
+        ?.let { it.name.ifBlank { it.username } }
+        .orEmpty()
 }
 
 private fun participantTitle(participants: List<ParticipantEntity>): String {
