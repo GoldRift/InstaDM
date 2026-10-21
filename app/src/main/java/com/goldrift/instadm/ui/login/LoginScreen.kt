@@ -164,7 +164,7 @@ fun LoginScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.login_title)) },
@@ -183,7 +183,7 @@ fun LoginScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
         },
@@ -290,7 +290,7 @@ fun LoginScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         shape = MaterialTheme.shapes.medium,
                         tonalElevation = 3.dp,
                     ) {

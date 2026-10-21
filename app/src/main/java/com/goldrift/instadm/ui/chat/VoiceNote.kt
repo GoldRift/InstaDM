@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -45,6 +45,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -294,10 +300,17 @@ fun VoiceNoteBubble(
 
     val longClickLabel = stringResource(R.string.chat_message_actions)
     val contentColor = LocalContentColor.current
+    val controlDescription = stringResource(
+        when {
+            failed -> R.string.chat_voice_error
+            isPlaying -> R.string.chat_voice_pause
+            else -> R.string.chat_voice_play
+        },
+    )
     Row(
         modifier = modifier
             .widthIn(min = 200.dp, max = 270.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(contentColor.copy(alpha = 0.07f))
             .combinedClickable(
                 onLongClickLabel = longClickLabel,
@@ -309,49 +322,36 @@ fun VoiceNoteBubble(
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(contentColor.copy(alpha = 0.16f)),
+                .clickable(role = Role.Button) { togglePlayback() }
+                .semantics { contentDescription = controlDescription },
             contentAlignment = Alignment.Center,
         ) {
-            when {
-                loading -> CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = contentColor,
-                )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(contentColor.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    loading -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = contentColor,
+                    )
 
-                failed -> Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .pointerInput(messageId, media.partIndex) {
-                            detectTapGestures { togglePlayback() }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
+                    failed -> Icon(
                         imageVector = Icons.Rounded.Refresh,
-                        contentDescription = stringResource(R.string.chat_voice_error),
+                        contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(20.dp),
                     )
-                }
 
-                else -> Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .pointerInput(isPlaying, file) {
-                            detectTapGestures { togglePlayback() }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
+                    else -> Icon(
                         imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = stringResource(
-                            if (isPlaying) R.string.chat_voice_pause else R.string.chat_voice_play,
-                        ),
+                        contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(22.dp),
                     )
@@ -398,15 +398,29 @@ fun WaveformBars(
     onLongClick: (() -> Unit)? = null,
 ) {
     val contentColor = LocalContentColor.current
-    val gestureModifier = if (onSeek != null) {
-        Modifier.pointerInput(amplitudes, onSeek, onLongClick) {
-            detectTapGestures(
-                onTap = { offset ->
-                    if (size.width > 0) onSeek(offset.x / size.width)
-                },
-                onLongPress = { onLongClick?.invoke() },
-            )
-        }
+    val waveformLabel = stringResource(R.string.chat_voice_waveform)
+    val seek = onSeek
+    val gestureModifier = if (seek != null) {
+        Modifier
+            .semantics {
+                contentDescription = waveformLabel
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    current = progress.coerceIn(0f, 1f),
+                    range = 0f..1f,
+                )
+                setProgress { target ->
+                    seek(target)
+                    true
+                }
+            }
+            .pointerInput(amplitudes, seek, onLongClick) {
+                detectTapGestures(
+                    onTap = { offset ->
+                        if (size.width > 0) seek(offset.x / size.width)
+                    },
+                    onLongPress = { onLongClick?.invoke() },
+                )
+            }
     } else {
         Modifier
     }

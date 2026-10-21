@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -92,7 +91,7 @@ fun MediaThumbnail(
             .widthIn(max = 260.dp)
             .heightIn(max = 320.dp)
             .aspectRatio(media.aspectRatio)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .combinedClickable(
                 onLongClickLabel = longClickLabel,
@@ -147,7 +146,7 @@ fun MediaThumbnail(
                             .padding(8.dp)
                             .background(
                                 color = Color.Black.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(6.dp),
+                                shape = MaterialTheme.shapes.extraSmall,
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
@@ -318,7 +317,7 @@ private fun LocalVisualThumbnail(
             .widthIn(max = 260.dp)
             .heightIn(max = 320.dp)
             .aspectRatio(media.aspectRatio)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .combinedClickable(
                 onLongClickLabel = longClickLabel,
@@ -366,7 +365,7 @@ private fun LocalVisualThumbnail(
                             .padding(8.dp)
                             .background(
                                 color = Color.Black.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(6.dp),
+                                shape = MaterialTheme.shapes.extraSmall,
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
@@ -386,7 +385,7 @@ private fun LocalFileCard(
     Row(
         modifier = modifier
             .widthIn(min = 170.dp, max = 260.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .combinedClickable(
                 onLongClickLabel = longClickLabel,

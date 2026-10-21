@@ -24,10 +24,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +81,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -107,6 +107,13 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -333,7 +340,7 @@ fun ChatScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             ChatTopSection(
                 contact = conversation.contact,
@@ -559,14 +566,14 @@ private fun ChatTopSection(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
                 navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ),
         )
 
         HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            color = MaterialTheme.colorScheme.outlineVariant,
         )
     }
 }
@@ -756,16 +763,19 @@ private fun MessageRow(
             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 300.dp),
         ) {
-            val interactionSource = remember { MutableInteractionSource() }
+            val actionsLabel = stringResource(R.string.chat_message_actions)
             Box {
                 Surface(
-                    modifier = Modifier.combinedClickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onLongClickLabel = stringResource(R.string.chat_message_actions),
-                        onLongClick = onLongPress,
-                        onClick = {},
-                    ),
+                    modifier = Modifier
+                        .semantics {
+                            onLongClick(label = actionsLabel) {
+                                onLongPress()
+                                true
+                            }
+                        }
+                        .pointerInput(message.id) {
+                            detectTapGestures(onLongPress = { onLongPress() })
+                        },
                     shape = if (isMine) OutgoingBubbleShape else IncomingBubbleShape,
                     color = if (isMine) {
                         MaterialTheme.colorScheme.primary
@@ -819,8 +829,9 @@ private fun MessageRow(
                     when {
                         message.failed -> Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(onClick = onRetry)
+                                .minimumInteractiveComponentSize()
+                                .clip(MaterialTheme.shapes.extraSmall)
+                                .clickable(role = Role.Button, onClick = onRetry)
                                 .padding(horizontal = 3.dp, vertical = 1.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -983,7 +994,7 @@ private fun MessageActionsPopup(
     onUnsend: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val reactionBarHeight = with(density) { 56.dp.roundToPx() }
+    val reactionBarHeight = with(density) { 60.dp.roundToPx() }
     val margin = with(density) { 8.dp.roundToPx() }
     val gap = with(density) { 6.dp.roundToPx() }
     val positionProvider = remember(isMine, reactionBarHeight, margin, gap) {
@@ -1039,7 +1050,7 @@ private fun ReactionBar(
     onMoreEmoji: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(32.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp,
         shadowElevation = 8.dp,
@@ -1051,9 +1062,9 @@ private fun ReactionBar(
             QuickReactions.forEach { emoji ->
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .clickable { onReact(emoji) },
+                        .clickable(role = Role.Button) { onReact(emoji) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(text = emoji, fontSize = 26.sp)
@@ -1061,9 +1072,9 @@ private fun ReactionBar(
             }
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onMoreEmoji),
+                    .clickable(role = Role.Button, onClick = onMoreEmoji),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -1089,7 +1100,7 @@ private fun MessageMenu(
     if (!showCopy && !showEdit && !showUnsend) return
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp,
         shadowElevation = 8.dp,
@@ -1133,7 +1144,7 @@ private fun EmojiPickerDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp,
             shadowElevation = 12.dp,
@@ -1402,7 +1413,7 @@ private fun MessageComposer(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background,
+        color = MaterialTheme.colorScheme.surface,
     ) {
         if (recording && locked) {
             LockedRecordingBar(
@@ -1420,7 +1431,7 @@ private fun MessageComposer(
             ) {
                 Surface(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(28.dp),
+                    shape = MaterialTheme.shapes.largeIncreased,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
                     Row(
@@ -1432,19 +1443,29 @@ private fun MessageComposer(
                         if (showActions) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(48.dp)
                                     .alpha(if (recording) 0f else 1f)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .clickable(enabled = !recording, onClick = onCamera),
+                                    .clickable(
+                                        enabled = !recording,
+                                        role = Role.Button,
+                                        onClick = onCamera,
+                                    ),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.PhotoCamera,
-                                    contentDescription = stringResource(R.string.chat_attach_camera),
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(22.dp),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.PhotoCamera,
+                                        contentDescription = stringResource(R.string.chat_attach_camera),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(10.dp))
                         }
@@ -1493,15 +1514,19 @@ private fun MessageComposer(
                             MicButton(
                                 recording = recording,
                                 onStart = onMicStart,
+                                onToggle = { if (recording) onRecordingSend() else onMicStart() },
                                 onMove = onMicMove,
                                 onRelease = onMicRelease,
                             )
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(48.dp)
                                     .alpha(if (recording) 0f else 1f)
-                                    .clip(CircleShape)
-                                    .clickable(enabled = !recording, onClick = onPickMedia),
+                                    .clickable(
+                                        enabled = !recording,
+                                        role = Role.Button,
+                                        onClick = onPickMedia,
+                                    ),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
@@ -1514,19 +1539,25 @@ private fun MessageComposer(
                         } else {
                             Box(
                                 modifier = Modifier
-                                    .width(56.dp)
-                                    .height(40.dp)
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .clickable(onClick = onSend),
+                                    .size(48.dp)
+                                    .clickable(role = Role.Button, onClick = onSend),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                                    contentDescription = stringResource(R.string.chat_send),
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(20.dp),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(56.dp)
+                                        .height(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                                        contentDescription = stringResource(R.string.chat_send),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -1536,26 +1567,42 @@ private fun MessageComposer(
     }
 }
 
-/** Hold-to-record mic. Slide up to lock, slide left to cancel, release to send. */
+/**
+ * Hold-to-record mic. Slide up to lock, slide left to cancel, release to send.
+ * TalkBack and other accessibility services activate the same flow through the
+ * semantics click action, which starts a recording and then sends it.
+ */
 @Composable
 private fun MicButton(
     recording: Boolean,
     onStart: () -> Unit,
+    onToggle: () -> Unit,
     onMove: (Boolean, Boolean) -> Unit,
     onRelease: (Boolean, Boolean) -> Unit,
 ) {
     val lockThreshold = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
     val cancelThreshold = with(LocalDensity.current) { CANCEL_DISTANCE.toPx() }
     val start = rememberUpdatedState(onStart)
+    val toggle = rememberUpdatedState(onToggle)
     val move = rememberUpdatedState(onMove)
     val release = rememberUpdatedState(onRelease)
+    val recordLabel = stringResource(R.string.chat_mic_record)
+    val actionLabel = stringResource(
+        if (recording) R.string.chat_mic_send else R.string.chat_mic_start,
+    )
+    val stateLabel = if (recording) stringResource(R.string.chat_mic_recording) else null
     Box(
         modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(
-                if (recording) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
-            )
+            .size(48.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = recordLabel
+                if (stateLabel != null) stateDescription = stateLabel
+                onClick(label = actionLabel) {
+                    toggle.value()
+                    true
+                }
+            }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -1577,16 +1624,26 @@ private fun MicButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Mic,
-            contentDescription = stringResource(R.string.chat_mic_record),
-            tint = if (recording) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(24.dp),
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (recording) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Mic,
+                contentDescription = null,
+                tint = if (recording) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }
 
@@ -1667,7 +1724,7 @@ private fun LockedRecordingBar(
         }
         Surface(
             modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             Row(

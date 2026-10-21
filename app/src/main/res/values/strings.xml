@@ -23,6 +23,9 @@
     <string name="chat_media_error">Couldn\'t load media</string>
     <string name="chat_video_play">Play video</string>
     <string name="chat_mic_record">Record a voice message</string>
+    <string name="chat_mic_start">Start recording</string>
+    <string name="chat_mic_recording">Recording</string>
+    <string name="chat_mic_send">Send recording</string>
     <string name="chat_mic_permission">Microphone permission is needed to record voice messages.</string>
     <string name="chat_recording_failed">Couldn\'t start recording.</string>
     <string name="chat_recording_too_short">Hold a little longer to record.</string>
@@ -34,6 +37,7 @@
     <string name="chat_recording_send">Send voice message</string>
     <string name="chat_voice_play">Play voice message</string>
     <string name="chat_voice_pause">Pause voice message</string>
+    <string name="chat_voice_waveform">Voice message progress</string>
     <string name="chat_voice_error">Couldn\'t play voice message. Tap to retry.</string>
     <string name="chat_loading_older">Loading older messages</string>
     <string name="chat_older_error">Couldn\'t load older messages</string>
