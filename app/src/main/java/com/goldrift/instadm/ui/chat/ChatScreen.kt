@@ -70,7 +70,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -97,7 +96,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -114,6 +112,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -142,23 +141,14 @@ import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
-private val OutgoingBubbleShape = RoundedCornerShape(
-    topStart = 24.dp,
-    topEnd = 24.dp,
-    bottomEnd = 6.dp,
-    bottomStart = 24.dp,
-)
+private val BubbleShape = RoundedCornerShape(24.dp)
 
-private val IncomingBubbleShape = RoundedCornerShape(
-    topStart = 24.dp,
-    topEnd = 24.dp,
-    bottomEnd = 24.dp,
-    bottomStart = 6.dp,
-)
+private val ChatContentShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 @Composable
 fun ChatScreen(
@@ -342,7 +332,7 @@ fun ChatScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ChatTopSection(
                 contact = conversation.contact,
@@ -389,94 +379,98 @@ fun ChatScreen(
             )
         },
     ) { innerPadding ->
-        Column(
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
+            shape = ChatContentShape,
+            color = MaterialTheme.colorScheme.surface,
         ) {
-            if (errorMessage != null) {
-                Surface(color = MaterialTheme.colorScheme.errorContainer) {
-                    Text(
-                        text = errorMessage,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-
-            when {
-                isLoading && messages.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                messages.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
+            Column(Modifier.fillMaxSize()) {
+                if (errorMessage != null) {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer) {
                         Text(
-                            text = stringResource(R.string.chat_no_messages),
+                            text = errorMessage,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                else -> {
-                    MessageList(
-                        messages = messages,
-                        contact = conversation.contact,
-                        isGroup = conversation.isGroup,
-                        participants = conversation.participants,
-                        isTyping = isTyping,
-                        listState = listState,
-                        threadId = conversation.id,
-                        hasMoreOlder = conversation.hasMoreOlder,
-                        isLoadingOlder = conversation.isLoadingOlder,
-                        olderError = conversation.olderError,
-                        onLoadOlder = onLoadOlder,
-                        onRetryOlder = onRetryOlder,
-                        onOpenMedia = { messageId, media ->
-                            viewerTarget = MediaViewerTarget(messageId, media)
-                        },
-                        onLongPress = { actionMessageId = it.id },
-                        actionMessageId = actionMessageId,
-                        onDismissActions = { actionMessageId = null },
-                        onReactAt = { messageId, emoji ->
-                            actionMessageId = null
-                            onReact(messageId, emoji)
-                        },
-                        onCopyAt = { messageId ->
-                            actionMessageId = null
-                            messages.firstOrNull { it.id == messageId }?.let {
-                                copyToClipboard(context, it.text)
-                            }
-                        },
-                        onMoreEmojiAt = { messageId ->
-                            actionMessageId = null
-                            emojiPickerMessageId = messageId
-                        },
-                        onEditAt = { messageId ->
-                            actionMessageId = null
-                            editMessageId = messageId
-                        },
-                        onUnsendAt = { messageId ->
-                            actionMessageId = null
-                            unsendMessageId = messageId
-                        },
-                        onRetryMedia = onRetryMedia,
-                        onLoadMedia = onLoadMedia,
-                        voicePlayer = voicePlayer,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                when {
+                    isLoading && messages.isEmpty() -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    messages.isEmpty() -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.chat_no_messages),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    else -> {
+                        MessageList(
+                            messages = messages,
+                            contact = conversation.contact,
+                            isGroup = conversation.isGroup,
+                            participants = conversation.participants,
+                            isTyping = isTyping,
+                            listState = listState,
+                            threadId = conversation.id,
+                            hasMoreOlder = conversation.hasMoreOlder,
+                            isLoadingOlder = conversation.isLoadingOlder,
+                            olderError = conversation.olderError,
+                            onLoadOlder = onLoadOlder,
+                            onRetryOlder = onRetryOlder,
+                            onOpenMedia = { messageId, media ->
+                                viewerTarget = MediaViewerTarget(messageId, media)
+                            },
+                            onLongPress = { actionMessageId = it.id },
+                            actionMessageId = actionMessageId,
+                            onDismissActions = { actionMessageId = null },
+                            onReactAt = { messageId, emoji ->
+                                actionMessageId = null
+                                onReact(messageId, emoji)
+                            },
+                            onCopyAt = { messageId ->
+                                actionMessageId = null
+                                messages.firstOrNull { it.id == messageId }?.let {
+                                    copyToClipboard(context, it.text)
+                                }
+                            },
+                            onMoreEmojiAt = { messageId ->
+                                actionMessageId = null
+                                emojiPickerMessageId = messageId
+                            },
+                            onEditAt = { messageId ->
+                                actionMessageId = null
+                                editMessageId = messageId
+                            },
+                            onUnsendAt = { messageId ->
+                                actionMessageId = null
+                                unsendMessageId = messageId
+                            },
+                            onRetryMedia = onRetryMedia,
+                            onLoadMedia = onLoadMedia,
+                            voicePlayer = voicePlayer,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
@@ -539,24 +533,17 @@ private fun ChatTopSection(
                         contact = contact,
                         isGroup = isGroup,
                         participants = participants,
-                        size = 38.dp,
+                        size = 40.dp,
                     )
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = contact.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = stringResource(
-                                if (isGroup) R.string.chat_group else R.string.chat_direct_message,
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = contact.name,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             },
             navigationIcon = {
@@ -568,14 +555,10 @@ private fun ChatTopSection(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                containerColor = MaterialTheme.colorScheme.background,
+                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
             ),
-        )
-
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
         )
     }
 }
@@ -646,7 +629,6 @@ private fun MessageList(
         if (isTyping) {
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
-                    contact = contact,
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -672,12 +654,13 @@ private fun MessageList(
             } else {
                 contact.avatarUrl
             }
-            // Consecutive messages from the same person share one avatar; in a
-            // group, a change of sender starts a new bubble cluster.
-            val showAvatar = message.sender == MessageSender.Them &&
+            // Direct chats show no avatars beside bubbles.
+            // Groups keep one avatar per sender cluster.
+            val showAvatar = isGroup &&
+                message.sender == MessageSender.Them &&
                 (
                     previous?.sender != MessageSender.Them ||
-                        (isGroup && previous?.senderFbid != message.senderFbid)
+                        previous?.senderFbid != message.senderFbid
                     )
             // The list is reversed, so the oldest message of a calendar day sits
             // at the top of that day's block. A header at the top of this item
@@ -751,22 +734,20 @@ private fun MessageRow(
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
+    val bubbles = LocalMessageBubbleColors.current
 
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (!isMine) {
-            if (showAvatar) {
-                Avatar(
-                    initials = senderInitials,
-                    size = 28.dp,
-                    imageUrl = senderAvatarUrl,
-                )
-            } else {
-                Spacer(Modifier.width(28.dp))
-            }
+        if (!isMine && showAvatar) {
+            Avatar(
+                initials = senderInitials,
+                size = 28.dp,
+                imageUrl = senderAvatarUrl,
+                colorSeed = senderInitials,
+            )
             Spacer(Modifier.width(8.dp))
         }
 
@@ -787,17 +768,9 @@ private fun MessageRow(
                         .pointerInput(message.id) {
                             detectTapGestures(onLongPress = { onLongPress() })
                         },
-                    shape = if (isMine) OutgoingBubbleShape else IncomingBubbleShape,
-                    color = if (isMine) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                    contentColor = if (isMine) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                    shape = BubbleShape,
+                    color = if (isMine) bubbles.outgoing else bubbles.incoming,
+                    contentColor = if (isMine) bubbles.onOutgoing else bubbles.onIncoming,
                 ) {
                     MessageBubbleContent(
                         message = message,
@@ -831,12 +804,6 @@ private fun MessageRow(
                     modifier = Modifier.padding(top = 2.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = message.timestamp,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(4.dp))
                     when {
                         message.failed -> Row(
                             modifier = Modifier
@@ -872,7 +839,7 @@ private fun MessageRow(
                                 if (message.seen) R.string.chat_seen else R.string.chat_sent,
                             ),
                             tint = if (message.seen) {
-                                MaterialTheme.colorScheme.tertiary
+                                bubbles.accent
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
@@ -1277,22 +1244,16 @@ private fun copyToClipboard(context: Context, text: String) {
 
 @Composable
 private fun TypingBubble(
-    contact: Contact,
     modifier: Modifier = Modifier,
 ) {
+    val bubbles = LocalMessageBubbleColors.current
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Bottom,
     ) {
-        Avatar(
-            initials = contact.initials,
-            size = 28.dp,
-            imageUrl = contact.avatarUrl,
-        )
-        Spacer(Modifier.width(8.dp))
         Surface(
-            shape = IncomingBubbleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = BubbleShape,
+            color = bubbles.incoming,
         ) {
             TypingDots(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1429,6 +1390,7 @@ private fun MessageComposer(
 ) {
     val showActions = draft.isBlank()
     val recording = recorder.isRecording
+    val bubbles = LocalMessageBubbleColors.current
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -1471,22 +1433,14 @@ private fun MessageComposer(
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.PhotoCamera,
-                                        contentDescription = stringResource(R.string.chat_attach_camera),
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Outlined.PhotoCamera,
+                                    contentDescription = stringResource(R.string.chat_attach_camera),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp),
+                                )
                             }
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(6.dp))
                         }
 
                         if (recording) {
@@ -1530,13 +1484,6 @@ private fun MessageComposer(
                         }
 
                         if (showActions) {
-                            MicButton(
-                                recording = recording,
-                                onStart = onMicStart,
-                                onToggle = { if (recording) onRecordingSend() else onMicStart() },
-                                onMove = onMicMove,
-                                onRelease = onMicRelease,
-                            )
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
@@ -1555,29 +1502,38 @@ private fun MessageComposer(
                                     modifier = Modifier.size(24.dp),
                                 )
                             }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clickable(role = Role.Button, onClick = onSend),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(56.dp)
-                                        .height(40.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                                        contentDescription = stringResource(R.string.chat_send),
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                if (showActions) {
+                    MicButton(
+                        recording = recording,
+                        onStart = onMicStart,
+                        onToggle = { if (recording) onRecordingSend() else onMicStart() },
+                        onMove = onMicMove,
+                        onRelease = onMicRelease,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable(role = Role.Button, onClick = onSend),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(bubbles.composerAccent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = stringResource(R.string.chat_send),
+                                tint = bubbles.onComposerAccent,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
@@ -1610,6 +1566,7 @@ private fun MicButton(
         if (recording) R.string.chat_mic_send else R.string.chat_mic_start,
     )
     val stateLabel = if (recording) stringResource(R.string.chat_mic_recording) else null
+    val bubbles = LocalMessageBubbleColors.current
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -1645,10 +1602,14 @@ private fun MicButton(
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(
-                    if (recording) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
+                    if (recording) {
+                        MaterialTheme.colorScheme.errorContainer
+                    } else {
+                        bubbles.composerAccent
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -1658,7 +1619,7 @@ private fun MicButton(
                 tint = if (recording) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    bubbles.onComposerAccent
                 },
                 modifier = Modifier.size(24.dp),
             )

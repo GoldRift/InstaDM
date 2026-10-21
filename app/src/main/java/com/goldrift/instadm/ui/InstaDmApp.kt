@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,8 +36,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
-import com.goldrift.instadm.data.RealtimeBus
-import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
@@ -70,7 +67,6 @@ fun InstaDmApp() {
     val application = context.applicationContext as InstaDmApplication
     val inboxState = application.inboxState
     val navController = rememberNavController()
-    val realtimeStatus by RealtimeBus.status.collectAsState()
     var startRoute by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(application.repository) {
@@ -128,7 +124,6 @@ fun InstaDmApp() {
         composable(Routes.Inbox) {
             MainPane(
                 inboxState = inboxState,
-                realtimeStatus = realtimeStatus,
                 onRefresh = {
                     inboxState.refresh()
                     RealtimeService.restart(context)
@@ -177,7 +172,6 @@ fun InstaDmApp() {
 @Composable
 private fun MainPane(
     inboxState: InboxState,
-    realtimeStatus: RealtimeStatus,
     onRefresh: () -> Unit,
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
@@ -188,10 +182,11 @@ private fun MainPane(
                 conversations = inboxState.conversations,
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
-                realtimeStatus = realtimeStatus,
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 onConversationClick = onOpenChat,
+                viewerName = inboxState.viewerName,
+                viewerAvatarUrl = inboxState.viewerAvatarUrl,
             )
             return@BoxWithConstraints
         }
@@ -204,7 +199,6 @@ private fun MainPane(
                 conversations = inboxState.conversations,
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
-                realtimeStatus = realtimeStatus,
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 selectedConversationId = selectedId,
@@ -213,6 +207,8 @@ private fun MainPane(
                     selectedId = threadId
                 },
                 modifier = Modifier.width(InboxPaneWidth),
+                viewerName = inboxState.viewerName,
+                viewerAvatarUrl = inboxState.viewerAvatarUrl,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {

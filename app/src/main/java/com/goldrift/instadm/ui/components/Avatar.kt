@@ -14,19 +14,44 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.ConversationParticipant
 
 /**
+ * Bright backgrounds read well behind initials and a white glyph, so contacts
+ * without a photo get one of these fixed accent colors.
+ */
+private val AvatarPalette = listOf(
+    Color(0xFFFA903E),
+    Color(0xFFFE63B8),
+    Color(0xFFEE675C),
+    Color(0xFFC58AF9),
+    Color(0xFF8AB4F8),
+    Color(0xFF81C995),
+    Color(0xFFFDD663),
+    Color(0xFF78D9EC),
+)
+
+private val OnAvatarPalette = Color(0xFF202124)
+
+private fun avatarColor(seed: String): Color =
+    AvatarPalette[Math.floorMod(seed.hashCode(), AvatarPalette.size)]
+
+/**
  * Avatar used by both the inbox rows and the chat header. The initials stay
  * visible underneath the image, so a missing or expired URL degrades to the
- * same placeholder as before.
+ * same colored placeholder.
  */
 @Composable
 fun Avatar(
@@ -34,22 +59,34 @@ fun Avatar(
     size: Dp,
     modifier: Modifier = Modifier,
     imageUrl: String? = null,
+    contentDescription: String? = null,
+    colorSeed: String = initials,
 ) {
     Box(
         modifier = modifier
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            )
             .size(size)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+            .background(avatarColor(colorSeed), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = initials,
             style = if (size >= 40.dp) {
-                MaterialTheme.typography.labelLarge
+                MaterialTheme.typography.titleMedium.copy(
+                    fontSize = (size.value * 0.42f).sp,
+                    fontWeight = FontWeight.Normal,
+                )
             } else {
                 MaterialTheme.typography.labelSmall
             },
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = OnAvatarPalette,
         )
         if (!imageUrl.isNullOrBlank()) {
             AsyncImage(
@@ -77,7 +114,9 @@ fun ConversationAvatar(
     participants: List<ConversationParticipant>,
     size: Dp,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
 ) {
+    val seed = contact.id.ifBlank { contact.name }
     val memberPhotos = if (isGroup && contact.avatarUrl.isBlank()) {
         participants.map { it.avatarUrl }.filter { it.isNotBlank() }
     } else {
@@ -89,7 +128,9 @@ fun ConversationAvatar(
             photos = memberPhotos,
             initials = contact.initials,
             size = size,
+            colorSeed = seed,
             modifier = modifier,
+            contentDescription = contentDescription,
         )
     } else {
         Avatar(
@@ -97,6 +138,8 @@ fun ConversationAvatar(
             size = size,
             modifier = modifier,
             imageUrl = contact.avatarUrl.ifBlank { memberPhotos.firstOrNull() },
+            contentDescription = contentDescription,
+            colorSeed = seed,
         )
     }
 }
@@ -106,25 +149,37 @@ private fun AvatarCollage(
     photos: List<String>,
     initials: String,
     size: Dp,
+    colorSeed: String,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
 ) {
     val shown = photos.take(4)
     Box(
         modifier = modifier
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            )
             .size(size)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+            .background(avatarColor(colorSeed), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         // Drawn first so it shows through if a tile fails and renders nothing.
         Text(
             text = initials,
             style = if (size >= 40.dp) {
-                MaterialTheme.typography.labelLarge
+                MaterialTheme.typography.titleMedium.copy(
+                    fontSize = (size.value * 0.42f).sp,
+                    fontWeight = FontWeight.Normal,
+                )
             } else {
                 MaterialTheme.typography.labelSmall
             },
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = OnAvatarPalette,
         )
         when (shown.size) {
             2 -> Row(Modifier.matchParentSize()) {

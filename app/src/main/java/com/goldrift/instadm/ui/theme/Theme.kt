@@ -9,6 +9,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -49,6 +50,14 @@ fun InstaDMTheme(
         motionScheme = MotionScheme.expressive(),
         shapes = InstaDMShapes,
         typography = Typography,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(
+            LocalMessageBubbleColors provides if (darkTheme) {
+                DarkMessageBubbleColors
+            } else {
+                LightMessageBubbleColors
+            },
+            content = content,
+        )
+    }
 }

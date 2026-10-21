@@ -1,8 +1,6 @@
 <resources>
     <string name="app_name">InstaDM</string>
     <string name="chat_back">Back</string>
-    <string name="chat_direct_message">Direct message</string>
-    <string name="chat_group">Group chat</string>
     <string name="chat_today">Today</string>
     <string name="chat_yesterday">Yesterday</string>
     <string name="chat_seen">Seen</string>
@@ -68,7 +66,8 @@
     <string name="inbox_noun_link">a link</string>
     <string name="inbox_noun_attachment">an attachment</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
-    <string name="inbox_refresh">Refresh</string>
+    <string name="inbox_search">Search</string>
+    <string name="inbox_profile_photo">Your profile photo</string>
     <string name="inbox_no_session_title">No session</string>
     <string name="inbox_no_session_body">Log in to Instagram to load your direct messages.</string>
     <string name="inbox_error_title">Couldn\'t load inbox</string>

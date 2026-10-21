@@ -60,6 +60,9 @@ class ChatStoreTest {
         assertEquals("Test Participant", row.participants.single().name)
         assertEquals(now, store.inboxSyncedAt())
         assertEquals("viewer-ig", store.viewer("viewer_ig_id"))
+        val viewer = store.viewerProfile()
+        assertEquals("Me", viewer.name)
+        assertEquals("https://cdn.example.invalid/me.jpg", viewer.avatarUrl)
     }
 
     @Test
@@ -372,7 +375,7 @@ class ChatStoreTest {
     private companion object {
         val MAILBOX = """
             {
-              "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111 },
+              "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111, "avatar_url": "https://cdn.example.invalid/me.jpg" },
               "threads": [
                 {
                   "id": "thread-1",
@@ -462,7 +465,7 @@ class ChatStoreTest {
 
         val MAILBOX_NEWER = """
             {
-              "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111 },
+              "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111, "avatar_url": "https://cdn.example.invalid/me.jpg" },
               "threads": [
                 {
                   "id": "thread-1",

@@ -1,24 +1,35 @@
 package com.goldrift.instadm.ui.inbox
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -26,30 +37,34 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
-import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.formatInboxTime
+import com.goldrift.instadm.ui.chat.initialsOf
 import com.goldrift.instadm.ui.chat.label
 import com.goldrift.instadm.ui.chat.render
 import com.goldrift.instadm.ui.chat.sampleConversations
 import com.goldrift.instadm.ui.chat.toPreview
+import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+
+private val ListTopShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,107 +74,122 @@ fun InboxScreen(
     modifier: Modifier = Modifier,
     status: InboxStatus = InboxStatus.Ready,
     errorMessage: String? = null,
-    realtimeStatus: RealtimeStatus = RealtimeStatus.Connected,
     onRefresh: () -> Unit = {},
     onLogin: () -> Unit = {},
     selectedConversationId: String? = null,
+    viewerName: String = "",
+    viewerAvatarUrl: String = "",
 ) {
-    val realtimeLabel = when (realtimeStatus) {
-        RealtimeStatus.Connected -> stringResource(R.string.realtime_connected)
-        RealtimeStatus.Connecting -> stringResource(R.string.realtime_connecting)
-        RealtimeStatus.Reconnecting -> stringResource(R.string.realtime_reconnecting)
-        RealtimeStatus.NoSession -> stringResource(R.string.realtime_no_session)
-        RealtimeStatus.Error -> stringResource(R.string.realtime_error)
-        RealtimeStatus.Stopped -> stringResource(R.string.realtime_stopped)
-    }
-    val realtimeColor = when (realtimeStatus) {
-        RealtimeStatus.Connected -> MaterialTheme.colorScheme.tertiary
-        RealtimeStatus.Error -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.semantics { heading() },
-                        )
-                        Text(
-                            text = realtimeLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = realtimeColor,
-                            maxLines = 1,
-                            modifier = Modifier.semantics {
-                                liveRegion = LiveRegionMode.Polite
-                            },
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 },
                 actions = {
-                    IconButton(onClick = onRefresh) {
+                    // Placeholder until in-app search exists.
+                    IconButton(onClick = {}) {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = stringResource(R.string.inbox_refresh),
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = stringResource(R.string.inbox_search),
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    if (viewerAvatarUrl.isBlank() && viewerName.isBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 16.dp)
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Person,
+                                contentDescription = stringResource(R.string.inbox_profile_photo),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    } else {
+                        Avatar(
+                            initials = initialsOf(viewerName),
+                            size = 32.dp,
+                            imageUrl = viewerAvatarUrl,
+                            contentDescription = stringResource(R.string.inbox_profile_photo),
+                            colorSeed = viewerName,
+                            modifier = Modifier.padding(end = 16.dp),
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
             )
         },
     ) { innerPadding ->
-        Box(
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
+            shape = ListTopShape,
+            color = MaterialTheme.colorScheme.surface,
         ) {
-            when {
-                status == InboxStatus.Loading && conversations.isEmpty() -> {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-                }
+            PullToRefreshBox(
+                isRefreshing = status == InboxStatus.Loading && conversations.isNotEmpty(),
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
+                    status == InboxStatus.Loading && conversations.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
 
-                status == InboxStatus.NoSession && conversations.isEmpty() -> {
-                    InboxMessage(
-                        title = stringResource(R.string.inbox_no_session_title),
-                        body = stringResource(R.string.inbox_no_session_body),
-                        actionLabel = stringResource(R.string.inbox_login),
-                        onAction = onLogin,
-                    )
-                }
+                    status == InboxStatus.NoSession && conversations.isEmpty() -> {
+                        InboxMessage(
+                            title = stringResource(R.string.inbox_no_session_title),
+                            body = stringResource(R.string.inbox_no_session_body),
+                            actionLabel = stringResource(R.string.inbox_login),
+                            onAction = onLogin,
+                        )
+                    }
 
-                status == InboxStatus.Error && conversations.isEmpty() -> {
-                    InboxMessage(
-                        title = stringResource(R.string.inbox_error_title),
-                        body = errorMessage ?: stringResource(R.string.inbox_error_body),
-                        actionLabel = stringResource(R.string.inbox_retry),
-                        onAction = onRefresh,
-                        secondaryActionLabel = stringResource(R.string.inbox_error_login),
-                        onSecondaryAction = onLogin,
-                    )
-                }
+                    status == InboxStatus.Error && conversations.isEmpty() -> {
+                        InboxMessage(
+                            title = stringResource(R.string.inbox_error_title),
+                            body = errorMessage ?: stringResource(R.string.inbox_error_body),
+                            actionLabel = stringResource(R.string.inbox_retry),
+                            onAction = onRefresh,
+                            secondaryActionLabel = stringResource(R.string.inbox_error_login),
+                            onSecondaryAction = onLogin,
+                        )
+                    }
 
-                conversations.isEmpty() -> {
-                    InboxMessage(
-                        title = stringResource(R.string.inbox_empty_title),
-                        body = stringResource(R.string.inbox_empty_body),
-                        actionLabel = stringResource(R.string.inbox_retry),
-                        onAction = onRefresh,
-                    )
-                }
+                    conversations.isEmpty() -> {
+                        InboxMessage(
+                            title = stringResource(R.string.inbox_empty_title),
+                            body = stringResource(R.string.inbox_empty_body),
+                            actionLabel = stringResource(R.string.inbox_retry),
+                            onAction = onRefresh,
+                        )
+                    }
 
-                else -> {
-                    Column(Modifier.fillMaxSize()) {
+                    else -> Column(Modifier.fillMaxSize()) {
                         if (errorMessage != null) {
                             Surface(color = MaterialTheme.colorScheme.errorContainer) {
                                 Text(
@@ -172,7 +202,16 @@ fun InboxScreen(
                                 )
                             }
                         }
-                        LazyColumn(Modifier.fillMaxSize()) {
+                        val navBarBottom = WindowInsets.navigationBars
+                            .asPaddingValues()
+                            .calculateBottomPadding()
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                top = 8.dp,
+                                bottom = navBarBottom + 8.dp,
+                            ),
+                        ) {
                             items(
                                 items = conversations,
                                 key = { it.id },
@@ -181,10 +220,6 @@ fun InboxScreen(
                                     conversation = conversation,
                                     selected = conversation.id == selectedConversationId,
                                     onClick = { onConversationClick(conversation.id) },
-                                )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 78.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
                                 )
                             }
                         }
@@ -235,7 +270,6 @@ private fun InboxMessage(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
@@ -250,18 +284,39 @@ private fun ConversationRow(
         ?: stringResource(R.string.inbox_tap_to_open)
     val timestamp = lastMessage?.timestamp ?: formatInboxTime(conversation.lastActivityMs)
 
-    ListItem(
-        selected = selected,
-        onClick = onClick,
-        leadingContent = {
-            ConversationAvatar(
-                contact = conversation.contact,
-                isGroup = conversation.isGroup,
-                participants = conversation.participants,
-                size = 50.dp,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (selected) {
+                    Modifier.background(MaterialTheme.colorScheme.surfaceContainer)
+                } else {
+                    Modifier
+                },
             )
-        },
-        supportingContent = {
+            .clickable(onClick = onClick)
+            .heightIn(min = 80.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        ConversationAvatar(
+            contact = conversation.contact,
+            isGroup = conversation.isGroup,
+            participants = conversation.participants,
+            size = 48.dp,
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = conversation.contact.name,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
             Text(
                 text = preview,
                 style = MaterialTheme.typography.bodyMedium,
@@ -269,20 +324,13 @@ private fun ConversationRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        },
-        trailingContent = {
-            Text(
-                text = timestamp,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-    ) {
+        }
+        Spacer(Modifier.width(12.dp))
         Text(
-            text = conversation.contact.name,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            text = timestamp,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }
@@ -294,6 +342,7 @@ private fun InboxLightPreview() {
         InboxScreen(
             conversations = sampleConversations(),
             onConversationClick = {},
+            viewerName = "Alex Rivera",
         )
     }
 }
@@ -303,7 +352,7 @@ private fun InboxLightPreview() {
     showBackground = true,
     widthDp = 390,
     heightDp = 844,
-    backgroundColor = 0xFF111318,
+    backgroundColor = 0xFF1D2023,
 )
 @Composable
 private fun InboxDarkPreview() {
@@ -311,6 +360,7 @@ private fun InboxDarkPreview() {
         InboxScreen(
             conversations = sampleConversations(),
             onConversationClick = {},
+            viewerName = "Alex Rivera",
         )
     }
 }

@@ -64,8 +64,13 @@ class InboxState(
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var viewerName by mutableStateOf("")
+        private set
+    var viewerAvatarUrl by mutableStateOf("")
+        private set
 
     init {
+        scope.launch { loadViewer() }
         scope.launch {
             chatStore.observeInbox().collect { rows -> applyInboxRows(rows) }
         }
@@ -81,6 +86,12 @@ class InboxState(
 
     fun clearError() {
         errorMessage = null
+    }
+
+    private suspend fun loadViewer() {
+        val profile = chatStore.viewerProfile()
+        viewerName = profile.name
+        viewerAvatarUrl = profile.avatarUrl
     }
 
     /** Loads the inbox once per process; rotations reuse the retained state. */
@@ -111,6 +122,7 @@ class InboxState(
                     mailboxSync.fetchAndStore()
                 }
                     .onSuccess {
+                        loadViewer()
                         status = InboxStatus.Ready
                     }
                     .onFailure { error ->
@@ -128,6 +140,7 @@ class InboxState(
         scope.launch {
             runCatching { chatStore.ingestMailbox(mailbox) }
                 .onSuccess {
+                    loadViewer()
                     errorMessage = null
                     status = InboxStatus.Ready
                 }

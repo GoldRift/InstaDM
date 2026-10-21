@@ -60,7 +60,8 @@ the newest attachment the same way a message reads ("Sent you a video", "Maya se
 Conversation rows and chat headers show
 profile pictures from the mailbox payload: a direct chat uses the other person's picture,
 a group uses its custom photo, and a group without one falls back to a collage of its
-members. Opening a thread refreshes the title and photo along with the newest messages.
+members. Contacts without a picture get a colored initial avatar. Opening a thread
+refreshes the title and photo along with the newest messages.
 Loaded chats and their paging cursor are stored in Room, so reopening a chat (even
 after a restart) paints its messages before the newest page finishes refreshing; a
 thread is only re-fetched when its newest page is more than 30 seconds old or the
@@ -74,11 +75,11 @@ error. Attachments can be captured with the camera button or picked from the sys
 photo
 picker; the composer shows the local copy immediately and clears the pending tick
 once the upload finishes. A failed upload keeps the bubble so it can be retried.
-The mic sits left of the gallery icon and records a voice note while held. Releasing
-sends it, sliding up locks the recorder so the finger can be lifted, and sliding left
-cancels. A locked recording can be paused, resumed, deleted, or sent. There is no
-duration limit; recording stops cleanly when the file reaches the same 25 MB upload
-cap as other attachments. Voice notes are playable inline in both directions, with
+The mic sits outside the composer pill, at its right edge, and records a
+voice note while held. Releasing sends it, sliding up locks the recorder so the finger can
+be lifted, and sliding left cancels. A locked recording can be paused, resumed, deleted,
+or sent. There is no duration limit; recording stops cleanly when the file reaches the
+same 25 MB upload cap as other attachments. Voice notes are playable inline in both directions, with
 tap-to-seek and a waveform; outgoing notes use the local file until Instagram's copy
 takes over.
 Chats group messages under `Today`, `Yesterday`, or a localized date header. On screens
@@ -98,21 +99,21 @@ looping GIFs. Downloaded attachments live in a 250 MB LRU cache; sent attachment
 out of the outbox into that cache once uploaded. The database keeps at most 1,000
 messages per thread, and a missing session clears the database, the media cache, and
 pending sends.
-The refresh button reloads the inbox and reconnects realtime when the stored
-session changed. Instagram rotates routing cookies on responses; the Go core
-exports the updated jar after successful calls and the app re-encrypts it when
-it differs. If no usable session exists, the inbox offers a `Log in` action.
+Pull down on the inbox to reload it and reconnect realtime when the stored
+session changed. The inbox header also shows the viewer's own profile picture and a
+search placeholder for the future in-app search. Instagram rotates routing cookies on
+responses; the Go core exports the updated jar after successful calls and the app
+re-encrypts it when it differs. If no usable session exists, the inbox offers a `Log in`
+action.
 
 The app starts a `dataSync`/`remoteMessaging` foreground service that keeps the DGW
-watch connected while the UI is in the background. The status under the app name shows
-`Live`, `Connecting…`, `Reconnecting…`, `No realtime session`, or `Realtime error`.
-Incoming messages update the open thread and inbox immediately and are written to Room by
+watch connected while the UI is in the background. Incoming messages update the open
+thread and inbox immediately and are written to Room by
 a process-scoped recorder, so new messages, edits, deletes, reactions, and read receipts
 survive a restart (and are stored even when the activity was never opened). When the app
-is in the
-background, they also post a notification in the `Messages` channel; Android 13+ asks
-for notification permission on first launch. The notification actions include `Stop`
-for the foreground service.
+is in the background, they also post a notification in the `Messages` channel; Android
+13+ asks for notification permission on first launch. The notification actions include
+`Stop` for the foreground service.
 
 ## Runtime smoke test
 

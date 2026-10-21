@@ -26,6 +26,13 @@ private const val META_VIEWER_ID = "viewer_ig_id"
 private const val META_VIEWER_USERNAME = "viewer_username"
 private const val META_VIEWER_NAME = "viewer_name"
 private const val META_VIEWER_FBID = "viewer_fbid"
+private const val META_VIEWER_AVATAR = "viewer_avatar"
+
+/** The logged-in account's display data, used by the inbox header. */
+data class ViewerProfile(
+    val name: String = "",
+    val avatarUrl: String = "",
+)
 
 /**
  * Owns the Room database and turns normalized Go JSON into entities. The UI
@@ -55,6 +62,12 @@ class ChatStore(
         threadDao.observeThread(threadId)
 
     suspend fun viewer(key: String): String? = metaDao.get(key)
+
+    /** Name and profile picture of the logged-in account. */
+    suspend fun viewerProfile(): ViewerProfile = ViewerProfile(
+        name = metaDao.get(META_VIEWER_NAME).orEmpty(),
+        avatarUrl = metaDao.get(META_VIEWER_AVATAR).orEmpty(),
+    )
 
     suspend fun threadExists(threadId: String): Boolean =
         threadId.isNotBlank() && threadDao.thread(threadId) != null
@@ -593,6 +606,7 @@ class ChatStore(
             add(AppMetaEntity(META_VIEWER_ID, viewer.optString("ig_id")))
             add(AppMetaEntity(META_VIEWER_USERNAME, viewer.optString("username")))
             add(AppMetaEntity(META_VIEWER_NAME, viewer.optString("name")))
+            add(AppMetaEntity(META_VIEWER_AVATAR, viewer.optString("avatar_url")))
             add(AppMetaEntity(META_VIEWER_FBID, fbid.toString()))
         }
         entries.filter { it.value.isNotBlank() && it.value != "0" }.forEach { metaDao.put(it) }
