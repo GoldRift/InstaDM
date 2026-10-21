@@ -760,7 +760,7 @@ private fun MessageBubbleContent(
                 messageId = message.id,
                 active = isVisible,
                 loadMedia = onLoadMedia,
-                onClick = { onOpenMedia(item) },
+                onClick = { if (message.isServerMessage()) onOpenMedia(item) },
                 onLongClick = onLongPress,
             )
         }

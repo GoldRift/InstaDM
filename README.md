@@ -65,9 +65,12 @@ thread is only re-fetched when its newest page is more than 30 seconds old or th
 mailbox shows a newer last message.
 Opening a thread fetches its newest
 30 messages, and scrolling to the oldest bubble pages in older messages until the
-thread begins. Sending text appends the server message after the mutation succeeds.
-Attachments can be captured with the camera button or picked from the system photo
-picker; the composer shows a local preview immediately and clears the pending tick
+thread begins. Sending text or an attachment writes an optimistic bubble and a durable
+outbox row before the network call, so the message survives process death and retries
+with the same OTID; a failed send keeps its bubble and can be retried by tapping the
+error. Attachments can be captured with the camera button or picked from the system
+photo
+picker; the composer shows the local copy immediately and clears the pending tick
 once the upload finishes. A failed upload keeps the bubble so it can be retried.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat

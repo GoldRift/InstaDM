@@ -6,4 +6,6 @@
     <exclude domain="database" path="instadm.db" />
     <exclude domain="database" path="instadm.db-wal" />
     <exclude domain="database" path="instadm.db-shm" />
+    <!-- Pending outbound attachments may contain unshared content. -->
+    <exclude domain="file" path="outbox/" />
 </full-backup-content>

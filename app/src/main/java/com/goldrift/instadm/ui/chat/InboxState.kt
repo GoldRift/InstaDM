@@ -1,7 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
 import android.net.Uri
-import androidx.core.net.toUri
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -11,8 +10,7 @@ import androidx.compose.runtime.setValue
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
-import com.goldrift.instadm.data.OfflineThreadingIds
-import com.goldrift.instadm.data.PickedMedia
+import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
@@ -24,7 +22,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
-import java.util.UUID
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
 
@@ -50,6 +47,7 @@ class InboxState(
     private val repository: ProtocolRepository,
     private val chatStore: ChatStore,
     private val mailboxSync: MailboxSync,
+    private val outbox: Outbox,
     private val scope: CoroutineScope,
     private val mediaReader: MediaReader,
 ) {
@@ -58,7 +56,6 @@ class InboxState(
     private val markedRead = mutableMapOf<String, String>()
     private val readJobs = mutableMapOf<String, Job>()
     private val lastReadAt = mutableMapOf<String, Long>()
-    private val inFlightSends = mutableSetOf<String>()
     private val messageCollectors = mutableSetOf<String>()
     private var refreshInFlight = false
 
@@ -189,21 +186,8 @@ class InboxState(
     private fun applyThreadMessages(threadId: String, rows: List<MessageWithMedia>) {
         update(threadId) { current ->
             val stored = rows.map { it.toChatMessage() }
-            val storedIds = stored.mapTo(HashSet()) { it.id }
-            val storedOtids = stored.mapNotNullTo(HashSet()) { message ->
-                message.offlineThreadingId.takeIf { it.isNotBlank() }
-            }
-            val pending = current.messages.filter { message ->
-                !message.isServerMessage() &&
-                    message.id !in storedIds &&
-                    (message.offlineThreadingId.isBlank() ||
-                        message.offlineThreadingId !in storedOtids)
-            }
-            val merged = (stored + pending).sortedWith(
-                compareBy<ChatMessage>({ it.timestampMs }, { it.id }),
-            )
             current.copy(
-                messages = merged,
+                messages = stored,
                 messagesLoaded = stored.isNotEmpty() || current.messagesLoaded,
                 isLoadingOlder = false,
                 olderError = false,
@@ -244,200 +228,34 @@ class InboxState(
     fun send(threadId: String, rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || conversation(threadId) == null) return
-
-        val localID = "local-${UUID.randomUUID()}"
-        val localTimestamp = System.currentTimeMillis()
-        val local = ChatMessage(
-            id = localID,
-            text = text,
-            sender = MessageSender.Me,
-            timestamp = formatMessageTime(localTimestamp),
-            timestampMs = localTimestamp,
-            pending = true,
-        )
-        update(threadId) { it.copy(messages = it.messages + local) }
         errorMessage = null
-
         scope.launch {
-            runCatching { repository.sendText(threadId, text) }
-                .onSuccess { result ->
-                    val serverID = result.optString("message_id")
-                        .ifBlank { result.optString("id") }
-                    val serverTimestamp = result.optLong("timestamp_ms")
-                    update(threadId) { conversation ->
-                        conversation.copy(
-                            messages = conversation.messages.map { message ->
-                                if (message.id == localID) {
-                                    val timestampMs = serverTimestamp
-                                        .takeIf { it > 0 }
-                                        ?: message.timestampMs
-                                    message.copy(
-                                        id = serverID.ifBlank { localID },
-                                        timestamp = formatMessageTime(timestampMs),
-                                        timestampMs = timestampMs,
-                                        pending = false,
-                                    )
-                                } else {
-                                    message
-                                }
-                            },
-                        )
-                    }
-                    chatStore.ingestSentText(threadId, result, text)
-                }
-                .onFailure { error ->
-                    update(threadId) { conversation ->
-                        conversation.copy(
-                            messages = conversation.messages.filterNot { it.id == localID },
-                        )
-                    }
-                    errorMessage = describeError(error)
-                }
+            runCatching { outbox.enqueueText(threadId, text) }
+                .onFailure { error -> errorMessage = describeError(error) }
         }
     }
 
     /**
-     * Sends a picked attachment. The bubble appears immediately with a local
-     * preview; the bytes are read and uploaded afterwards. A failed upload keeps
-     * the bubble so it can be retried from the same content URI.
+     * Copies a picked attachment into the durable outbox and shows it as a
+     * pending bubble. The upload runs from [Outbox], so it survives a restart.
      */
     fun sendMedia(threadId: String, uri: Uri) {
         if (conversation(threadId) == null) return
-
-        scope.launch {
-            val picked = runCatching { mediaReader.prepare(uri) }
-                .getOrElse { error ->
-                    errorMessage = describeError(error)
-                    return@launch
-                }
-
-            val localID = "local-${UUID.randomUUID()}"
-            val localTimestamp = System.currentTimeMillis()
-            val otid = OfflineThreadingIds.next()
-            val local = ChatMessage(
-                id = localID,
-                text = "",
-                sender = MessageSender.Me,
-                timestamp = formatMessageTime(localTimestamp),
-                timestampMs = localTimestamp,
-                pending = true,
-                localMedia = PendingMedia(
-                    uri = uri.toString(),
-                    kind = picked.kind,
-                    fileName = picked.fileName,
-                    width = picked.width,
-                    height = picked.height,
-                    durationMs = picked.durationMs,
-                ),
-                offlineThreadingId = otid,
-            )
-            update(threadId) { conversation ->
-                conversation.copy(
-                    messages = conversation.messages + local,
-                    lastActivityMs = maxOf(conversation.lastActivityMs, localTimestamp),
-                    preview = previewFor(local),
-                )
-            }
-            errorMessage = null
-
-            uploadMedia(threadId, localID, picked, otid)
-        }
-    }
-
-    /** Retries a failed attachment upload from the URI kept on the bubble. */
-    fun retryMedia(threadId: String, messageId: String) {
-        val message = conversation(threadId)
-            ?.messages
-            ?.firstOrNull { it.id == messageId }
-            ?: return
-        if (message.pending || !message.failed) return
-        val local = message.localMedia ?: return
-        val uri = runCatching { local.uri.toUri() }.getOrNull() ?: return
-
-        val otid = message.offlineThreadingId.ifBlank { OfflineThreadingIds.next() }
-        updateMessage(threadId, messageId) {
-            it.copy(pending = true, failed = false, offlineThreadingId = otid)
-        }
         errorMessage = null
-
         scope.launch {
-            val picked = runCatching { mediaReader.prepare(uri) }
-                .getOrElse { error ->
-                    markMediaFailed(threadId, messageId)
-                    errorMessage = describeError(error)
-                    return@launch
-                }
-            uploadMedia(threadId, messageId, picked, otid)
+            runCatching {
+                outbox.enqueueMedia(threadId, mediaReader.prepare(uri))
+            }.onFailure { error -> errorMessage = describeError(error) }
         }
     }
 
-    private suspend fun uploadMedia(
-        threadId: String,
-        localID: String,
-        picked: PickedMedia,
-        otid: String,
-    ) {
-        inFlightSends += localID
-        val result = runCatching {
-            val data = mediaReader.read(picked)
-            repository.sendMedia(threadId, picked.fileName, picked.mimeType, data, otid)
-        }
-        inFlightSends -= localID
-
-        result
-            .onSuccess { reconcileMediaSend(threadId, localID, it) }
-            .onFailure { error ->
-                markMediaFailed(threadId, localID)
-                errorMessage = describeError(error)
-            }
-        resortConversations()
-    }
-
-    /**
-     * Replaces the optimistic bubble with the server message. If the realtime
-     * echo already produced that message, the local duplicate is dropped.
-     */
-    private fun reconcileMediaSend(threadId: String, localID: String, result: JSONObject) {
-        val serverID = result.optString("message_id")
-            .ifBlank { result.optString("id") }
-        val serverTimestamp = result.optLong("timestamp_ms").takeIf { it > 0 }
-
-        update(threadId) { conversation ->
-            val echoArrived = serverID.isNotBlank() &&
-                conversation.messages.any { it.id == serverID && it.id != localID }
-            val messages = if (echoArrived) {
-                conversation.messages.filterNot { it.id == localID }
-            } else {
-                conversation.messages.map { message ->
-                    if (message.id != localID) return@map message
-                    val timestampMs = serverTimestamp ?: message.timestampMs
-                    message.copy(
-                        id = serverID.ifBlank { localID },
-                        timestamp = formatMessageTime(timestampMs),
-                        timestampMs = timestampMs,
-                        pending = false,
-                        failed = false,
-                    )
-                }
-            }
-            conversation.copy(
-                messages = messages,
-                preview = previewFor(messages.lastOrNull()),
-            )
-        }
-    }
-
-    private fun markMediaFailed(threadId: String, messageId: String) {
-        update(threadId) { conversation ->
-            conversation.copy(
-                messages = conversation.messages.map { message ->
-                    if (message.id == messageId) {
-                        message.copy(pending = false, failed = true)
-                    } else {
-                        message
-                    }
-                },
-            )
+    /** Re-queues a failed outgoing message with the same OTID. */
+    fun retryMedia(threadId: String, messageId: String) {
+        if (conversation(threadId) == null) return
+        errorMessage = null
+        scope.launch {
+            runCatching { outbox.retry(messageId) }
+                .onFailure { error -> errorMessage = describeError(error) }
         }
     }
 
@@ -631,13 +449,6 @@ class InboxState(
         message == null -> ""
         message.sender == MessageSender.Me -> "You: ${message.previewLabel()}"
         else -> message.previewLabel()
-    }
-
-    private fun resortConversations() {
-        val sorted = items.sortedByDescending { it.lastActivityMs }
-        if (sorted == items) return
-        items.clear()
-        items.addAll(sorted)
     }
 
     private fun indexOfThread(threadId: String): Int {

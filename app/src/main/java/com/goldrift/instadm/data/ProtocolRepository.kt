@@ -75,8 +75,13 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         it.thread(threadId, THREAD_PAGE_SIZE, cursor)
     }
 
-    suspend fun sendText(threadId: String, text: String): JSONObject = withClient {
-        it.sendText(threadId, text)
+    suspend fun sendText(
+        threadId: String,
+        text: String,
+        replyTo: String = "",
+        otid: String = "",
+    ): JSONObject = withClient {
+        it.sendText(threadId, text, replyTo, otid)
     }
 
     /** Uploads one attachment and sends it to an existing thread. */

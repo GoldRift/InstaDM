@@ -6,6 +6,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.db.InstaDmDatabase
+import com.goldrift.instadm.data.db.MessageEntity
+import com.goldrift.instadm.data.db.MessageStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -17,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ChatStoreTest {
@@ -149,6 +152,49 @@ class ChatStoreTest {
         val messages = store.observeThread("thread-1").first()
         assertEquals(1, messages.size)
         assertEquals("message-1", messages.single().message.id)
+    }
+
+    @Test
+    fun completingAMediaSendKeepsTheLocalFile() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.cacheDir, "outbox-media-${System.nanoTime()}.jpg")
+        file.writeBytes(byteArrayOf(1, 2, 3))
+
+        val localId = "local:media"
+        db.messages().upsertMessage(
+            MessageEntity(
+                id = localId,
+                localId = localId,
+                threadId = "thread-1",
+                timestampMs = now,
+                kind = "image",
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+                mediaCount = 1,
+            ),
+        )
+
+        store.completeOutgoingMedia(
+            localMessageId = localId,
+            threadId = "thread-1",
+            result = JSONObject("""{ "message_id": "mid.9", "timestamp_ms": 1700000009000 }"""),
+            kind = "image",
+            localPath = file.absolutePath,
+            width = 800,
+            height = 600,
+            durationMs = 0,
+        )
+
+        val row = store.observeThread("thread-1").first().single()
+        assertEquals("mid.9", row.message.id)
+        assertEquals(MessageStatus.SENT, row.message.status)
+        assertEquals("image", row.message.kind)
+        assertEquals(file.absolutePath, row.attachments.single().localPath)
+        assertTrue(row.attachments.single().url.startsWith("file:"))
+        assertEquals("mid.9", store.conversationThread("thread-1").lastMessageId)
+        file.delete()
+        Unit
     }
 
     @Test

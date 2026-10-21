@@ -6,6 +6,8 @@ import coil.ImageLoaderFactory
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
+import com.goldrift.instadm.data.Outbox
+import com.goldrift.instadm.data.ProtocolOutboxSender
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeRecorder
 import com.goldrift.instadm.data.SessionStore
@@ -36,14 +38,26 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     val realtimeRecorder by lazy {
         RealtimeRecorder(chatStore, appScope) { mailboxSync.fetchAndStore() }
     }
-    val inboxState by lazy { InboxState(repository, chatStore, mailboxSync, appScope, mediaReader) }
+    val outbox by lazy {
+        Outbox(
+            db = database,
+            chatStore = chatStore,
+            sender = ProtocolOutboxSender(repository),
+            mediaReader = mediaReader,
+            outboxDir = sessionStore.outboxDir,
+            scope = appScope,
+        )
+    }
+    val inboxState by lazy { InboxState(repository, chatStore, mailboxSync, outbox, appScope, mediaReader) }
 
     override fun onCreate() {
         super.onCreate()
         // The recorder is process-scoped so realtime deltas are stored even when
-        // only the foreground service is running.
+        // only the foreground service is running. The outbox retries sends that
+        // were interrupted by a previous process death.
         if (sessionStore.hasStoredSession()) {
             realtimeRecorder.start()
+            outbox.start()
         }
     }
 

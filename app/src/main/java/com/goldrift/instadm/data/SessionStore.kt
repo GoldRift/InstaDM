@@ -35,6 +35,13 @@ class SessionStore(context: Context) {
     val mediaCacheDir: File
         get() = File(appContext.cacheDir, "media").apply { mkdirs() }
 
+    /**
+     * Durable copies of attachments queued for sending. Kept out of the cache
+     * because a pending send must survive process death and cache eviction.
+     */
+    val outboxDir: File
+        get() = File(appContext.filesDir, "outbox").apply { mkdirs() }
+
     private val sessionFile = File(appContext.noBackupFilesDir, "session.enc")
     private val isDebuggable =
         appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0

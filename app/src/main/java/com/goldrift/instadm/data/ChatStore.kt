@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /** Messages kept per thread; older rows are pruned after each ingest. */
 private const val MESSAGE_RETENTION = 1000
@@ -187,6 +188,13 @@ class ChatStore(
             val existing = messageDao.message(message.id)
             if (existing?.status == MessageStatus.DELETED) return@withTransaction
 
+            val duplicate = message.offlineThreadingId
+                .takeIf { it.isNotBlank() }
+                ?.let { messageDao.byOtid(it) }
+            if (duplicate != null && duplicate.id != message.id) {
+                messageDao.delete(duplicate.id)
+            }
+
             val entity = MessageEntity(
                 id = message.id,
                 localId = existing?.localId,
@@ -267,8 +275,117 @@ class ChatStore(
         }
     }
 
-    /** Applies an edit (local action or realtime `message.edit`). */
-    suspend fun editMessageText(messageId: String, text: String) {
+    /** Replaces a pending text message with the server message after a send. */
+    suspend fun completeOutgoingText(
+        localMessageId: String,
+        threadId: String,
+        result: JSONObject,
+        fallbackText: String,
+    ) {
+        val messageId = result.optString("message_id").ifBlank { result.optString("id") }
+        val now = clock()
+        val timestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
+        val text = result.optString("text").ifBlank { fallbackText }
+        db.withTransaction {
+            if (messageId.isBlank()) {
+                // Without a server ID the row stays local but becomes a normal
+                // sent message; a later refresh reconciles it by OTID.
+                messageDao.setStatus(localMessageId, MessageStatus.SENT)
+                return@withTransaction
+            }
+            messageDao.delete(localMessageId)
+            messageDao.upsertMessage(
+                MessageEntity(
+                    id = messageId,
+                    threadId = threadId,
+                    timestampMs = timestamp,
+                    kind = "text",
+                    text = text,
+                    otid = result.optString("offline_threading_id"),
+                    isFromViewer = true,
+                    status = MessageStatus.SENT,
+                ),
+            )
+            threadDao.updateLastMessage(
+                threadId = threadId,
+                messageId = messageId,
+                timestampMs = timestamp,
+                text = text,
+                kind = "text",
+                fromViewer = true,
+                senderFbid = viewerFbid(),
+                now = now,
+            )
+        }
+    }
+
+    /**
+     * Replaces a pending attachment with the server message. The local file is
+     * kept until the realtime echo or the next refresh supplies CDN URLs, so
+     * the bubble keeps its image instead of flashing empty.
+     */
+    suspend fun completeOutgoingMedia(
+        localMessageId: String,
+        threadId: String,
+        result: JSONObject,
+        kind: String,
+        localPath: String,
+        width: Int,
+        height: Int,
+        durationMs: Long,
+    ) {
+        val messageId = result.optString("message_id").ifBlank { result.optString("id") }
+        val now = clock()
+        val timestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
+        db.withTransaction {
+            if (messageId.isBlank()) {
+                messageDao.setStatus(localMessageId, MessageStatus.SENT)
+                return@withTransaction
+            }
+            messageDao.delete(localMessageId)
+            messageDao.upsertMessage(
+                MessageEntity(
+                    id = messageId,
+                    threadId = threadId,
+                    timestampMs = timestamp,
+                    kind = kind,
+                    otid = result.optString("offline_threading_id"),
+                    isFromViewer = true,
+                    status = MessageStatus.SENT,
+                    mediaCount = 1,
+                ),
+            )
+            val localUri = File(localPath).toURI().toString()
+            messageDao.upsertAttachments(
+                listOf(
+                    AttachmentEntity(
+                        messageId = messageId,
+                        partIndex = 0,
+                        kind = kind,
+                        url = localUri,
+                        previewUrl = localUri,
+                        width = width,
+                        height = height,
+                        durationMs = durationMs,
+                        localPath = localPath,
+                        downloadState = AttachmentEntity.DOWNLOAD_READY,
+                    ),
+                ),
+            )
+            threadDao.updateLastMessage(
+                threadId = threadId,
+                messageId = messageId,
+                timestampMs = timestamp,
+                text = "",
+                kind = kind,
+                fromViewer = true,
+                senderFbid = viewerFbid(),
+                now = now,
+            )
+        }
+    }
+
+    /** Applies an edit (local action or realtime `message.edit`). */    suspend fun editMessageText(messageId: String, text: String) {
         val now = clock()
         db.withTransaction {
             messageDao.editText(messageId, text, now)
@@ -370,6 +487,15 @@ class ChatStore(
 
             val existing = messageDao.message(id)
             if (existing?.status == MessageStatus.DELETED) continue
+
+            // A realtime echo or a page can supersede an optimistic row that
+            // has not been reconciled yet (same OTID, different ID).
+            val otid = message.optString("offline_threading_id").trim()
+            if (otid.isNotEmpty()) {
+                val duplicate = messageDao.byOtid(otid)
+                if (duplicate != null && duplicate.id != id) messageDao.delete(duplicate.id)
+            }
+
             val entity = messageEntity(message, threadId, existing, now) ?: continue
             rows += entity
             payloads += id to message

@@ -19,8 +19,17 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox WHERE state = 'sending'")
     suspend fun inFlight(): List<OutboxEntity>
 
+    @Query("SELECT * FROM outbox WHERE state = 'pending' ORDER BY created_at ASC, id ASC LIMIT 1")
+    suspend fun nextPending(): OutboxEntity?
+
+    @Query("UPDATE outbox SET state = 'pending', last_error = 'interrupted' WHERE state = 'sending'")
+    suspend fun resetInFlight()
+
     @Query("SELECT * FROM outbox WHERE id = :id")
     suspend fun entry(id: Long): OutboxEntity?
+
+    @Query("SELECT * FROM outbox WHERE local_message_id = :localMessageId ORDER BY id DESC LIMIT 1")
+    suspend fun byLocalMessage(localMessageId: String): OutboxEntity?
 
     @Query("SELECT * FROM outbox WHERE thread_id = :threadId AND state IN ('pending', 'sending')")
     suspend fun activeForThread(threadId: String): List<OutboxEntity>
