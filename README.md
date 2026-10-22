@@ -88,7 +88,8 @@ selected thread highlighted, and tapping another thread switches the right pane;
 screens keep the one-screen-per-thread flow. Screen changes use the emphatic Material 3
 fade-and-slide transition. Colors come from the system's Material You palette on Android
 12+, so the app follows the device wallpaper and theme like other Material You apps;
-older versions fall back to a Google-blue scheme generated from a single seed. TalkBack
+older versions fall back to a Google-blue scheme generated from a single seed. App bars
+sit on the `surfaceContainer` tone above the page. TalkBack
 users get a real record button (tap to start, tap to send) instead of the hold gesture,
 long-press actions on every message bubble, and an adjustable waveform for voice notes.
 Opening a chat also marks it read, and own messages show a seen tick once another
