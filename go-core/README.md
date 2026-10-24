@@ -229,8 +229,10 @@ the viewer's messages, and `has_more_older`/`oldest_cursor` for the next paginat
 step. It also includes `read_receipts` with each participant's FBID, watermark, and
 `from_viewer` flag. The viewer's own receipt only means the viewer read the thread; it
 never produces a `seen` flag. Media messages also get a `media` array with attachment
-FBIDs, full and preview CDN URLs, dimensions, and duration where available. CDN URLs
-are sensitive and expire; do not put them in shared fixtures.
+FBIDs, full and preview CDN URLs, dimensions, and duration where available. Replies
+carry `replied_to_message_id` plus a `replied_to_message` snapshot (ID, sender, kind,
+text, and media count) so a client can render the quote without loading the original.
+CDN URLs are sensitive and expire; do not put them in shared fixtures.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
 messages. The older-page output uses the same message table and prints the next cursor.

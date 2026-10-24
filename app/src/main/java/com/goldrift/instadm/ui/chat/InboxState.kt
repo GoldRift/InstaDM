@@ -13,6 +13,7 @@ import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RecordedVoice
+import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
@@ -243,12 +244,12 @@ class InboxState(
         loadOlder(threadId)
     }
 
-    fun send(threadId: String, rawText: String) {
+    fun send(threadId: String, rawText: String, reply: ReplySnapshot? = null) {
         val text = rawText.trim()
         if (text.isEmpty() || conversation(threadId) == null) return
         errorMessage = null
         scope.launch {
-            runCatching { outbox.enqueueText(threadId, text) }
+            runCatching { outbox.enqueueText(threadId, text, reply) }
                 .onFailure { error -> errorMessage = describeError(error) }
         }
     }

@@ -8,6 +8,7 @@ import com.goldrift.instadm.ui.chat.applyReactionDelta
 import com.goldrift.instadm.ui.chat.applyReactionToMessages
 import com.goldrift.instadm.ui.chat.canEdit
 import com.goldrift.instadm.ui.chat.canReact
+import com.goldrift.instadm.ui.chat.canReply
 import com.goldrift.instadm.ui.chat.canUnsend
 import com.goldrift.instadm.ui.chat.reactionGroups
 import com.goldrift.instadm.ui.chat.restoreViewerReaction
@@ -25,6 +26,7 @@ class MessageActionsTest {
         sender: MessageSender = MessageSender.Me,
         timestampMs: Long = 1_000_000,
         pending: Boolean = false,
+        kind: String = "text",
         reactions: List<MessageReaction> = emptyList(),
     ) = ChatMessage(
         id = id,
@@ -33,6 +35,7 @@ class MessageActionsTest {
         timestamp = "",
         timestampMs = timestampMs,
         pending = pending,
+        kind = kind,
         reactions = reactions,
     )
 
@@ -200,5 +203,24 @@ class MessageActionsTest {
         assertFalse(pending.canReact())
         assertFalse(pending.canUnsend())
         assertFalse(placeholder.canReact())
+    }
+
+    @Test
+    fun adminActivityNoticesCannotBeQuoted() {
+        val like = message(id = "mid.like", text = "Liked a message", kind = "admin")
+        val reaction = message(
+            id = "mid.reaction",
+            text = "Reacted ❤ to your message",
+            kind = "admin",
+        )
+        val text = message()
+        val pending = message(pending = true)
+        val placeholder = message(id = "message-0")
+
+        assertFalse(like.canReply())
+        assertFalse(reaction.canReply())
+        assertTrue(text.canReply())
+        assertFalse(pending.canReply())
+        assertFalse(placeholder.canReply())
     }
 }

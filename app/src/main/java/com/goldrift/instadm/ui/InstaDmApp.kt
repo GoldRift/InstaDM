@@ -40,6 +40,7 @@ import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
+import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
 
@@ -250,7 +251,9 @@ private fun ChatDestination(
     }
     ChatScreen(
         conversation = conversation,
-        onSend = { text -> inboxState.send(threadId, text) },
+        onSend = { text, reply ->
+            inboxState.send(threadId, text, reply?.toReplySnapshot())
+        },
         onBack = onBack,
         onSendMedia = { uri -> inboxState.sendMedia(threadId, uri) },
         onSendVoice = { recording -> inboxState.sendVoiceNote(threadId, recording) },

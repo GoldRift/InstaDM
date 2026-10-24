@@ -25,6 +25,12 @@ const val MAX_MESSAGE_LENGTH = 1000
 
 fun ChatMessage.canReact(): Boolean = isServerMessage()
 
+/**
+ * Admin notices such as "Liked a message" or "Reacted ❤️ to your message" are
+ * activity entries, not messages Instagram lets the viewer quote.
+ */
+fun ChatMessage.canReply(): Boolean = isServerMessage() && kind != "admin"
+
 fun ChatMessage.canUnsend(): Boolean = sender == MessageSender.Me && isServerMessage()
 
 fun ChatMessage.canEdit(nowMs: Long = System.currentTimeMillis()): Boolean =

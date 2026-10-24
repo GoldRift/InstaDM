@@ -1,7 +1,9 @@
 package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.db.AttachmentEntity
+import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
@@ -83,7 +85,30 @@ fun MessageWithMedia.toChatMessage(): ChatMessage = ChatMessage(
             isFromViewer = it.isFromViewer,
         )
     },
+    reply = message.replySnapshot(),
     offlineThreadingId = message.otid,
+)
+
+private fun MessageEntity.replySnapshot(): ReplySnapshot? {
+    if (replyToId.isBlank() && replyToText.isBlank()) return null
+    return ReplySnapshot(
+        id = replyToId,
+        text = replyToText,
+        senderName = replyToSender,
+        isFromViewer = replyToIsFromViewer,
+        kind = replyToKind,
+        mediaCount = replyToMediaCount,
+    )
+}
+
+/** Snapshots a loaded message so the composer and outbox can quote it. */
+fun ChatMessage.toReplySnapshot(): ReplySnapshot = ReplySnapshot(
+    id = id,
+    text = text,
+    senderName = senderName,
+    isFromViewer = sender == MessageSender.Me,
+    kind = kind,
+    mediaCount = media.size,
 )
 
 private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(

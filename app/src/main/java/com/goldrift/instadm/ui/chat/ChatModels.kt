@@ -1,6 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.ReplySnapshot
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -70,6 +71,8 @@ data class ChatMessage(
     val senderName: String = "",
     val media: List<MessageMedia> = emptyList(),
     val reactions: List<MessageReaction> = emptyList(),
+    /** Quoted message when this message is a reply. */
+    val reply: ReplySnapshot? = null,
     /** Local preview for media that has not reached the server yet. */
     val localMedia: PendingMedia? = null,
     /** Offline threading ID used to match the realtime echo of a send. */
@@ -101,6 +104,7 @@ data class PendingMedia(
 fun ChatMessage.isServerMessage(): Boolean =
     !pending &&
         id.isNotBlank() &&
+        !id.startsWith("local:") &&
         !id.startsWith("local-") &&
         !id.startsWith("message-")
 

@@ -295,6 +295,109 @@ class ChatStoreTest {
     }
 
     @Test
+    fun pageRefreshKeepsReplySnapshotFromAPendingSend() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        val localId = "local:reply"
+        db.messages().upsertMessage(
+            MessageEntity(
+                id = localId,
+                localId = localId,
+                threadId = "thread-1",
+                timestampMs = 1_700_000_004_000,
+                kind = "text",
+                text = "reply text",
+                replyToId = "message-1",
+                replyToText = "hello",
+                replyToSender = "Test Participant",
+                replyToKind = "text",
+                otid = "otid-4",
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+            ),
+        )
+
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-9",
+                      "sender_fbid": 111,
+                      "timestamp_ms": 1700000004000,
+                      "kind": "text",
+                      "text": "reply text",
+                      "is_from_viewer": true,
+                      "offline_threading_id": "otid-4"
+                    }
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val message = store.observeThread("thread-1").first().single().message
+        assertEquals("message-9", message.id)
+        assertEquals("message-1", message.replyToId)
+        assertEquals("hello", message.replyToText)
+        assertEquals("Test Participant", message.replyToSender)
+    }
+
+    @Test
+    fun textCompletionAfterTheEchoKeepsTheReplySnapshot() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        val localId = "local:reply"
+        db.messages().upsertMessage(
+            MessageEntity(
+                id = localId,
+                localId = localId,
+                threadId = "thread-1",
+                timestampMs = 1_700_000_004_000,
+                kind = "text",
+                text = "reply text",
+                replyToId = "message-1",
+                replyToText = "hello",
+                replyToSender = "Test Participant",
+                replyToKind = "text",
+                otid = "otid-4",
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+            ),
+        )
+
+        // The realtime echo lands before the HTTP response and omits the quote.
+        store.ingestRealtimeMessage(
+            "thread-1",
+            RealtimeMessage(
+                id = "message-9",
+                offlineThreadingId = "otid-4",
+                text = "reply text",
+                senderName = "Me",
+                senderFbid = 111,
+                isFromViewer = true,
+                timestampMs = 1_700_000_004_000,
+                kind = "text",
+            ),
+        )
+
+        store.completeOutgoingText(
+            localMessageId = localId,
+            threadId = "thread-1",
+            result = JSONObject(
+                """{ "message_id": "message-9", "offline_threading_id": "otid-4", "timestamp_ms": 1700000004000 }""",
+            ),
+            fallbackText = "reply text",
+        )
+
+        val message = store.observeThread("thread-1").first().single().message
+        assertEquals("message-9", message.id)
+        assertEquals("message-1", message.replyToId)
+        assertEquals("hello", message.replyToText)
+        assertEquals("Test Participant", message.replyToSender)
+    }
+
+    @Test
     fun sentTextIsStoredImmediately() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))
 

@@ -208,9 +208,15 @@ class ChatStore(
                 messageDao.delete(duplicate.id)
             }
 
+            // The echo of an optimistic reply may omit the quoted snapshot, so
+            // fall back to the pending row that was just matched by OTID.
+            val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
+            val replyToId = message.replyToId.ifBlank { previous?.replyToId.orEmpty() }
+            val storedReply = previous?.takeIf { it.replyToId == replyToId }
+            val reply = message.reply
             val entity = MessageEntity(
                 id = message.id,
-                localId = existing?.localId,
+                localId = previous?.localId,
                 threadId = threadId,
                 senderFbid = message.senderFbid,
                 senderName = message.senderName,
@@ -219,10 +225,18 @@ class ChatStore(
                     if (message.media.isEmpty()) "text" else "media"
                 },
                 text = message.text,
+                replyToId = replyToId,
+                replyToText = reply?.text ?: storedReply?.replyToText.orEmpty(),
+                replyToSender = reply?.senderName ?: storedReply?.replyToSender.orEmpty(),
+                replyToIsFromViewer = reply?.isFromViewer
+                    ?: storedReply?.replyToIsFromViewer
+                    ?: false,
+                replyToKind = reply?.kind ?: storedReply?.replyToKind.orEmpty(),
+                replyToMediaCount = reply?.mediaCount ?: storedReply?.replyToMediaCount ?: 0,
                 otid = message.offlineThreadingId,
                 isFromViewer = message.isFromViewer,
                 status = MessageStatus.SENT,
-                seen = existing?.seen ?: false,
+                seen = previous?.seen ?: false,
                 mediaCount = message.media.size,
             )
             messageDao.upsertMessage(entity)
@@ -314,7 +328,18 @@ class ChatStore(
                 messageDao.setStatus(localMessageId, MessageStatus.SENT)
                 return@withTransaction
             }
-            messageDao.delete(localMessageId)
+            // A realtime echo can land before the HTTP response and replace the
+            // pending row with the server one. Reuse whichever row still holds
+            // the reply snapshot so the quote never drops out of the bubble.
+            val pending = messageDao.message(localMessageId)
+            val previous = pending
+                ?: messageDao.message(messageId)
+                ?: result.optString("offline_threading_id").trim()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { messageDao.byOtid(it) }
+            if (previous != null && previous.id != messageId) {
+                messageDao.delete(previous.id)
+            }
             messageDao.upsertMessage(
                 MessageEntity(
                     id = messageId,
@@ -322,6 +347,12 @@ class ChatStore(
                     timestampMs = timestamp,
                     kind = "text",
                     text = text,
+                    replyToId = previous?.replyToId.orEmpty(),
+                    replyToText = previous?.replyToText.orEmpty(),
+                    replyToSender = previous?.replyToSender.orEmpty(),
+                    replyToIsFromViewer = previous?.replyToIsFromViewer ?: false,
+                    replyToKind = previous?.replyToKind.orEmpty(),
+                    replyToMediaCount = previous?.replyToMediaCount ?: 0,
                     otid = result.optString("offline_threading_id"),
                     isFromViewer = true,
                     status = MessageStatus.SENT,
@@ -522,14 +553,16 @@ class ChatStore(
             if (existing?.status == MessageStatus.DELETED) continue
 
             // A realtime echo or a page can supersede an optimistic row that
-            // has not been reconciled yet (same OTID, different ID).
+            // has not been reconciled yet (same OTID, different ID). Keep that
+            // row's reply snapshot as the fallback before deleting it.
             val otid = message.optString("offline_threading_id").trim()
-            if (otid.isNotEmpty()) {
-                val duplicate = messageDao.byOtid(otid)
-                if (duplicate != null && duplicate.id != id) messageDao.delete(duplicate.id)
-            }
+            val duplicate = otid.takeIf { it.isNotEmpty() }
+                ?.let { messageDao.byOtid(it) }
+                ?.takeIf { it.id != id }
+            val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
 
-            val entity = messageEntity(message, threadId, existing, now) ?: continue
+            val entity = messageEntity(message, threadId, previous, now) ?: continue
+            if (duplicate != null) messageDao.delete(duplicate.id)
             rows += entity
             payloads += id to message
         }
@@ -715,6 +748,22 @@ internal fun participants(json: JSONObject, threadId: String): List<ParticipantE
     return result
 }
 
+/**
+ * Fills a missing reply snapshot from a superseded row, so a page or echo that
+ * omits the nested quote cannot blank a reply that is already queued locally.
+ */
+private fun MessageEntity.withReplySnapshotFrom(fallback: MessageEntity?): MessageEntity {
+    if (fallback == null || replyToId.isNotBlank() || fallback.replyToId.isBlank()) return this
+    return copy(
+        replyToId = fallback.replyToId,
+        replyToText = fallback.replyToText,
+        replyToSender = fallback.replyToSender,
+        replyToIsFromViewer = fallback.replyToIsFromViewer,
+        replyToKind = fallback.replyToKind,
+        replyToMediaCount = fallback.replyToMediaCount,
+    )
+}
+
 internal fun messageEntity(
     json: JSONObject,
     threadId: String,
@@ -725,6 +774,13 @@ internal fun messageEntity(
     if (id.isEmpty()) return null
 
     val status = previous?.status?.takeIf { it == MessageStatus.DELETED } ?: MessageStatus.SENT
+    val quoted = json.optJSONObject("replied_to_message")
+    val replyToId = json.optString("replied_to_message_id")
+        .ifBlank { quoted?.optString("id").orEmpty() }
+        .ifBlank { previous?.replyToId.orEmpty() }
+    // A page refresh may omit the nested snapshot; keep the one already stored
+    // as long as it still describes the same quoted message.
+    val storedReply = previous?.takeIf { it.replyToId == replyToId }
     return MessageEntity(
         id = id,
         localId = previous?.localId,
@@ -734,7 +790,16 @@ internal fun messageEntity(
         timestampMs = json.optLong("timestamp_ms"),
         kind = json.optString("kind").ifBlank { "unknown" },
         text = json.optString("text"),
-        replyToId = json.optString("replied_to_message_id"),
+        replyToId = replyToId,
+        replyToText = quoted?.optString("text") ?: storedReply?.replyToText.orEmpty(),
+        replyToSender = quoted?.optString("sender_name") ?: storedReply?.replyToSender.orEmpty(),
+        replyToIsFromViewer = quoted?.optBoolean("is_from_viewer")
+            ?: storedReply?.replyToIsFromViewer
+            ?: false,
+        replyToKind = quoted?.optString("kind") ?: storedReply?.replyToKind.orEmpty(),
+        replyToMediaCount = quoted?.optInt("media_count")
+            ?: storedReply?.replyToMediaCount
+            ?: 0,
         otid = json.optString("offline_threading_id"),
         isFromViewer = json.optBoolean("is_from_viewer"),
         status = status,

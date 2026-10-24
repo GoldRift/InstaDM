@@ -321,6 +321,19 @@ type MediaView struct {
 	Waveform           []float64 `json:"waveform,omitempty"`
 }
 
+// ReplyView is the quoted snapshot Instagram embeds in a reply. Keeping the
+// snapshot lets the app render the quote even when the original message is
+// outside the loaded page.
+type ReplyView struct {
+	ID           string `json:"id"`
+	SenderFBID   int64  `json:"sender_fbid"`
+	SenderName   string `json:"sender_name,omitempty"`
+	IsFromViewer bool   `json:"is_from_viewer"`
+	Kind         string `json:"kind"`
+	Text         string `json:"text,omitempty"`
+	MediaCount   int    `json:"media_count,omitempty"`
+}
+
 type MessageView struct {
 	ID                 string         `json:"id"`
 	OfflineThreadingID string         `json:"offline_threading_id,omitempty"`
@@ -334,6 +347,7 @@ type MessageView struct {
 	MediaCount         int            `json:"media_count,omitempty"`
 	Media              []MediaView    `json:"media,omitempty"`
 	RepliedToMessageID string         `json:"replied_to_message_id,omitempty"`
+	RepliedToMessage   *ReplyView     `json:"replied_to_message,omitempty"`
 	Reactions          []ReactionView `json:"reactions,omitempty"`
 	// Seen is true when another participant's read watermark has reached this
 	// message. It is only meaningful for messages sent by the viewer.
@@ -438,9 +452,10 @@ func normalizeMessagePage(page *slidetypes.SlideMessages, ownFBID int64, partici
 	return messages, hasMoreOlder, oldestCursor
 }
 
-func newMessageView(message *slidetypes.Message, ownFBID int64, participants map[int64]string) MessageView {
-	kind, text, mediaCount := describeMessageContent(message)
-
+// messageSender resolves the sender FBID and display name Instagram attached
+// to a message. Replies embed an abbreviated copy of the original message, so
+// both paths share this lookup.
+func messageSender(message *slidetypes.Message, participants map[int64]string) (int64, string) {
 	senderFBID := message.SenderFBID
 	senderName := ""
 	if message.Sender != nil {
@@ -455,6 +470,37 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 	if senderName == "" {
 		senderName = participants[senderFBID]
 	}
+	return senderFBID, senderName
+}
+
+// newReplyView normalizes the quoted message embedded in a reply.
+func newReplyView(message *slidetypes.Message, ownFBID int64, participants map[int64]string) *ReplyView {
+	if message == nil {
+		return nil
+	}
+	id := message.MessageID
+	if id == "" {
+		id = message.ID
+	}
+	if id == "" {
+		return nil
+	}
+	kind, text, mediaCount := describeMessageContent(message)
+	senderFBID, senderName := messageSender(message, participants)
+	return &ReplyView{
+		ID:           id,
+		SenderFBID:   senderFBID,
+		SenderName:   senderName,
+		IsFromViewer: ownFBID != 0 && senderFBID == ownFBID,
+		Kind:         kind,
+		Text:         text,
+		MediaCount:   mediaCount,
+	}
+}
+
+func newMessageView(message *slidetypes.Message, ownFBID int64, participants map[int64]string) MessageView {
+	kind, text, mediaCount := describeMessageContent(message)
+	senderFBID, senderName := messageSender(message, participants)
 
 	var timestampMS int64
 	if !message.TimestampMS.IsZero() {
@@ -469,6 +515,12 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 	contentType := message.Content.TypeName
 	if contentType == "" {
 		contentType = message.Typename
+	}
+
+	reply := newReplyView(message.RepliedToMessage, ownFBID, participants)
+	repliedToID := message.RepliedToMessageID
+	if repliedToID == "" && reply != nil {
+		repliedToID = reply.ID
 	}
 
 	reactions := make([]ReactionView, 0, len(message.Reactions))
@@ -500,7 +552,8 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		Text:               text,
 		MediaCount:         mediaCount,
 		Media:              messageMedia(message),
-		RepliedToMessageID: message.RepliedToMessageID,
+		RepliedToMessageID: repliedToID,
+		RepliedToMessage:   reply,
 		Reactions:          reactions,
 	}
 }

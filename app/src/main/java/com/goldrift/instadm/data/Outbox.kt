@@ -104,7 +104,11 @@ class Outbox(
     }
 
     /** Queues a text message and returns the local message ID. */
-    suspend fun enqueueText(threadId: String, text: String, replyTo: String = ""): String {
+    suspend fun enqueueText(
+        threadId: String,
+        text: String,
+        reply: ReplySnapshot? = null,
+    ): String {
         val now = clock()
         val localId = "local:${UUID.randomUUID()}"
         val otid = OfflineThreadingIds.next()
@@ -117,7 +121,12 @@ class Outbox(
                     timestampMs = now,
                     kind = "text",
                     text = text,
-                    replyToId = replyTo,
+                    replyToId = reply?.id.orEmpty(),
+                    replyToText = reply?.text.orEmpty(),
+                    replyToSender = reply?.senderName.orEmpty(),
+                    replyToIsFromViewer = reply?.isFromViewer ?: false,
+                    replyToKind = reply?.kind.orEmpty(),
+                    replyToMediaCount = reply?.mediaCount ?: 0,
                     otid = otid,
                     isFromViewer = true,
                     status = MessageStatus.PENDING,
@@ -129,7 +138,7 @@ class Outbox(
                     kind = "text",
                     payloadJson = JSONObject()
                         .put("text", text)
-                        .put("reply_to", replyTo)
+                        .put("reply_to", reply?.id.orEmpty())
                         .toString(),
                     localMessageId = localId,
                     otid = otid,

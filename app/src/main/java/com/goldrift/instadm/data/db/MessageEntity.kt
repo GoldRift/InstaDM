@@ -47,6 +47,12 @@ data class MessageEntity(
     val kind: String = "unknown",
     val text: String = "",
     @ColumnInfo(name = "reply_to_id") val replyToId: String = "",
+    /** Snapshot of the quoted message, so a reply renders without its parent. */
+    @ColumnInfo(name = "reply_to_text") val replyToText: String = "",
+    @ColumnInfo(name = "reply_to_sender") val replyToSender: String = "",
+    @ColumnInfo(name = "reply_to_is_from_viewer") val replyToIsFromViewer: Boolean = false,
+    @ColumnInfo(name = "reply_to_kind") val replyToKind: String = "",
+    @ColumnInfo(name = "reply_to_media_count") val replyToMediaCount: Int = 0,
     val otid: String = "",
     @ColumnInfo(name = "is_from_viewer") val isFromViewer: Boolean = false,
     val status: String = MessageStatus.SENT,

@@ -32,6 +32,17 @@ data class RealtimeEvent(
                     timestampMs = payload.optLong("timestamp_ms"),
                     kind = payload.optString("kind"),
                     media = parseMedia(payload.optJSONArray("media")),
+                    replyToId = payload.optString("replied_to_message_id"),
+                    reply = payload.optJSONObject("replied_to_message")?.let { quoted ->
+                        RealtimeReply(
+                            id = quoted.optString("id"),
+                            text = quoted.optString("text"),
+                            senderName = quoted.optString("sender_name"),
+                            isFromViewer = quoted.optBoolean("is_from_viewer"),
+                            kind = quoted.optString("kind"),
+                            mediaCount = quoted.optInt("media_count"),
+                        )
+                    },
                 )
             }
 
@@ -61,6 +72,18 @@ data class RealtimeMessage(
     val timestampMs: Long,
     val kind: String,
     val media: List<MessageMedia> = emptyList(),
+    val replyToId: String = "",
+    val reply: RealtimeReply? = null,
+)
+
+/** The quoted snapshot Instagram embeds in a reply event. */
+data class RealtimeReply(
+    val id: String,
+    val text: String = "",
+    val senderName: String = "",
+    val isFromViewer: Boolean = false,
+    val kind: String = "",
+    val mediaCount: Int = 0,
 )
 
 enum class RealtimeStatus { Stopped, Connecting, Connected, Reconnecting, NoSession, Error }

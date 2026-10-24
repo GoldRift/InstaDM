@@ -18,14 +18,19 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +44,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,10 +61,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
@@ -86,6 +94,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -95,6 +104,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -135,6 +147,7 @@ import com.goldrift.instadm.R
 import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.RecordedVoice
+import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.VoiceRecorder
 import com.goldrift.instadm.data.VoiceRecordingState
 import com.goldrift.instadm.service.AppVisibility
@@ -145,15 +158,20 @@ import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import kotlin.math.roundToInt
 
 private val BubbleShape = RoundedCornerShape(24.dp)
 
 private val ChatContentShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
+/** Horizontal drag needed to start a reply, and the distance the bubble follows. */
+private val SWIPE_REPLY_THRESHOLD = 56.dp
+private val SWIPE_REPLY_MAX = 88.dp
+
 @Composable
 fun ChatScreen(
     conversation: Conversation,
-    onSend: (String) -> Unit,
+    onSend: (String, ChatMessage?) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onSendMedia: (Uri) -> Unit = {},
@@ -177,6 +195,7 @@ fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
+    var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var editMessageId by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
@@ -187,6 +206,7 @@ fun ChatScreen(
     val voiceRecorder = remember { VoiceRecorder(context) }
     val voicePlayer = remember { VoicePlayer(context) }
     val listState = rememberLazyListState()
+    val composerFocus = remember { FocusRequester() }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         TakePictureWithWritePermission(),
@@ -196,6 +216,7 @@ fun ChatScreen(
         captureUri = null
         capturePath = null
         if (success && uri != null) {
+            replyTarget = null
             onSendMedia(uri.toUri())
         } else if (path != null) {
             runCatching { File(path).delete() }
@@ -204,7 +225,10 @@ fun ChatScreen(
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        if (uri != null) onSendMedia(uri)
+        if (uri != null) {
+            replyTarget = null
+            onSendMedia(uri)
+        }
     }
 
     fun takePhoto() {
@@ -234,6 +258,15 @@ fun ChatScreen(
     }
     val keyboard = LocalSoftwareKeyboardController.current
 
+    // Starting a reply jumps into the composer, matching the affordance of the
+    // quoted bar once the gesture settles.
+    LaunchedEffect(replyTarget?.id) {
+        if (replyTarget != null) {
+            composerFocus.requestFocus()
+            keyboard?.show()
+        }
+    }
+
     fun hasMicPermission(): Boolean = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.RECORD_AUDIO,
@@ -246,6 +279,9 @@ fun ChatScreen(
         }
         keyboard?.hide()
         voicePlayer.pause()
+        // Voice notes send without reply metadata, so drop a pending quote
+        // rather than implying the recording will carry one.
+        replyTarget = null
         recordingLocked = false
         recordingCancel = false
         voiceRecorder.start()
@@ -256,6 +292,7 @@ fun ChatScreen(
         recordingLocked = false
         recordingCancel = false
         if (recorded != null) {
+            replyTarget = null
             onSendVoice(recorded)
         } else if (voiceRecorder.errorMessage == null) {
             Toast.makeText(context, R.string.chat_recording_too_short, Toast.LENGTH_SHORT).show()
@@ -297,13 +334,21 @@ fun ChatScreen(
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
+    val replyLabel = replyTarget?.let { message ->
+        when {
+            message.sender == MessageSender.Me -> stringResource(R.string.chat_you)
+            message.senderName.isNotBlank() -> message.senderName
+            else -> conversation.contact.name
+        }
+    }.orEmpty()
 
     fun sendMessage() {
         val text = draft.trim()
         if (text.isEmpty()) return
 
-        onSend(text)
+        onSend(text, replyTarget)
         draft = ""
+        replyTarget = null
     }
 
     // Follow the newest bubble on first load, on a new message, and when typing
@@ -346,6 +391,10 @@ fun ChatScreen(
                 draft = draft,
                 onDraftChange = { draft = it },
                 onSend = ::sendMessage,
+                replyingTo = replyTarget?.toReplySnapshot(),
+                replyingToLabel = replyLabel,
+                onCancelReply = { replyTarget = null },
+                focusRequester = composerFocus,
                 onCamera = ::takePhoto,
                 onPickMedia = ::pickMedia,
                 recorder = voiceRecorder,
@@ -441,6 +490,7 @@ fun ChatScreen(
                                 viewerTarget = MediaViewerTarget(messageId, media)
                             },
                             onLongPress = { actionMessageId = it.id },
+                            onReply = { replyTarget = it },
                             actionMessageId = actionMessageId,
                             onDismissActions = { actionMessageId = null },
                             onReactAt = { messageId, emoji ->
@@ -451,6 +501,12 @@ fun ChatScreen(
                                 actionMessageId = null
                                 messages.firstOrNull { it.id == messageId }?.let {
                                     copyToClipboard(context, it.text)
+                                }
+                            },
+                            onReplyAt = { messageId ->
+                                actionMessageId = null
+                                messages.firstOrNull { it.id == messageId }?.let {
+                                    replyTarget = it
                                 }
                             },
                             onMoreEmojiAt = { messageId ->
@@ -580,10 +636,12 @@ private fun MessageList(
     onRetryOlder: () -> Unit,
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     onLongPress: (ChatMessage) -> Unit,
+    onReply: (ChatMessage) -> Unit,
     actionMessageId: String?,
     onDismissActions: () -> Unit,
     onReactAt: (messageId: String, emoji: String) -> Unit,
     onCopyAt: (messageId: String) -> Unit,
+    onReplyAt: (messageId: String) -> Unit,
     onMoreEmojiAt: (messageId: String) -> Unit,
     onEditAt: (messageId: String) -> Unit,
     onUnsendAt: (messageId: String) -> Unit,
@@ -593,6 +651,7 @@ private fun MessageList(
     modifier: Modifier = Modifier,
 ) {
     val reversed = messages.asReversed()
+    val messagesById = remember(messages) { messages.associateBy { it.id } }
     val visibleMessageIds by remember(listState) {
         derivedStateOf {
             listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { it.key as? String }
@@ -672,6 +731,12 @@ private fun MessageList(
                         previous.timestampMs <= 0 ||
                         calendarDaysBetween(previous.timestampMs, message.timestampMs) > 0
                     )
+            // Prefer the loaded original (it has the full text) and fall back to
+            // the snapshot Instagram embeds when it is outside the page.
+            val reply = message.reply?.let { stored ->
+                messagesById[stored.id]?.toReplySnapshot() ?: stored
+            }
+            val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
 
             Column(modifier = Modifier.animateItem()) {
                 if (showDayHeader) {
@@ -686,10 +751,14 @@ private fun MessageList(
                     isVisible = message.id in visibleMessageIds,
                     onOpenMedia = { media -> onOpenMedia(message.id, media) },
                     onLongPress = { if (message.isServerMessage()) onLongPress(message) },
+                    reply = reply,
+                    replyLabel = replyLabel,
+                    onReply = { onReply(message) },
                     actionsExpanded = actionMessageId == message.id,
                     onDismissActions = onDismissActions,
                     onReact = { emoji -> onReactAt(message.id, emoji) },
                     onCopy = { onCopyAt(message.id) },
+                    onReplyAt = { onReplyAt(message.id) },
                     onMoreEmoji = { onMoreEmojiAt(message.id) },
                     onEdit = { onEditAt(message.id) },
                     onUnsend = { onUnsendAt(message.id) },
@@ -722,10 +791,14 @@ private fun MessageRow(
     isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
+    reply: ReplySnapshot?,
+    replyLabel: String,
+    onReply: () -> Unit,
     actionsExpanded: Boolean,
     onDismissActions: () -> Unit,
     onReact: (String) -> Unit,
     onCopy: () -> Unit,
+    onReplyAt: () -> Unit,
     onMoreEmoji: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
@@ -736,6 +809,26 @@ private fun MessageRow(
 ) {
     val isMine = message.sender == MessageSender.Me
     val bubbles = LocalMessageBubbleColors.current
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val canReply = message.canReply()
+    val replyThreshold = with(density) { SWIPE_REPLY_THRESHOLD.toPx() }
+    val maxDrag = with(density) { SWIPE_REPLY_MAX.toPx() }
+    var dragOffset by remember(message.id) { mutableFloatStateOf(0f) }
+    var dragging by remember(message.id) { mutableStateOf(false) }
+    var replyArmed by remember(message.id) { mutableStateOf(false) }
+    // Snap while the finger is down, then spring back the moment the gesture
+    // ends or is cancelled. The offset is plain state so no queued animation
+    // can race the release and leave a bubble parked mid-swipe.
+    val settledOffset by animateFloatAsState(
+        targetValue = if (dragging) dragOffset else 0f,
+        animationSpec = if (dragging) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow)
+        },
+        label = "replySwipeOffset",
+    )
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -758,8 +851,53 @@ private fun MessageRow(
         ) {
             val actionsLabel = stringResource(R.string.chat_message_actions)
             Box {
+                val dragProgress =
+                    (settledOffset / replyThreshold).coerceIn(0f, 1f)
+                SwipeReplyIcon(
+                    progress = dragProgress,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .then(if (isMine) Modifier.offset(x = (-36).dp) else Modifier),
+                )
                 Surface(
                     modifier = Modifier
+                        .offset { IntOffset(settledOffset.roundToInt(), 0) }
+                        .pointerInput(message.id, canReply) {
+                            if (!canReply) return@pointerInput
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    dragging = true
+                                    replyArmed = false
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val next = (dragOffset + dragAmount)
+                                        .coerceIn(0f, maxDrag)
+                                    dragOffset = next
+                                    val armed = next >= replyThreshold
+                                    if (armed != replyArmed) {
+                                        replyArmed = armed
+                                        if (armed) {
+                                            haptic.performHapticFeedback(
+                                                HapticFeedbackType.LongPress,
+                                            )
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    val shouldReply = dragOffset >= replyThreshold
+                                    dragging = false
+                                    dragOffset = 0f
+                                    replyArmed = false
+                                    if (shouldReply) onReply()
+                                },
+                                onDragCancel = {
+                                    dragging = false
+                                    dragOffset = 0f
+                                    replyArmed = false
+                                },
+                            )
+                        }
                         .semantics {
                             onLongClick(label = actionsLabel) {
                                 onLongPress()
@@ -777,6 +915,8 @@ private fun MessageRow(
                         message = message,
                         threadId = threadId,
                         isVisible = isVisible,
+                        reply = reply,
+                        replyLabel = replyLabel,
                         onOpenMedia = onOpenMedia,
                         onLongPress = onLongPress,
                         onLoadMedia = onLoadMedia,
@@ -791,6 +931,7 @@ private fun MessageRow(
                         onDismiss = onDismissActions,
                         onReact = onReact,
                         onCopy = onCopy,
+                        onReply = onReplyAt,
                         onMoreEmoji = onMoreEmoji,
                         onEdit = onEdit,
                         onUnsend = onUnsend,
@@ -853,11 +994,100 @@ private fun MessageRow(
     }
 }
 
+/** Circular reply affordance revealed while dragging a bubble to the right. */
+@Composable
+private fun SwipeReplyIcon(
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    if (progress <= 0f) return
+    val bubbles = LocalMessageBubbleColors.current
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .scale(0.8f + 0.2f * progress)
+            .alpha(progress)
+            .clip(CircleShape)
+            .background(bubbles.accent),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.Reply,
+            contentDescription = stringResource(R.string.chat_reply),
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+/** The quoted message block rendered at the top of a reply bubble. */
+@Composable
+private fun ReplyQuote(
+    reply: ReplySnapshot,
+    label: String,
+    isMine: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val bubbles = LocalMessageBubbleColors.current
+    val quoteColor = if (isMine) bubbles.outgoingQuote else bubbles.incomingQuote
+    val contentColor = if (isMine) bubbles.onOutgoingQuote else bubbles.onIncomingQuote
+    Column(
+        modifier = modifier
+            .widthIn(min = 180.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(quoteColor)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = replyContent(reply),
+            style = MaterialTheme.typography.bodyMedium,
+            color = contentColor.copy(alpha = 0.78f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Display name for the quoted message's sender. */
+@Composable
+private fun replySenderLabel(reply: ReplySnapshot, contact: Contact): String = when {
+    reply.isFromViewer -> stringResource(R.string.chat_you)
+    reply.senderName.isNotBlank() -> reply.senderName
+    contact.name.isNotBlank() -> contact.name
+    else -> stringResource(R.string.chat_someone)
+}
+
+/** A human-readable line for a quoted message that has no text. */
+@Composable
+private fun replyContent(reply: ReplySnapshot): String {
+    if (reply.text.isNotBlank()) return reply.text
+    return when (reply.kind) {
+        "image" -> stringResource(R.string.chat_reply_photo)
+        "video" -> stringResource(R.string.chat_reply_video)
+        "audio" -> stringResource(R.string.chat_reply_voice)
+        "sticker" -> stringResource(R.string.chat_reply_sticker)
+        "gif" -> stringResource(R.string.chat_reply_gif)
+        "link" -> stringResource(R.string.chat_reply_link)
+        else -> stringResource(R.string.chat_reply_attachment)
+    }
+}
+
 @Composable
 private fun MessageBubbleContent(
     message: ChatMessage,
     threadId: String,
     isVisible: Boolean,
+    reply: ReplySnapshot?,
+    replyLabel: String,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
     onLoadMedia: MediaLoader?,
@@ -873,6 +1103,19 @@ private fun MessageBubbleContent(
             vertical = if (hasAttachment) 4.dp else 9.dp,
         ),
     ) {
+        if (reply != null) {
+            ReplyQuote(
+                reply = reply,
+                label = replyLabel,
+                isMine = message.sender == MessageSender.Me,
+                modifier = Modifier.padding(
+                    start = if (hasAttachment) 6.dp else 0.dp,
+                    end = if (hasAttachment) 6.dp else 0.dp,
+                    bottom = 6.dp,
+                ),
+            )
+        }
+
         media.forEachIndexed { index, item ->
             if (index > 0) Spacer(Modifier.height(4.dp))
             MediaThumbnail(
@@ -968,6 +1211,7 @@ private fun MessageActionsPopup(
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onCopy: () -> Unit,
+    onReply: () -> Unit,
     onMoreEmoji: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
@@ -1016,6 +1260,7 @@ private fun MessageActionsPopup(
             MessageMenu(
                 message = message,
                 onCopy = onCopy,
+                onReply = onReply,
                 onEdit = onEdit,
                 onUnsend = onUnsend,
             )
@@ -1069,13 +1314,15 @@ private fun ReactionBar(
 private fun MessageMenu(
     message: ChatMessage,
     onCopy: () -> Unit,
+    onReply: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
 ) {
+    val showReply = message.canReply()
     val showCopy = message.text.isNotBlank()
     val showEdit = message.canEdit()
     val showUnsend = message.canUnsend()
-    if (!showCopy && !showEdit && !showUnsend) return
+    if (!showReply && !showCopy && !showEdit && !showUnsend) return
 
     Surface(
         shape = MaterialTheme.shapes.large,
@@ -1084,6 +1331,13 @@ private fun MessageMenu(
         modifier = Modifier.widthIn(min = 210.dp, max = 280.dp),
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            if (showReply) {
+                MessageActionRow(
+                    icon = Icons.AutoMirrored.Rounded.Reply,
+                    label = R.string.chat_action_reply,
+                    onClick = onReply,
+                )
+            }
             if (showCopy) {
                 MessageActionRow(
                     icon = Icons.Rounded.ContentCopy,
@@ -1377,6 +1631,10 @@ private fun MessageComposer(
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    replyingTo: ReplySnapshot?,
+    replyingToLabel: String,
+    onCancelReply: () -> Unit,
+    focusRequester: FocusRequester,
     onCamera: () -> Unit,
     onPickMedia: () -> Unit,
     recorder: VoiceRecorder,
@@ -1404,141 +1662,209 @@ private fun MessageComposer(
                 onSend = onRecordingSend,
             )
         } else {
-            Row(
+            Column(
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .imePadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
+                    .imePadding(),
             ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.largeIncreased,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                if (replyingTo != null) {
+                    ReplyComposerBar(
+                        reply = replyingTo,
+                        label = replyingToLabel,
+                        onCancel = onCancelReply,
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .heightIn(min = 52.dp)
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.largeIncreased,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ) {
-                        if (showActions) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .alpha(if (recording) 0f else 1f)
-                                    .clickable(
-                                        enabled = !recording,
-                                        role = Role.Button,
-                                        onClick = onCamera,
+                        Row(
+                            modifier = Modifier
+                                .heightIn(min = 52.dp)
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (showActions) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .alpha(if (recording) 0f else 1f)
+                                        .clickable(
+                                            enabled = !recording,
+                                            role = Role.Button,
+                                            onClick = onCamera,
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.PhotoCamera,
+                                        contentDescription = stringResource(
+                                            R.string.chat_attach_camera,
+                                        ),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
+
+                            if (recording) {
+                                RecordingStatus(
+                                    recorder = recorder,
+                                    cancelCandidate = cancelCandidate,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 12.dp, end = 8.dp),
+                                )
+                            } else {
+                                BasicTextField(
+                                    value = draft,
+                                    onValueChange = onDraftChange,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(focusRequester)
+                                        .padding(
+                                            start = if (showActions) 0.dp else 12.dp,
+                                            end = 8.dp,
+                                        ),
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
                                     ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.PhotoCamera,
-                                    contentDescription = stringResource(R.string.chat_attach_camera),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(24.dp),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    maxLines = 4,
+                                    decorationBox = { innerTextField ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (draft.isEmpty()) {
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.chat_message_hint,
+                                                    ),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme
+                                                        .onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    },
                                 )
                             }
-                            Spacer(Modifier.width(6.dp))
-                        }
 
-                        if (recording) {
-                            RecordingStatus(
-                                recorder = recorder,
-                                cancelCandidate = cancelCandidate,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 12.dp, end = 8.dp),
-                            )
-                        } else {
-                            BasicTextField(
-                                value = draft,
-                                onValueChange = onDraftChange,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(
-                                        start = if (showActions) 0.dp else 12.dp,
-                                        end = 8.dp,
-                                    ),
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                maxLines = 4,
-                                decorationBox = { innerTextField ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (draft.isEmpty()) {
-                                            Text(
-                                                text = stringResource(R.string.chat_message_hint),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                },
-                            )
-                        }
-
-                        if (showActions) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .alpha(if (recording) 0f else 1f)
-                                    .clickable(
-                                        enabled = !recording,
-                                        role = Role.Button,
-                                        onClick = onPickMedia,
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Image,
-                                    contentDescription = stringResource(R.string.chat_attach_gallery),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(24.dp),
-                                )
+                            if (showActions) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .alpha(if (recording) 0f else 1f)
+                                        .clickable(
+                                            enabled = !recording,
+                                            role = Role.Button,
+                                            onClick = onPickMedia,
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Image,
+                                        contentDescription = stringResource(
+                                            R.string.chat_attach_gallery,
+                                        ),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                Spacer(Modifier.width(8.dp))
-                if (showActions) {
-                    MicButton(
-                        recording = recording,
-                        onStart = onMicStart,
-                        onToggle = { if (recording) onRecordingSend() else onMicStart() },
-                        onMove = onMicMove,
-                        onRelease = onMicRelease,
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clickable(role = Role.Button, onClick = onSend),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                    Spacer(Modifier.width(8.dp))
+                    if (showActions) {
+                        MicButton(
+                            recording = recording,
+                            onStart = onMicStart,
+                            onToggle = { if (recording) onRecordingSend() else onMicStart() },
+                            onMove = onMicMove,
+                            onRelease = onMicRelease,
+                        )
+                    } else {
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
-                                .clip(CircleShape)
-                                .background(bubbles.composerAccent),
+                                .clickable(role = Role.Button, onClick = onSend),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = stringResource(R.string.chat_send),
-                                tint = bubbles.onComposerAccent,
-                                modifier = Modifier.size(20.dp),
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(bubbles.composerAccent),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = stringResource(R.string.chat_send),
+                                    tint = bubbles.onComposerAccent,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Compact quote above the composer, with a cancel action. */
+@Composable
+private fun ReplyComposerBar(
+    reply: ReplySnapshot,
+    label: String,
+    onCancel: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 8.dp, top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(34.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = replyContent(reply),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onCancel) {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.chat_reply_cancel),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -1781,7 +2107,7 @@ private fun ChatScreenLightPreview() {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = false,
-            onSend = {},
+            onSend = { _, _ -> },
             onBack = {},
         )
     }
@@ -1800,7 +2126,7 @@ private fun ChatScreenDarkPreview() {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = true,
-            onSend = {},
+            onSend = { _, _ -> },
             onBack = {},
         )
     }

@@ -92,6 +92,10 @@ older versions fall back to a Google-blue scheme generated from a single seed. A
 sit on the `surfaceContainer` tone above the page. TalkBack
 users get a real record button (tap to start, tap to send) instead of the hold gesture,
 long-press actions on every message bubble, and an adjustable waveform for voice notes.
+Swipe a bubble to the right (or pick Reply from its long-press menu) to quote it above
+the composer; the sent reply shows the quoted sender and snippet inside the bubble, using
+the snapshot Instagram embeds so it still renders after the original scrolls out of the
+loaded page.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
 immediately. Image, GIF, sticker, and video attachments render inline, and GIFs

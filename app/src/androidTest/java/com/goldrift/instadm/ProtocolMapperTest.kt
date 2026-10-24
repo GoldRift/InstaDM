@@ -101,6 +101,34 @@ class ProtocolMapperTest {
     }
 
     @Test
+    fun mapsTheQuotedSnapshotOfAReply() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.3",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_002_000,
+                kind = "text",
+                text = "good luck bro",
+                replyToId = "mid.1",
+                replyToText = "the original",
+                replyToSender = "Jacob",
+                replyToIsFromViewer = false,
+                replyToKind = "text",
+            ),
+            attachments = emptyList(),
+            reactions = emptyList(),
+        )
+
+        val reply = message.toChatMessage().reply
+
+        assertEquals("mid.1", reply?.id)
+        assertEquals("the original", reply?.text)
+        assertEquals("Jacob", reply?.senderName)
+        assertEquals("text", reply?.kind)
+        assertFalse(reply?.isFromViewer ?: true)
+    }
+
+    @Test
     fun mapsInboxRowPreviewAndContact() {
         val row = ThreadWithParticipants(
             thread = ThreadEntity(

@@ -332,6 +332,51 @@ func TestNewMessageViewReactions(t *testing.T) {
 	}
 }
 
+func TestNewMessageViewReplySnapshot(t *testing.T) {
+	quoted := textMessage("message-1", 222, "the original")
+	quoted.Sender = &slidetypes.MessageSender{Name: "Jacob"}
+
+	message := textMessage("message-2", 111, "my reply")
+	message.RepliedToMessageID = "message-1"
+	message.RepliedToMessage = quoted
+
+	view := newMessageView(message, 111, nil)
+	if view.RepliedToMessageID != "message-1" {
+		t.Errorf("replied_to_message_id = %q, want message-1", view.RepliedToMessageID)
+	}
+	reply := view.RepliedToMessage
+	if reply == nil {
+		t.Fatal("replied_to_message = nil, want the quoted snapshot")
+	}
+	if reply.ID != "message-1" || reply.Kind != "text" || reply.Text != "the original" {
+		t.Errorf("reply identity/content = %+v", reply)
+	}
+	if reply.SenderName != "Jacob" || reply.SenderFBID != 222 || reply.IsFromViewer {
+		t.Errorf("reply sender = %+v", reply)
+	}
+}
+
+func TestNewReplyViewViewerAndMedia(t *testing.T) {
+	quoted := textMessage("message-1", 111, "")
+	quoted.Content = slidetypes.MessageContentWrapper{
+		TypeName: "SlideMessageImageContent",
+		Content: &slidetypes.MessageContentImage{
+			Attachments: []*slidetypes.Attachment{{AttachmentFBID: "fbid-1"}},
+		},
+	}
+
+	reply := newReplyView(quoted, 111, nil)
+	if reply == nil {
+		t.Fatal("replied_to_message = nil, want the quoted snapshot")
+	}
+	if !reply.IsFromViewer || reply.Kind != "image" || reply.MediaCount != 1 || reply.Text != "" {
+		t.Errorf("reply = %+v", reply)
+	}
+	if got := newReplyView(nil, 111, nil); got != nil {
+		t.Errorf("nil message produced %+v", got)
+	}
+}
+
 func TestDescribeMessageContent(t *testing.T) {
 	tests := []struct {
 		name      string
