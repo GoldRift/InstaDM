@@ -61,7 +61,10 @@ Conversation rows and chat headers show
 profile pictures from the mailbox payload: a direct chat uses the other person's picture,
 a group uses its custom photo, and a group without one falls back to a collage of its
 members. Contacts without a picture get a colored initial avatar. Opening a thread
-refreshes the title and photo along with the newest messages.
+refreshes the title and photo along with the newest messages. Inside a group thread each
+run of incoming bubbles is attributed once: the member's picture sits beside the first
+bubble with their display name above it, and the following bubbles in that run keep the
+same indent without repeating either.
 Loaded chats and their paging cursor are stored in Room, so reopening a chat (even
 after a restart) paints its messages before the newest page finishes refreshing; a
 thread is only re-fetched when its newest page is more than 30 seconds old or the

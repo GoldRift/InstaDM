@@ -134,6 +134,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.takeOrElse
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -167,6 +168,10 @@ private val ChatContentShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.
 /** Horizontal drag needed to start a reply, and the distance the bubble follows. */
 private val SWIPE_REPLY_THRESHOLD = 56.dp
 private val SWIPE_REPLY_MAX = 88.dp
+
+/** Picture column reserved beside incoming group bubbles. */
+private val SenderAvatarSize = 28.dp
+private val SenderAvatarGap = 8.dp
 
 @Composable
 fun ChatScreen(
@@ -701,27 +706,23 @@ private fun MessageList(
         ) { reverseIndex, message ->
             val originalIndex = messages.lastIndex - reverseIndex
             val previous = messages.getOrNull(originalIndex - 1)
-            val sender = if (isGroup) {
+            val member = if (isGroup) {
                 participants.firstOrNull { it.fbid == message.senderFbid }
             } else {
                 null
             }
-            val senderInitials = sender?.initials
-                ?: message.senderName.takeIf { it.isNotBlank() }?.let(::initialsOf)
-                ?: contact.initials
-            val senderAvatarUrl = if (isGroup) {
-                sender?.avatarUrl.orEmpty()
+            // Instagram only persists the sender on the message row, so fall
+            // back to it when the participant list does not know the FBID.
+            val senderName = if (isGroup) {
+                member?.name?.takeIf { it.isNotBlank() }
+                    ?: message.senderName.takeIf { it.isNotBlank() }.orEmpty()
             } else {
-                contact.avatarUrl
+                ""
             }
-            // Direct chats show no avatars beside bubbles.
-            // Groups keep one avatar per sender cluster.
-            val showAvatar = isGroup &&
-                message.sender == MessageSender.Them &&
-                (
-                    previous?.sender != MessageSender.Them ||
-                        previous?.senderFbid != message.senderFbid
-                    )
+            val senderInitials = member?.initials?.takeIf { it.isNotBlank() }
+                ?: senderName.takeIf { it.isNotBlank() }?.let(::initialsOf)
+                .orEmpty()
+            val senderAvatarUrl = member?.avatarUrl.orEmpty()
             // The list is reversed, so the oldest message of a calendar day sits
             // at the top of that day's block. A header at the top of this item
             // therefore separates it from the previous (older) day.
@@ -731,6 +732,22 @@ private fun MessageList(
                         previous.timestampMs <= 0 ||
                         calendarDaysBetween(previous.timestampMs, message.timestampMs) > 0
                     )
+            // Direct chats show no avatars beside bubbles.
+            // Groups attribute the first bubble of each sender run with the
+            // member's picture and name, like Instagram's own group threads.
+            val startsSenderRun = isGroup &&
+                message.sender == MessageSender.Them &&
+                (
+                    showDayHeader ||
+                        previous?.sender != MessageSender.Them ||
+                        previous.senderFbid != message.senderFbid
+                    )
+            // A run without any resolved identity still keeps the gutter so
+            // every incoming bubble lines up with the ones around it.
+            val senderKnown = senderName.isNotBlank() || senderAvatarUrl.isNotBlank()
+            val showAvatar = startsSenderRun && senderKnown
+            val showSenderName = startsSenderRun && senderName.isNotBlank()
+            val reserveAvatarGutter = isGroup && message.sender == MessageSender.Them
             // Prefer the loaded original (it has the full text) and fall back to
             // the snapshot Instagram embeds when it is outside the page.
             val reply = message.reply?.let { stored ->
@@ -744,9 +761,13 @@ private fun MessageList(
                 }
                 MessageRow(
                     message = message,
+                    senderName = senderName,
+                    showSenderName = showSenderName,
                     senderInitials = senderInitials,
                     senderAvatarUrl = senderAvatarUrl,
+                    senderColorSeed = member?.fbid?.toString() ?: senderInitials,
                     showAvatar = showAvatar,
+                    reserveAvatarGutter = reserveAvatarGutter,
                     threadId = threadId,
                     isVisible = message.id in visibleMessageIds,
                     onOpenMedia = { media -> onOpenMedia(message.id, media) },
@@ -784,9 +805,13 @@ private fun MessageList(
 @Composable
 private fun MessageRow(
     message: ChatMessage,
+    senderName: String,
+    showSenderName: Boolean,
     senderInitials: String,
     senderAvatarUrl: String,
+    senderColorSeed: String,
     showAvatar: Boolean,
+    reserveAvatarGutter: Boolean,
     threadId: String,
     isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
@@ -829,26 +854,57 @@ private fun MessageRow(
         },
         label = "replySwipeOffset",
     )
+    // Center the picture on the sender name rather than its top edge: the name
+    // line is shorter than the picture, so the bubble column starts half the
+    // difference lower and the picture's midline meets the name's midline.
+    val senderNameLine = MaterialTheme.typography.labelMedium.lineHeight
+        .takeOrElse { MaterialTheme.typography.labelMedium.fontSize }
+    val senderNameInset = if (showSenderName) {
+        with(density) {
+            ((SenderAvatarSize - senderNameLine.toDp()) * 0.5f).coerceAtLeast(0.dp)
+        }
+    } else {
+        0.dp
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = if (isMine) Alignment.Bottom else Alignment.Top,
     ) {
-        if (!isMine && showAvatar) {
-            Avatar(
-                initials = senderInitials,
-                size = 28.dp,
-                imageUrl = senderAvatarUrl,
-                colorSeed = senderInitials,
-            )
-            Spacer(Modifier.width(8.dp))
+        if (reserveAvatarGutter) {
+            // The gutter stays for every bubble of a sender run, so a run's
+            // bubbles line up under the picture even though only the first
+            // one shows it.
+            Box(modifier = Modifier.size(SenderAvatarSize)) {
+                if (showAvatar) {
+                    Avatar(
+                        initials = senderInitials,
+                        size = SenderAvatarSize,
+                        imageUrl = senderAvatarUrl,
+                        colorSeed = senderColorSeed,
+                    )
+                }
+            }
+            Spacer(Modifier.width(SenderAvatarGap))
         }
 
         Column(
             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 300.dp),
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .padding(top = senderNameInset),
         ) {
+            if (showSenderName) {
+                Text(
+                    text = senderName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+                )
+            }
             val actionsLabel = stringResource(R.string.chat_message_actions)
             Box {
                 val dragProgress =
