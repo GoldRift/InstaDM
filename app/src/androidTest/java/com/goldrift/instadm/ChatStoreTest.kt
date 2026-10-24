@@ -145,6 +145,43 @@ class ChatStoreTest {
     }
 
     @Test
+    fun unreadCountsTrackIncomingMessagesAboveTheReadWatermark() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        // The thread's own receipt already covers the cached incoming message.
+        assertTrue(store.observeUnreadCounts().first().isEmpty())
+
+        store.ingestRealtimeMessage(
+            "thread-1",
+            RealtimeMessage(
+                id = "message-3",
+                text = "see you at seven",
+                senderName = "Test Participant",
+                senderFbid = 222,
+                isFromViewer = false,
+                timestampMs = 1_700_000_003_000,
+                kind = "text",
+            ),
+        )
+
+        assertEquals(1, store.observeUnreadCounts().first().single().unreadCount)
+
+        store.ingestSentText(
+            "thread-1",
+            JSONObject(
+                """{ "message_id": "message-4", "timestamp_ms": 1700000004000, "text": "hi" }""",
+            ),
+            fallbackText = "hi",
+        )
+        // The viewer's own reply does not belong in the badge.
+        assertEquals(1, store.observeUnreadCounts().first().single().unreadCount)
+
+        store.markThreadRead("thread-1", 1_700_000_003_000)
+
+        assertTrue(store.observeUnreadCounts().first().isEmpty())
+    }
+
+    @Test
     fun tombstonedMessagesStayGoneAfterReingest() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))
         store.ingestThread(JSONObject(THREAD))

@@ -35,3 +35,13 @@ fun applyReadReceiptToMessages(
  */
 fun ChatMessage.canMarkRead(): Boolean =
     sender == MessageSender.Them && isServerMessage()
+
+/**
+ * Local read watermark for a thread Instagram will not accept a viewer receipt
+ * for, such as a message request. The newest incoming message is what the user
+ * has seen, and it is only used to clear the inbox badge.
+ */
+fun requestReadWatermark(messages: List<ChatMessage>): Long =
+    messages.lastOrNull { it.sender == MessageSender.Them && it.timestampMs > 0 }
+        ?.timestampMs
+        ?: 0L

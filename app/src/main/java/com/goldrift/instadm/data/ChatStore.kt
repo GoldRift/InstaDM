@@ -10,6 +10,7 @@ import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
 import com.goldrift.instadm.data.db.ReactionEntity
 import com.goldrift.instadm.data.db.ThreadEntity
+import com.goldrift.instadm.data.db.ThreadUnreadCount
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -54,6 +55,9 @@ class ChatStore(
     private var cachedViewerFbid: Long? = null
 
     fun observeInbox(): Flow<List<ThreadWithParticipants>> = threadDao.observeInbox()
+
+    /** Unread incoming messages per thread, used by the inbox badges. */
+    fun observeUnreadCounts(): Flow<List<ThreadUnreadCount>> = threadDao.observeUnreadCounts()
 
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
         messageDao.observeThread(threadId)

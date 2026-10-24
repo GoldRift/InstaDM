@@ -52,7 +52,14 @@ data class Conversation(
     val isLoadingOlder: Boolean = false,
     /** A failed older-page fetch; automatic paging pauses until the user retries. */
     val olderError: Boolean = false,
-)
+    /** Incoming messages newer than the viewer's read watermark. */
+    val unreadCount: Int = 0,
+    /** Instagram's own mark-unread flag, shown as a dot when nothing is cached. */
+    val markedUnread: Boolean = false,
+) {
+    /** Whether the inbox row should stand out as having unseen messages. */
+    val hasUnread: Boolean get() = unreadCount > 0 || markedUnread
+}
 
 data class ChatMessage(
     val id: String,
@@ -143,6 +150,7 @@ fun sampleConversations(now: Long = System.currentTimeMillis()): List<Conversati
         ),
         lastActivityMs = now - 37 * 60_000L,
         messagesLoaded = true,
+        unreadCount = 2,
     ),
     Conversation(
         id = "sofia",
@@ -224,3 +232,6 @@ fun initialsOf(name: String): String {
     if (parts.isEmpty()) return "?"
     return parts.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "?" }
 }
+
+/** Badge text for an unread count, capped so the row keeps its width. */
+fun unreadBadgeLabel(count: Int): String = if (count > 99) "99+" else count.toString()

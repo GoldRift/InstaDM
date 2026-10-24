@@ -1,5 +1,6 @@
 package com.goldrift.instadm.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Embedded
 import androidx.room.Query
@@ -15,11 +16,39 @@ data class ThreadWithParticipants(
     val participants: List<ParticipantEntity>,
 )
 
+/**
+ * Incoming messages newer than the viewer's read watermark, per thread. Threads
+ * with nothing unread are absent from the result.
+ */
+data class ThreadUnreadCount(
+    @ColumnInfo(name = "thread_id") val threadId: String,
+    @ColumnInfo(name = "unread_count") val unreadCount: Int,
+)
+
 @Dao
 interface ThreadDao {
     @Transaction
     @Query("SELECT * FROM threads ORDER BY last_activity_ms DESC")
     fun observeInbox(): Flow<List<ThreadWithParticipants>>
+
+    /**
+     * Counts incoming messages above each thread's read watermark. The
+     * watermark only advances once the viewer's receipt is accepted, so the
+     * badge clears when the open thread is actually marked read rather than
+     * when it is merely tapped.
+     */
+    @Query(
+        """
+        SELECT m.thread_id AS thread_id, COUNT(*) AS unread_count
+        FROM messages AS m
+        INNER JOIN threads AS t ON t.id = m.thread_id
+        WHERE m.is_from_viewer = 0
+          AND m.status != 'deleted'
+          AND m.timestamp_ms > t.read_watermark_ms
+        GROUP BY m.thread_id
+        """,
+    )
+    fun observeUnreadCounts(): Flow<List<ThreadUnreadCount>>
 
     @Transaction
     @Query("SELECT * FROM threads WHERE id = :threadId")

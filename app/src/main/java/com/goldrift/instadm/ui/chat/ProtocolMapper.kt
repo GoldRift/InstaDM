@@ -18,8 +18,13 @@ import java.util.Locale
 /**
  * Maps a persisted inbox row into the Compose model. Messages loaded earlier in
  * the process are carried over so a database update does not discard them.
+ * [unreadCount] comes from the messages table, not the thread row, because it
+ * needs the viewer's read watermark and the newest incoming message.
  */
-fun ThreadWithParticipants.toConversation(previous: Conversation?): Conversation {
+fun ThreadWithParticipants.toConversation(
+    previous: Conversation?,
+    unreadCount: Int = 0,
+): Conversation {
     val thread = this.thread
     val name = thread.title.ifBlank { participantTitle(participants) }
     return Conversation(
@@ -60,6 +65,8 @@ fun ThreadWithParticipants.toConversation(previous: Conversation?): Conversation
         oldestCursor = thread.oldestCursor,
         isLoadingOlder = previous?.isLoadingOlder ?: false,
         olderError = previous?.olderError ?: false,
+        unreadCount = unreadCount,
+        markedUnread = thread.markedUnread,
     )
 }
 

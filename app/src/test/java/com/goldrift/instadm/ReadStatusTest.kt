@@ -4,6 +4,7 @@ import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
+import com.goldrift.instadm.ui.chat.requestReadWatermark
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -85,5 +86,18 @@ class ReadStatusTest {
         assertFalse(message("message-0", MessageSender.Them, 1).canMarkRead())
         assertFalse(message("mid.\$abc", MessageSender.Them, 1, pending = true).canMarkRead())
         assertFalse(message("", MessageSender.Them, 1).canMarkRead())
+    }
+
+    @Test
+    fun requestThreadsClearUpToTheNewestIncomingMessage() {
+        val messages = listOf(
+            message("mid.1", MessageSender.Them, 1_000),
+            message("mid.2", MessageSender.Me, 2_000),
+            message("mid.3", MessageSender.Them, 3_000),
+        )
+
+        assertEquals(3_000, requestReadWatermark(messages))
+        assertEquals(0, requestReadWatermark(emptyList()))
+        assertEquals(0, requestReadWatermark(listOf(message("mid.4", MessageSender.Me, 4_000))))
     }
 }

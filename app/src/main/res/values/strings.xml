@@ -82,6 +82,11 @@
     <string name="inbox_noun_link">a link</string>
     <string name="inbox_noun_attachment">an attachment</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
+    <string name="inbox_unread">Unread</string>
+    <plurals name="inbox_unread_messages">
+        <item quantity="one">%d unread message</item>
+        <item quantity="other">%d unread messages</item>
+    </plurals>
     <string name="inbox_search">Search</string>
     <string name="inbox_profile_photo">Your profile photo</string>
     <string name="inbox_no_session_title">No session</string>

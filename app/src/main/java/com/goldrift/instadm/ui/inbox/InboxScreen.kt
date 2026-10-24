@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,7 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +64,7 @@ import com.goldrift.instadm.ui.chat.label
 import com.goldrift.instadm.ui.chat.render
 import com.goldrift.instadm.ui.chat.sampleConversations
 import com.goldrift.instadm.ui.chat.toPreview
+import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
@@ -284,6 +289,9 @@ private fun ConversationRow(
         ?.render { id, args -> resources.getString(id, *args.toTypedArray()) })
         ?: stringResource(R.string.inbox_tap_to_open)
     val timestamp = lastMessage?.timestamp ?: formatInboxTime(conversation.lastActivityMs)
+    // Unread rows use the same bold-name, accent-time, badge treatment as the
+    // other messengers people already read, so the contrast alone says "new".
+    val unread = conversation.hasUnread
 
     Row(
         modifier = Modifier
@@ -311,7 +319,7 @@ private fun ConversationRow(
             Text(
                 text = conversation.contact.name,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -320,20 +328,78 @@ private fun ConversationRow(
             Spacer(Modifier.height(2.dp))
             Text(
                 text = preview,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (unread) FontWeight.Medium else null,
+                ),
+                color = if (unread) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(12.dp))
-        Text(
-            text = timestamp,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
+            horizontalAlignment = Alignment.End,
             modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Text(
+                text = timestamp,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (unread) FontWeight.SemiBold else null,
+                ),
+                color = if (unread) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (unread) {
+                Spacer(Modifier.height(6.dp))
+                if (conversation.unreadCount > 0) {
+                    UnreadBadge(conversation.unreadCount)
+                } else {
+                    UnreadDot()
+                }
+            }
+        }
+    }
+}
+
+/** The WhatsApp-style count badge: accent circle, count capped at "99+". */
+@Composable
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    val description = pluralStringResource(R.plurals.inbox_unread_messages, count, count)
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clearAndSetSemantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = unreadBadgeLabel(count),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
+}
+
+/** Marks a thread the user flagged as unread when no newer message is cached. */
+@Composable
+private fun UnreadDot(modifier: Modifier = Modifier) {
+    val description = stringResource(R.string.inbox_unread)
+    Box(
+        modifier = modifier
+            .size(10.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clearAndSetSemantics { contentDescription = description },
+    )
 }
 
 @Preview(name = "Inbox light", showBackground = true, widthDp = 390, heightDp = 844)

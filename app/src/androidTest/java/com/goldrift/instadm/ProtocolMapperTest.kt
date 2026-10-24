@@ -187,6 +187,34 @@ class ProtocolMapperTest {
     }
 
     @Test
+    fun mapsUnreadCountAndMarkedUnreadFlags() {
+        val row = ThreadWithParticipants(
+            thread = ThreadEntity(id = "thread-1", title = "Nadia", markedUnread = true),
+            participants = emptyList(),
+        )
+
+        val conversation = row.toConversation(previous = null, unreadCount = 3)
+
+        assertEquals(3, conversation.unreadCount)
+        assertTrue(conversation.markedUnread)
+        assertTrue(conversation.hasUnread)
+    }
+
+    @Test
+    fun aThreadWithNothingNewHasNoUnreadFlag() {
+        val row = ThreadWithParticipants(
+            thread = ThreadEntity(id = "thread-1", title = "Nadia"),
+            participants = emptyList(),
+        )
+
+        val conversation = row.toConversation(previous = null, unreadCount = 0)
+
+        assertEquals(0, conversation.unreadCount)
+        assertFalse(conversation.markedUnread)
+        assertFalse(conversation.hasUnread)
+    }
+
+    @Test
     fun rendersTheViewerMediaPreview() {
         val row = ThreadWithParticipants(
             thread = ThreadEntity(
@@ -282,4 +310,5 @@ class ProtocolMapperTest {
         assertEquals("Alice, Bob", conversation.contact.name)
         assertEquals(2, conversation.participants.size)
     }
+
 }

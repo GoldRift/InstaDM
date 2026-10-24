@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
@@ -73,7 +74,15 @@ class InboxState(
     init {
         scope.launch { loadViewer() }
         scope.launch {
-            chatStore.observeInbox().collect { rows -> applyInboxRows(rows) }
+            // Thread rows and unread counts come from two tables, so an
+            // incoming message (or an accepted read receipt) re-emits one of
+            // these before the row shows the other.
+            combine(
+                chatStore.observeInbox(),
+                chatStore.observeUnreadCounts(),
+            ) { rows, counts ->
+                rows to counts.associate { it.threadId to it.unreadCount }
+            }.collect { (rows, counts) -> applyInboxRows(rows, counts) }
         }
     }
 
@@ -153,9 +162,14 @@ class InboxState(
     }
 
     /** Rebuilds the inbox list from the database, keeping in-memory messages. */
-    private fun applyInboxRows(rows: List<ThreadWithParticipants>) {
+    private fun applyInboxRows(
+        rows: List<ThreadWithParticipants>,
+        unreadCounts: Map<String, Int>,
+    ) {
         val existing = items.associateBy { it.id }
-        val mapped = rows.map { row -> row.toConversation(existing[row.thread.id]) }
+        val mapped = rows.map { row ->
+            row.toConversation(existing[row.thread.id], unreadCounts[row.thread.id] ?: 0)
+        }
         items.clear()
         items.addAll(mapped)
         if (mapped.isNotEmpty() && status == InboxStatus.Loading) {
@@ -405,7 +419,15 @@ class InboxState(
     fun markRead(threadId: String, messageId: String = "") {
         if (!AppVisibility.isForeground) return
         val conversation = conversation(threadId) ?: return
-        if (conversation.systemFolder in READ_REQUEST_FOLDERS) return
+        if (conversation.systemFolder in READ_REQUEST_FOLDERS) {
+            // Instagram rejects a viewer receipt until the request is accepted,
+            // but the message has still been seen; clear the local badge.
+            val watermark = requestReadWatermark(conversation.messages)
+            if (watermark > 0) {
+                scope.launch { chatStore.markThreadRead(threadId, watermark) }
+            }
+            return
+        }
 
         val explicit = messageId.trim()
         val targetMessage = if (explicit.isNotBlank()) {

@@ -57,6 +57,10 @@ finishes. Previews come from the `last_message` stub Instagram includes in the m
 they are not full messages, so opening a chat still fetches its newest page. Rows describe
 the newest attachment the same way a message reads ("Sent you a video", "Maya sent a photo",
 "You sent a voice message"), and an image/video caption is shown instead of the label.
+Rows with unseen messages stand out the way other messengers do: a bold name and preview,
+the timestamp in the accent color, and a count badge (capped at "99+") under it; a thread
+Instagram flags as unread that has nothing newer cached gets a dot instead. Opening a chat
+sends the viewer's read receipt, and the badge clears once Instagram accepts it.
 Conversation rows and chat headers show
 profile pictures from the mailbox payload: a direct chat uses the other person's picture,
 a group uses its custom photo, and a group without one falls back to a collage of its
