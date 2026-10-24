@@ -5,6 +5,8 @@
     <string name="chat_yesterday">Yesterday</string>
     <string name="chat_seen">Seen</string>
     <string name="chat_sent">Sent</string>
+    <string name="chat_show_status">Show sent and read status</string>
+    <string name="chat_hide_status">Hide sent and read status</string>
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_message_hint">Message…</string>
     <string name="chat_send">Send message</string>

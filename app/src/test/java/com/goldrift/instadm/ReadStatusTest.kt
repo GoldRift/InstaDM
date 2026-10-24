@@ -4,7 +4,9 @@ import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
+import com.goldrift.instadm.ui.chat.lastOutgoingMessageId
 import com.goldrift.instadm.ui.chat.requestReadWatermark
+import com.goldrift.instadm.ui.chat.showsStatusTicks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -99,5 +101,45 @@ class ReadStatusTest {
         assertEquals(3_000, requestReadWatermark(messages))
         assertEquals(0, requestReadWatermark(emptyList()))
         assertEquals(0, requestReadWatermark(listOf(message("mid.4", MessageSender.Me, 4_000))))
+    }
+
+    @Test
+    fun onlyTheNewestOutgoingMessageOwnsThePersistentTicks() {
+        val older = message("mid.older", MessageSender.Me, 1_000)
+        val incoming = message("mid.incoming", MessageSender.Them, 2_000)
+        val newest = message("mid.newest", MessageSender.Me, 3_000)
+        val messages = listOf(older, incoming, newest)
+
+        val lastOutgoingId = lastOutgoingMessageId(messages)
+
+        assertEquals("mid.newest", lastOutgoingId)
+        assertTrue(newest.showsStatusTicks(lastOutgoingId, revealedId = null))
+        assertFalse(older.showsStatusTicks(lastOutgoingId, revealedId = null))
+        assertFalse(incoming.showsStatusTicks(lastOutgoingId, revealedId = null))
+    }
+
+    @Test
+    fun aTappedOutgoingMessageRevealsItsTicks() {
+        val older = message("mid.older", MessageSender.Me, 1_000)
+        val newest = message("mid.newest", MessageSender.Me, 2_000)
+        val lastOutgoingId = lastOutgoingMessageId(listOf(older, newest))
+
+        assertTrue(older.showsStatusTicks(lastOutgoingId, revealedId = "mid.older"))
+        // The persistent newest bubble keeps its ticks either way.
+        assertTrue(newest.showsStatusTicks(lastOutgoingId, revealedId = "mid.older"))
+        // Revealing an incoming message never invents ticks for it.
+        assertFalse(
+            message("mid.incoming", MessageSender.Them, 3_000)
+                .showsStatusTicks(lastOutgoingId, revealedId = "mid.incoming"),
+        )
+    }
+
+    @Test
+    fun threadsWithoutOutgoingMessagesHaveNoTickOwner() {
+        val messages = listOf(message("mid.1", MessageSender.Them, 1_000))
+
+        assertEquals(null, lastOutgoingMessageId(messages))
+        assertEquals(null, lastOutgoingMessageId(emptyList()))
+        assertFalse(messages[0].showsStatusTicks(null, revealedId = null))
     }
 }

@@ -29,6 +29,24 @@ fun applyReadReceiptToMessages(
 }
 
 /**
+ * The newest message the viewer sent. Its sent/seen ticks stay under the bubble
+ * as a persistent receipt, while older outgoing bubbles only reveal theirs when
+ * the viewer taps them.
+ */
+fun lastOutgoingMessageId(messages: List<ChatMessage>): String? =
+    messages.lastOrNull { it.sender == MessageSender.Me }?.id
+
+/**
+ * Whether this bubble shows its sent/seen ticks: always for the newest outgoing
+ * message, and for any outgoing message the viewer tapped in this chat session.
+ * Other outgoing bubbles keep their tap-to-reveal affordance hidden.
+ */
+fun ChatMessage.showsStatusTicks(
+    lastOutgoingId: String?,
+    revealedId: String?,
+): Boolean = sender == MessageSender.Me && (id == lastOutgoingId || id == revealedId)
+
+/**
  * True when mark-read can target this message. Optimistic sends and mapped
  * messages without a server ID must not be sent to the protocol mutation, and
  * the viewer's own messages are already read.

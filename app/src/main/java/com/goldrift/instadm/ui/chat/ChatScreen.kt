@@ -204,6 +204,11 @@ fun ChatScreen(
     var editMessageId by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
+    // Only the newest outgoing bubble keeps its sent/seen ticks. Tapping an
+    // older outgoing message reveals its ticks for this visit to the chat; the
+    // reveal is deliberately not saved and resets when the chat is left or the
+    // conversation pane switches threads.
+    var revealedStatusMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
     var capturePath by rememberSaveable { mutableStateOf<String?>(null) }
     var recordingLocked by remember { mutableStateOf(false) }
@@ -339,6 +344,7 @@ fun ChatScreen(
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
+    val lastOutgoingId = lastOutgoingMessageId(messages)
     val replyLabel = replyTarget?.let { message ->
         when {
             message.sender == MessageSender.Me -> stringResource(R.string.chat_you)
@@ -496,6 +502,20 @@ fun ChatScreen(
                             },
                             onLongPress = { actionMessageId = it.id },
                             onReply = { replyTarget = it },
+                            lastOutgoingId = lastOutgoingId,
+                            revealedStatusMessageId = revealedStatusMessageId,
+                            onToggleStatus = { messageId ->
+                                // The newest outgoing bubble always shows its
+                                // receipt, so only older ones can be toggled.
+                                if (messageId != lastOutgoingId) {
+                                    revealedStatusMessageId =
+                                        if (revealedStatusMessageId == messageId) {
+                                            null
+                                        } else {
+                                            messageId
+                                        }
+                                }
+                            },
                             actionMessageId = actionMessageId,
                             onDismissActions = { actionMessageId = null },
                             onReactAt = { messageId, emoji ->
@@ -642,6 +662,9 @@ private fun MessageList(
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     onLongPress: (ChatMessage) -> Unit,
     onReply: (ChatMessage) -> Unit,
+    lastOutgoingId: String?,
+    revealedStatusMessageId: String?,
+    onToggleStatus: (messageId: String) -> Unit,
     actionMessageId: String?,
     onDismissActions: () -> Unit,
     onReactAt: (messageId: String, emoji: String) -> Unit,
@@ -754,6 +777,7 @@ private fun MessageList(
                 messagesById[stored.id]?.toReplySnapshot() ?: stored
             }
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
+            val showStatusTicks = message.showsStatusTicks(lastOutgoingId, revealedStatusMessageId)
 
             Column(modifier = Modifier.animateItem()) {
                 if (showDayHeader) {
@@ -775,6 +799,14 @@ private fun MessageList(
                     reply = reply,
                     replyLabel = replyLabel,
                     onReply = { onReply(message) },
+                    showStatusTicks = showStatusTicks,
+                    // The newest outgoing bubble's ticks are always on, so only
+                    // older outgoing bubbles advertise a tap-to-reveal action.
+                    onToggleStatus = if (message.id == lastOutgoingId) {
+                        null
+                    } else {
+                        { onToggleStatus(message.id) }
+                    },
                     actionsExpanded = actionMessageId == message.id,
                     onDismissActions = onDismissActions,
                     onReact = { emoji -> onReactAt(message.id, emoji) },
@@ -819,6 +851,8 @@ private fun MessageRow(
     reply: ReplySnapshot?,
     replyLabel: String,
     onReply: () -> Unit,
+    showStatusTicks: Boolean,
+    onToggleStatus: (() -> Unit)?,
     actionsExpanded: Boolean,
     onDismissActions: () -> Unit,
     onReact: (String) -> Unit,
@@ -833,6 +867,13 @@ private fun MessageRow(
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
+    // The tap and long-press detectors live in a pointerInput keyed only on the
+    // message, so read the current callbacks through state rather than
+    // capturing the ones present when the bubble first composed. Without this a
+    // bubble composed while it was the newest send would never become tappable
+    // once a newer message took the tick row.
+    val currentOnToggleStatus by rememberUpdatedState(onToggleStatus)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -906,6 +947,8 @@ private fun MessageRow(
                 )
             }
             val actionsLabel = stringResource(R.string.chat_message_actions)
+            val showStatusLabel = stringResource(R.string.chat_show_status)
+            val hideStatusLabel = stringResource(R.string.chat_hide_status)
             Box {
                 val dragProgress =
                     (settledOffset / replyThreshold).coerceIn(0f, 1f)
@@ -955,13 +998,28 @@ private fun MessageRow(
                             )
                         }
                         .semantics {
+                            onToggleStatus?.let { toggle ->
+                                onClick(
+                                    label = if (showStatusTicks) {
+                                        hideStatusLabel
+                                    } else {
+                                        showStatusLabel
+                                    },
+                                ) {
+                                    toggle()
+                                    true
+                                }
+                            }
                             onLongClick(label = actionsLabel) {
                                 onLongPress()
                                 true
                             }
                         }
                         .pointerInput(message.id) {
-                            detectTapGestures(onLongPress = { onLongPress() })
+                            detectTapGestures(
+                                onTap = { currentOnToggleStatus?.invoke() },
+                                onLongPress = { currentOnLongPress() },
+                            )
                         },
                     shape = BubbleShape,
                     color = if (isMine) bubbles.outgoing else bubbles.incoming,
@@ -997,7 +1055,10 @@ private fun MessageRow(
 
             ReactionPills(message)
 
-            if (isMine) {
+            // Failure and in-flight states stay actionable on every bubble. The
+            // sent/seen ticks are a receipt, so they belong only to the newest
+            // outgoing bubble or one the viewer tapped to inspect.
+            if (isMine && (message.failed || message.pending || showStatusTicks)) {
                 Row(
                     modifier = Modifier.padding(top = 2.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,

@@ -103,15 +103,16 @@ Swipe a bubble to the right (or pick Reply from its long-press menu) to quote it
 the composer; the sent reply shows the quoted sender and snippet inside the bubble, using
 the snapshot Instagram embeds so it still renders after the original scrolls out of the
 loaded page.
-Opening a chat also marks it read, and own messages show a seen tick once another
-participant's read receipt reaches them. Realtime read receipts update the open chat
-immediately. Image, GIF, sticker, video, and native reel attachments render inline, and
-GIFs autoplay while their row is visible. A reel shows its preview with a play card and a
-`Reel` badge; tapping it downloads the playable video through the Go core and opens the
-full-screen player. The DM payload only carries a preview, so the Go core resolves a
-fresh video URL from the reel's media ID (up to 1080p, 100 MiB) and the app caches it like
-other media. Posts, stories, and external pages shared into a chat render as a link card
-with the target URL; tapping the card opens the link in the browser or the Instagram app.
+Opening a chat also marks it read, and only the newest own message keeps its sent/seen
+tick; tapping an older own bubble reveals its tick until you leave the chat. Realtime read
+receipts update the open chat immediately. Image, GIF, sticker, video, and native reel
+attachments render inline, and GIFs autoplay while their row is visible. A reel shows its
+preview with a play card and a `Reel` badge; tapping it downloads the playable video
+through the Go core and opens the full-screen player. The DM payload only carries a
+preview, so the Go core resolves a fresh video URL from the reel's media ID (up to 1080p,
+100 MiB) and the app caches it like other media. Posts, stories, and external pages
+shared into a chat render as a link card with the target URL; tapping the card opens
+the link in the browser or the Instagram app.
 Inbox previews and reply quotes label these as a post or a story rather than a generic
 link. An expired story share has no URL in Instagram's payload, so it renders a notice
 card with the same eye-off treatment as a view-once attachment, using Instagram's
