@@ -36,6 +36,13 @@ data class AttachmentEntity(
     @ColumnInfo(name = "local_path") val localPath: String = "",
     /** JSON array of amplitudes (0..1) for voice notes, when Instagram sends one. */
     val waveform: String? = null,
+    /**
+     * Instagram view-once media. [url] stays empty: the one allowed view
+     * belongs to the official app, so the bubble only shows a notice.
+     */
+    @ColumnInfo(name = "view_once") val viewOnce: Boolean = false,
+    /** Raven replay policy for [viewOnce] media: `viewed` or `replayed`. */
+    @ColumnInfo(name = "view_mode") val viewMode: String = "",
     @ColumnInfo(name = "download_state") val downloadState: String = DOWNLOAD_NONE,
 ) {
     companion object {

@@ -274,6 +274,94 @@ func TestNewMessageViewMedia(t *testing.T) {
 	}
 }
 
+func TestNewMessageViewViewOnceMedia(t *testing.T) {
+	attachment := &slidetypes.Attachment{
+		AttachmentFBID:   "fbid-1",
+		AttachmentCDNURL: "https://cdn.example/full.jpg",
+		PreviewCDNURL:    "https://cdn.example/preview.jpg",
+	}
+	ravenImage := func(mode slidetypes.RavenViewMode, attachment *slidetypes.Attachment) *slidetypes.Message {
+		message := textMessage("message-1", 222, "")
+		message.Content = slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageRavenImageContent",
+			Content: &slidetypes.MessageContentRavenImage{
+				ViewMode:   mode,
+				Attachment: attachment,
+			},
+		}
+		return message
+	}
+
+	t.Run("hides the download URL", func(t *testing.T) {
+		view := newMessageView(ravenImage(slidetypes.RavenViewModeViewOnce, attachment), 111, nil)
+		if view.Kind != "image" || view.MediaCount != 1 || len(view.Media) != 1 {
+			t.Fatalf("kind/media = %q/%d/%d, want image/1/1", view.Kind, view.MediaCount, len(view.Media))
+		}
+		media := view.Media[0]
+		if media.Type != "image" || !media.ViewOnce || media.ViewMode != "viewed" {
+			t.Errorf("media = %+v, want a viewed image notice", media)
+		}
+		if media.URL != "" || media.FallbackURL != "" ||
+			media.PreviewURL != "" || media.PreviewFallbackURL != "" {
+			t.Errorf("view-once media exposed a CDN URL: %+v", media)
+		}
+	})
+
+	t.Run("keeps the notice when the attachment is missing", func(t *testing.T) {
+		// Instagram omits the attachment until the media is opened in the
+		// official app; the placeholder still has to reach the client.
+		view := newMessageView(ravenImage(slidetypes.RavenViewModeViewOnce, nil), 111, nil)
+		if len(view.Media) != 1 {
+			t.Fatalf("media = %d, want 1 placeholder", len(view.Media))
+		}
+		if media := view.Media[0]; !media.ViewOnce || media.Type != "image" || media.ViewMode != "viewed" {
+			t.Errorf("placeholder = %+v, want a viewed image notice", media)
+		}
+	})
+
+	t.Run("marks replayable media", func(t *testing.T) {
+		view := newMessageView(ravenImage(slidetypes.RavenViewModeViewTwice, attachment), 111, nil)
+		if len(view.Media) != 1 {
+			t.Fatalf("media = %d, want 1", len(view.Media))
+		}
+		if media := view.Media[0]; !media.ViewOnce || media.ViewMode != "replayed" || media.URL != "" {
+			t.Errorf("media = %+v, want a replayable notice without a URL", media)
+		}
+	})
+
+	t.Run("keeps keep-in-chat media", func(t *testing.T) {
+		view := newMessageView(ravenImage(slidetypes.RavenViewModeKeepInChat, attachment), 111, nil)
+		if len(view.Media) != 1 {
+			t.Fatalf("media = %d, want 1", len(view.Media))
+		}
+		media := view.Media[0]
+		if media.ViewOnce || media.ViewMode != "" {
+			t.Errorf("media = %+v, want a permanent attachment", media)
+		}
+		if media.URL != "https://cdn.example/full.jpg" {
+			t.Errorf("url = %q, want the CDN URL", media.URL)
+		}
+	})
+
+	t.Run("marks view-once video", func(t *testing.T) {
+		message := textMessage("message-1", 222, "")
+		message.Content = slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageRavenVideoContent",
+			Content: &slidetypes.MessageContentRavenVideo{
+				ViewMode:   slidetypes.RavenViewModeViewOnce,
+				Attachment: attachment,
+			},
+		}
+		view := newMessageView(message, 111, nil)
+		if view.Kind != "video" || len(view.Media) != 1 {
+			t.Fatalf("kind/media = %q/%d, want video/1", view.Kind, len(view.Media))
+		}
+		if media := view.Media[0]; !media.ViewOnce || media.Type != "video" || media.URL != "" {
+			t.Errorf("media = %+v, want a view-once video notice", media)
+		}
+	})
+}
+
 func TestNewMessageViewAnimatedMedia(t *testing.T) {
 	message := textMessage("message-1", 222, "")
 	message.Content = slidetypes.MessageContentWrapper{

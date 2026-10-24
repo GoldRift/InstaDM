@@ -89,6 +89,38 @@ class RealtimeEventTest {
     }
 
     @Test
+    fun keepsViewOnceMediaWithoutAUrl() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "message.new",
+              "thread_id": "thread-1",
+              "message": {
+                "id": "mid.view-once",
+                "text": "",
+                "kind": "image",
+                "timestamp_ms": 1700000000000,
+                "media": [
+                  {
+                    "type": "image",
+                    "view_once": true,
+                    "view_mode": "viewed"
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        val media = event!!.message!!.media.single()
+        assertEquals("image", media.type)
+        assertTrue(media.viewOnce)
+        assertEquals("viewed", media.viewMode)
+        assertFalse(media.isVisual)
+    }
+
+    @Test
     fun parsesReadReceipt() {
         val event = RealtimeEvent.fromJson(
             """

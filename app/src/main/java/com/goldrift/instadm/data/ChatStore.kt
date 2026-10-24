@@ -830,6 +830,8 @@ internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEn
             waveform = media.optJSONArray("waveform")
                 ?.let { waveformJson(parseWaveform(it)) }
                 ?.takeIf { it.isNotBlank() },
+            viewOnce = media.optBoolean("view_once"),
+            viewMode = media.optString("view_mode"),
         )
     }
     return result
@@ -866,4 +868,6 @@ internal fun MessageMedia.toAttachmentEntity(messageId: String, partIndex: Int):
         height = height,
         durationMs = durationMs.toLong(),
         waveform = waveformJson(waveform).takeIf { it.isNotBlank() },
+        viewOnce = viewOnce,
+        viewMode = viewMode,
     )

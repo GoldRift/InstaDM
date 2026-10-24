@@ -102,7 +102,9 @@ immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
 autoplay while their row is visible. Tapping an attachment opens a full-screen
 viewer; it downloads the original through the Go core into the app cache (so expired
 thumbnail URLs still work) and plays videos with the platform player, including
-looping GIFs. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
+looping GIFs. Instagram view-once photos and videos are never fetched: their bubble says
+the attachment can only be viewed in the Instagram app, because the allowed view belongs
+there. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
 out of the outbox into that cache once uploaded. The database keeps at most 1,000
 messages per thread, and a missing session clears the database, the media cache, and
 pending sends.

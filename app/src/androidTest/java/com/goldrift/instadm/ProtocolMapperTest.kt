@@ -101,6 +101,37 @@ class ProtocolMapperTest {
     }
 
     @Test
+    fun mapsViewOnceMediaWithoutAUrl() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.view-once",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_002_500,
+                kind = "image",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.view-once",
+                    partIndex = 0,
+                    kind = "image",
+                    viewOnce = true,
+                    viewMode = "viewed",
+                ),
+            ),
+            reactions = emptyList(),
+        )
+
+        val media = message.toChatMessage().media.single()
+
+        assertEquals("image", media.type)
+        assertTrue(media.viewOnce)
+        assertEquals("viewed", media.viewMode)
+        assertEquals("", media.fullUrl)
+        assertFalse(media.isVisual)
+    }
+
+    @Test
     fun mapsTheQuotedSnapshotOfAReply() {
         val message = MessageWithMedia(
             message = MessageEntity(

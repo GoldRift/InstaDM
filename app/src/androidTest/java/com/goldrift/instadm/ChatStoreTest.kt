@@ -472,6 +472,45 @@ class ChatStoreTest {
         assertEquals("same-cursor", thread.oldestCursor)
     }
 
+    @Test
+    fun threadStoresViewOnceAttachmentWithoutAUrl() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "thread": {
+                    "id": "thread-1",
+                    "thread_fbid": "thread-1",
+                    "thread_id": "long-thread-1",
+                    "title": "Test Participant"
+                  },
+                  "messages": [
+                    {
+                      "id": "message-view-once",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1700000000000,
+                      "kind": "image",
+                      "media_count": 1,
+                      "is_from_viewer": false,
+                      "media": [
+                        { "type": "image", "view_once": true, "view_mode": "viewed" }
+                      ]
+                    }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val attachment = store.observeThread("thread-1").first().single().attachments.single()
+        assertEquals("image", attachment.kind)
+        assertTrue(attachment.viewOnce)
+        assertEquals("viewed", attachment.viewMode)
+        assertEquals("", attachment.url)
+    }
+
     private suspend fun ChatStore.conversationThread(threadId: String) =
         db.threads().thread(threadId) ?: error("missing thread $threadId")
 

@@ -121,6 +121,8 @@ private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(
     partIndex = partIndex,
     localPath = localPath,
     waveform = parseWaveform(waveform),
+    viewOnce = viewOnce,
+    viewMode = viewMode,
 )
 
 /** Display name of a group participant, used to attribute the newest message. */

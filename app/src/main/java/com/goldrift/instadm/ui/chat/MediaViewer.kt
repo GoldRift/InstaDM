@@ -3,6 +3,7 @@ package com.goldrift.instadm.ui.chat
 import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -276,6 +278,58 @@ private fun MediaPlaceholder(isLoading: Boolean) {
                 modifier = Modifier.size(28.dp),
             )
         }
+    }
+}
+
+/**
+ * Placeholder for Instagram view-once media. The Go core deliberately exposes
+ * no URL for it: the one allowed view belongs to the official app, so the
+ * bubble explains why the attachment cannot be opened here.
+ */
+@Composable
+fun ViewOnceNotice(
+    media: MessageMedia,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val longClickLabel = stringResource(R.string.chat_message_actions)
+    Row(
+        modifier = modifier
+            .widthIn(max = 260.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = {},
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.VisibilityOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(28.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = stringResource(viewOnceNoticeText(media)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** Notice copy for a view-once attachment, honouring Instagram's replay policy. */
+@StringRes
+internal fun viewOnceNoticeText(media: MessageMedia): Int {
+    val video = media.type == "video"
+    return when {
+        media.viewMode == "replayed" && video -> R.string.chat_view_twice_video
+        media.viewMode == "replayed" -> R.string.chat_view_twice_photo
+        video -> R.string.chat_view_once_video
+        else -> R.string.chat_view_once_photo
     }
 }
 

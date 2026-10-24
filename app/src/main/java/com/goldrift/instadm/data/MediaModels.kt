@@ -21,6 +21,13 @@ data class MessageMedia(
     val localPath: String = "",
     /** Voice-note amplitudes (0..1) for the waveform. */
     val waveform: List<Float> = emptyList(),
+    /**
+     * Instagram view-once media. The Go core deliberately exposes no URL for
+     * it, because the one allowed view belongs to the official app.
+     */
+    val viewOnce: Boolean = false,
+    /** Raven replay policy for [viewOnce] media: `viewed` or `replayed`. */
+    val viewMode: String = "",
 ) {
     val isAudio: Boolean
         get() = type == "audio"
@@ -36,7 +43,7 @@ data class MessageMedia(
 
     /** Attachments the chat bubble can render inline. */
     val isVisual: Boolean
-        get() = isVideo || type in VISUAL_TYPES
+        get() = !viewOnce && (isVideo || type in VISUAL_TYPES)
 
     val thumbnailUrl: String
         get() = previewUrl.ifBlank {
@@ -82,7 +89,10 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
         val fallbackUrl = item.optString("fallback_url")
         val previewUrl = item.optString("preview_url")
         val previewFallbackUrl = item.optString("preview_fallback_url")
-        if (url.isBlank() && fallbackUrl.isBlank() &&
+        val viewOnce = item.optBoolean("view_once")
+        // View-once media has no URL on purpose; keep it so the bubble can
+        // point at the official app instead of rendering an empty attachment.
+        if (!viewOnce && url.isBlank() && fallbackUrl.isBlank() &&
             previewUrl.isBlank() && previewFallbackUrl.isBlank()
         ) {
             continue
@@ -98,6 +108,8 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
             durationMs = item.optInt("duration_ms"),
             partIndex = index,
             waveform = parseWaveform(item.optJSONArray("waveform")),
+            viewOnce = viewOnce,
+            viewMode = item.optString("view_mode"),
         )
     }
     return result

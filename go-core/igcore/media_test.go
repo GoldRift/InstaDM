@@ -232,6 +232,19 @@ func TestDownloadMediaPartValidation(t *testing.T) {
 	}
 }
 
+func TestSelectMediaPartRefusesViewOnce(t *testing.T) {
+	message := &MessageView{Media: []MediaView{{
+		Type:     "image",
+		URL:      "https://cdn.example/full.jpg",
+		ViewOnce: true,
+		ViewMode: "viewed",
+	}}}
+	_, _, err := selectMediaPart(message, 0)
+	if err == nil || !strings.Contains(err.Error(), "view-once media can only be viewed") {
+		t.Errorf("view-once error = %v", err)
+	}
+}
+
 func TestDownloadMediaURL(t *testing.T) {
 	pngData := encodeTestPNG(t)
 	var fetchDestination string

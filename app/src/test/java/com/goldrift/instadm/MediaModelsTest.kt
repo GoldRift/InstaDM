@@ -92,6 +92,21 @@ class MediaModelsTest {
     }
 
     @Test
+    fun viewOnceMediaIsNotRenderedInline() {
+        val media = MessageMedia(
+            type = "image",
+            url = "",
+            viewOnce = true,
+            viewMode = "viewed",
+        )
+
+        assertTrue(media.viewOnce)
+        assertFalse(media.isVisual)
+        assertEquals("", media.thumbnailUrl)
+        assertEquals("", media.fullUrl)
+    }
+
+    @Test
     fun serializesWaveformAmplitudes() {
         assertEquals("", waveformJson(emptyList()))
         assertEquals("[0.25,1.0]", waveformJson(listOf(0.25f, 2f)))

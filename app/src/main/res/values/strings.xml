@@ -21,6 +21,10 @@
     <string name="chat_media_unavailable">Media unavailable</string>
     <string name="chat_media_error">Couldn\'t load media</string>
     <string name="chat_video_play">Play video</string>
+    <string name="chat_view_once_photo">This photo can only be viewed once. Use the Instagram app to view.</string>
+    <string name="chat_view_once_video">This video can only be viewed once. Use the Instagram app to view.</string>
+    <string name="chat_view_twice_photo">This photo can only be viewed twice. Use the Instagram app to view.</string>
+    <string name="chat_view_twice_video">This video can only be viewed twice. Use the Instagram app to view.</string>
     <string name="chat_mic_record">Record a voice message</string>
     <string name="chat_mic_start">Start recording</string>
     <string name="chat_mic_recording">Recording</string>

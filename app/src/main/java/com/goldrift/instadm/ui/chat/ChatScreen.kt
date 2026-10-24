@@ -1094,9 +1094,11 @@ private fun MessageBubbleContent(
     voicePlayer: VoicePlayer,
 ) {
     val media = message.media.filter { it.isVisual }
+    val viewOnce = message.media.filter { it.viewOnce }
     val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
-    val hasAttachment = media.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null
+    val hasAttachment = media.isNotEmpty() || viewOnce.isNotEmpty() ||
+        voiceNotes.isNotEmpty() || localMedia != null
     Column(
         modifier = Modifier.padding(
             horizontal = if (hasAttachment) 4.dp else 14.dp,
@@ -1114,6 +1116,18 @@ private fun MessageBubbleContent(
                     bottom = 6.dp,
                 ),
             )
+        }
+
+        viewOnce.forEachIndexed { index, item ->
+            if (index > 0) Spacer(Modifier.height(4.dp))
+            ViewOnceNotice(
+                media = item,
+                onLongClick = onLongPress,
+            )
+        }
+
+        if (viewOnce.isNotEmpty() && (media.isNotEmpty() || voiceNotes.isNotEmpty())) {
+            Spacer(Modifier.height(4.dp))
         }
 
         media.forEachIndexed { index, item ->

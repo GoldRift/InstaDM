@@ -480,6 +480,9 @@ func selectMediaPart(message *MessageView, partIndex int) (MediaView, string, er
 		return MediaView{}, "", fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
 	}
 	media := message.Media[partIndex]
+	if media.ViewOnce {
+		return MediaView{}, "", errors.New("view-once media can only be viewed in the Instagram app")
+	}
 	mediaURL := firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
 	if mediaURL == "" {
 		return MediaView{}, "", errors.New("media attachment has no download URL")

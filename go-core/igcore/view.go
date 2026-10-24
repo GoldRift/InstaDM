@@ -319,6 +319,13 @@ type MediaView struct {
 	Height             int       `json:"height,omitempty"`
 	DurationMS         int       `json:"duration_ms,omitempty"`
 	Waveform           []float64 `json:"waveform,omitempty"`
+	// ViewOnce marks Instagram's view-once ("raven") media. The one allowed
+	// view belongs to the official app, so no CDN URL is exposed and clients
+	// must show a notice instead of rendering or downloading the attachment.
+	ViewOnce bool `json:"view_once,omitempty"`
+	// ViewMode is the raven replay policy: "viewed" for a single view or
+	// "replayed" when Instagram allows one replay. Empty for permanent media.
+	ViewMode string `json:"view_mode,omitempty"`
 }
 
 // ReplyView is the quoted snapshot Instagram embeds in a reply. Keeping the
@@ -580,13 +587,9 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 			}
 		}
 	case *slidetypes.MessageContentRavenImage:
-		if view, ok := attachmentView(content.Attachment, "image"); ok {
-			media = append(media, view)
-		}
+		media = appendRavenMedia(media, content.Attachment, content.ViewMode, "image")
 	case *slidetypes.MessageContentRavenVideo:
-		if view, ok := attachmentView(content.Attachment, "video"); ok {
-			media = append(media, view)
-		}
+		media = appendRavenMedia(media, content.Attachment, content.ViewMode, "video")
 	case *slidetypes.MessageContentAudio:
 		for _, attachment := range content.AudioAttachments {
 			if attachment == nil {
@@ -625,6 +628,24 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 		}
 	}
 	return media
+}
+
+// appendRavenMedia normalizes Instagram's ephemeral ("raven") attachments.
+// View-once and replayable media never expose their CDN URLs: the allowed views
+// belong to the official app, and Instagram often omits the attachment from the
+// payload until it is opened there. "Keep in chat" media has no view limit, so
+// it is treated like a normal attachment.
+func appendRavenMedia(media []MediaView, attachment *slidetypes.Attachment, mode slidetypes.RavenViewMode, kind string) []MediaView {
+	viewType := mode.ViewType()
+	if viewType == "" {
+		if view, ok := attachmentView(attachment, kind); ok {
+			media = append(media, view)
+		}
+		return media
+	}
+	// Keep the item even when the attachment is missing so clients can show
+	// the notice instead of an empty bubble.
+	return append(media, MediaView{Type: kind, ViewOnce: true, ViewMode: viewType})
 }
 
 // normalizeWaveform converts Instagram's audio waveform data into amplitudes in

@@ -229,9 +229,13 @@ the viewer's messages, and `has_more_older`/`oldest_cursor` for the next paginat
 step. It also includes `read_receipts` with each participant's FBID, watermark, and
 `from_viewer` flag. The viewer's own receipt only means the viewer read the thread; it
 never produces a `seen` flag. Media messages also get a `media` array with attachment
-FBIDs, full and preview CDN URLs, dimensions, and duration where available. Replies
-carry `replied_to_message_id` plus a `replied_to_message` snapshot (ID, sender, kind,
-text, and media count) so a client can render the quote without loading the original.
+FBIDs, full and preview CDN URLs, dimensions, and duration where available. View-once
+and replayable ("raven") attachments instead carry `view_once: true` plus `view_mode`
+(`viewed` or `replayed`) and omit every CDN URL, because the allowed views belong to the
+official app; the item is still present when Instagram has not sent an attachment yet,
+so clients can show a notice. Replies carry `replied_to_message_id` plus a
+`replied_to_message` snapshot (ID, sender, kind, text, and media count) so a client can
+render the quote without loading the original.
 CDN URLs are sensitive and expire; do not put them in shared fixtures.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
@@ -297,7 +301,9 @@ images, video, audio, GIFs, stickers, and multi-media messages. The source bytes
 recompressed by the CDN, so compare decoded pixels rather than file hashes. Both listing
 and downloading search the newest 100 messages unless a recently loaded thread page
 already contains the message; older media messages need a paginated lookup in a later
-pass. A CDN 403 causes one cache-bypassing thread refresh and retry.
+pass. A CDN 403 causes one cache-bypassing thread refresh and retry. View-once media is
+listed but cannot be downloaded; `--save` returns an error directing the user to the
+Instagram app.
 
 `mark-read` resolves the short thread ID to the long thread ID required by read
 receipts, selects the newest message (or `--message-id`), sends the initial read

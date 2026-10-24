@@ -84,6 +84,46 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun addsViewOnceColumnsToAttachments() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V3_ATTACHMENTS)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            db.execSQL(
+                "INSERT INTO attachments (" +
+                    "message_id, part_index, kind, remote_fbid, url, preview_url, width, " +
+                    "height, duration_ms, mime_type, local_path, waveform, download_state" +
+                    ") VALUES ('m1', 0, 'image', '', 'https://cdn.example.invalid/image.jpg', " +
+                    "'', 800, 600, 0, '', '', NULL, 'none')",
+            )
+            InstaDmDatabase.MIGRATION_3_4.migrate(db)
+            db.query(
+                "SELECT view_once, view_mode, url FROM attachments",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+                assertEquals("", cursor.getString(1))
+                assertEquals("https://cdn.example.invalid/image.jpg", cursor.getString(2))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
     private companion object {
         const val TEST_DB = "instadm-migration-test"
         const val V1_ATTACHMENTS =
@@ -94,6 +134,17 @@ class DatabaseMigrationTest {
                 "`height` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, " +
                 "`mime_type` TEXT NOT NULL, `local_path` TEXT NOT NULL, " +
                 "`download_state` TEXT NOT NULL, PRIMARY KEY(`message_id`, `part_index`), " +
+                "FOREIGN KEY(`message_id`) REFERENCES `messages`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE )"
+        const val V3_ATTACHMENTS =
+            "CREATE TABLE IF NOT EXISTS `attachments` (" +
+                "`message_id` TEXT NOT NULL, `part_index` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, `remote_fbid` TEXT NOT NULL, `url` TEXT NOT NULL, " +
+                "`preview_url` TEXT NOT NULL, `width` INTEGER NOT NULL, " +
+                "`height` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, " +
+                "`mime_type` TEXT NOT NULL, `local_path` TEXT NOT NULL, " +
+                "`waveform` TEXT, `download_state` TEXT NOT NULL, " +
+                "PRIMARY KEY(`message_id`, `part_index`), " +
                 "FOREIGN KEY(`message_id`) REFERENCES `messages`(`id`) " +
                 "ON UPDATE NO ACTION ON DELETE CASCADE )"
         const val V2_MESSAGES =

@@ -1476,8 +1476,12 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 		valueOrDash(message.Kind),
 		len(message.Media),
 	)
+	downloadable := false
 	for index, media := range message.Media {
 		fmt.Fprintf(w, "\n#%d  %s", index, valueOrDash(media.Type))
+		if media.ViewOnce {
+			fmt.Fprintf(w, "  view-once (%s)", valueOrDash(media.ViewMode))
+		}
 		if media.Width > 0 || media.Height > 0 {
 			fmt.Fprintf(w, "  %dx%d", media.Width, media.Height)
 		}
@@ -1485,6 +1489,11 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 			fmt.Fprintf(w, "  %d ms", media.DurationMS)
 		}
 		fmt.Fprintln(w)
+		if media.ViewOnce {
+			fmt.Fprintln(w, "    can only be viewed in the Instagram app; not downloadable")
+			continue
+		}
+		downloadable = true
 		if media.AttachmentFBID != "" {
 			fmt.Fprintf(w, "    fbid: %s\n", media.AttachmentFBID)
 		}
@@ -1496,7 +1505,11 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 		}
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Tip: use --save <path> --part <n> to download. Attachment URLs are sensitive and expire.")
+	if downloadable {
+		fmt.Fprintln(w, "Tip: use --save <path> --part <n> to download. Attachment URLs are sensitive and expire.")
+	} else {
+		fmt.Fprintln(w, "View-once attachments can only be opened in the Instagram app.")
+	}
 }
 
 func printDownloadResult(w io.Writer, result *igcore.DownloadResult) {

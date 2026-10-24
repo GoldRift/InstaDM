@@ -424,7 +424,7 @@ func TestPrintMediaList(t *testing.T) {
 	message := &igcore.MessageView{
 		ID:         "message-1",
 		Kind:       "image",
-		MediaCount: 2,
+		MediaCount: 3,
 		Media: []igcore.MediaView{
 			{
 				Type:           "image",
@@ -435,16 +435,42 @@ func TestPrintMediaList(t *testing.T) {
 				Height:         480,
 			},
 			{Type: "video", DurationMS: 12_000},
+			{Type: "image", ViewOnce: true, ViewMode: "viewed"},
 		},
 	}
 
 	var output bytes.Buffer
 	printMediaList(&output, "thread-1", message)
 	rendered := output.String()
-	for _, want := range []string{"Thread: thread-1", "Message: message-1", "Media: 2", "#0", "image", "640x480", "fbid-1", "url:", "#1", "video", "12000 ms", "Tip:"} {
+	for _, want := range []string{
+		"Thread: thread-1", "Message: message-1", "Media: 3", "#0", "image", "640x480",
+		"fbid-1", "url:", "#1", "video", "12000 ms", "#2", "view-once (viewed)",
+		"not downloadable", "Tip:",
+	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("output does not contain %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestPrintMediaListViewOnceOnly(t *testing.T) {
+	message := &igcore.MessageView{
+		ID:         "message-1",
+		Kind:       "image",
+		MediaCount: 1,
+		Media: []igcore.MediaView{
+			{Type: "image", ViewOnce: true, ViewMode: "viewed"},
+		},
+	}
+
+	var output bytes.Buffer
+	printMediaList(&output, "thread-1", message)
+	rendered := output.String()
+	if strings.Contains(rendered, "Tip:") {
+		t.Errorf("view-once-only output offered a download tip:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "View-once attachments can only be opened in the Instagram app.") {
+		t.Errorf("view-once-only output lacks the notice:\n%s", rendered)
 	}
 }
 
