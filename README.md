@@ -105,13 +105,22 @@ the snapshot Instagram embeds so it still renders after the original scrolls out
 loaded page.
 Opening a chat also marks it read, and own messages show a seen tick once another
 participant's read receipt reaches them. Realtime read receipts update the open chat
-immediately. Image, GIF, sticker, and video attachments render inline, and GIFs
-autoplay while their row is visible. Tapping an attachment opens a full-screen
-viewer; it downloads the original through the Go core into the app cache (so expired
-thumbnail URLs still work) and plays videos with the platform player, including
-looping GIFs. Instagram view-once photos and videos are never fetched: their bubble says
-the attachment can only be viewed in the Instagram app, because the allowed view belongs
-there. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
+immediately. Image, GIF, sticker, video, and native reel attachments render inline, and
+GIFs autoplay while their row is visible. A reel shows its preview with a play card and a
+`Reel` badge; tapping it downloads the playable video through the Go core and opens the
+full-screen player. The DM payload only carries a preview, so the Go core resolves a
+fresh video URL from the reel's media ID (up to 1080p, 100 MiB) and the app caches it like
+other media. Posts, stories, and external pages shared into a chat render as a link card
+with the target URL; tapping the card opens the link in the browser or the Instagram app.
+Inbox previews and reply quotes label these as a post or a story rather than a generic
+link. An expired story share has no URL in Instagram's payload, so it renders a notice
+card with the same eye-off treatment as a view-once attachment, using Instagram's
+"Story unavailable" text and the original sender context instead of an empty bubble.
+Tapping other attachments opens a full-screen viewer; it downloads the original through
+the Go core into the app cache (so expired thumbnail URLs still work) and plays videos
+with the platform player, including looping GIFs. Instagram view-once photos and videos
+are never fetched: their bubble says the attachment can only be viewed in the Instagram
+app, because the allowed view belongs there. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
 out of the outbox into that cache once uploaded. The database keeps at most 1,000
 messages per thread, and a missing session clears the database, the media cache, and
 pending sends.
@@ -183,8 +192,8 @@ session persistence. The Android app adds in-app WebView login with encrypted
 session storage, loads real mailbox/thread JSON, sends text, media, and voice notes
 through the AAR with optimistic bubbles and retry, applies realtime events from a
 foreground watch service, marks open threads read with coalesced receipts, and renders
-inline media with full-screen image/video viewers, inline voice playback, and seen
-ticks driven by real read receipts.
+inline media with full-screen image/video viewers, playable shared reels, link cards for
+posts and stories, inline voice playback, and seen ticks driven by real read receipts.
 
 ### Planned session lifecycle
 

@@ -144,17 +144,23 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
 
     /**
      * Downloads one attachment into the app cache and returns the local file.
-     * The Go downloader re-queries the thread, so it uses a fresh signed URL
-     * even when the inline thumbnail URL has expired.
+     * Ordinary attachments are re-queried through the thread so the signed URL
+     * is fresh. A reel is resolved from its persisted media ID instead, which
+     * also works when the message is older than the newest thread page.
      */
     suspend fun downloadMedia(
         threadId: String,
         messageId: String,
-        partIndex: Int,
-        mediaType: String,
+        media: MessageMedia,
     ): File = withClient {
         val cacheDir = sessionStore.mediaCacheDir
-        val baseName = "${safeName(threadId)}_${safeName(messageId)}_$partIndex"
+        // The same reel can be shared in several messages; key its cache entry
+        // by the media ID so it is downloaded only once.
+        val baseName = if (media.targetId.isNotBlank()) {
+            "reel_${safeName(media.targetId)}"
+        } else {
+            "${safeName(threadId)}_${safeName(messageId)}_${media.partIndex}"
+        }
         cachedMedia(cacheDir, baseName)?.let {
             it.setLastModified(System.currentTimeMillis())
             return@withClient it
@@ -162,10 +168,14 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
 
         val temp = File(cacheDir, "$baseName.download")
         temp.delete()
-        val result = it.downloadMedia(threadId, messageId, partIndex, temp.absolutePath)
+        val result = if (media.targetId.isNotBlank()) {
+            it.downloadSharedMedia(media.targetId, media.shortcode, temp.absolutePath)
+        } else {
+            it.downloadMedia(threadId, messageId, media.partIndex, temp.absolutePath)
+        }
         val target = File(
             cacheDir,
-            "$baseName.${extensionFor(result.optString("mime_type"), mediaType)}",
+            "$baseName.${extensionFor(result.optString("mime_type"), media.type)}",
         )
         if (!temp.renameTo(target)) {
             temp.copyTo(target, overwrite = true)
@@ -226,7 +236,7 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         mimeType.startsWith("audio/wav") || mimeType == "audio/x-wav" -> "wav"
         mimeType.startsWith("audio/ogg") || mimeType == "audio/opus" -> "ogg"
         mimeType.startsWith("audio/") || mediaType == "audio" -> "m4a"
-        mimeType.startsWith("video/") || mediaType == "video" -> "mp4"
+        mimeType.startsWith("video/") || mediaType == "video" || mediaType == "reel" -> "mp4"
         mimeType == "image/gif" -> "gif"
         mimeType == "image/webp" -> "webp"
         mimeType == "image/png" -> "png"

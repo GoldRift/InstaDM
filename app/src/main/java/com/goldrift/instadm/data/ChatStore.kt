@@ -836,6 +836,8 @@ internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEn
                 ?.takeIf { it.isNotBlank() },
             viewOnce = media.optBoolean("view_once"),
             viewMode = media.optString("view_mode"),
+            targetId = media.optString("target_id"),
+            shortcode = media.optString("shortcode"),
         )
     }
     return result
@@ -874,4 +876,6 @@ internal fun MessageMedia.toAttachmentEntity(messageId: String, partIndex: Int):
         waveform = waveformJson(waveform).takeIf { it.isNotBlank() },
         viewOnce = viewOnce,
         viewMode = viewMode,
+        targetId = targetId,
+        shortcode = shortcode,
     )

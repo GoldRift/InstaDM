@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -69,7 +70,7 @@ data class MediaViewerTarget(
 
 /** Downloads one attachment and returns the local file. */
 typealias MediaLoader =
-    suspend (threadId: String, messageId: String, partIndex: Int, mediaType: String) -> File
+    suspend (threadId: String, messageId: String, media: MessageMedia) -> File
 
 /**
  * Inline bubble attachment. Images and videos use the signed CDN preview;
@@ -133,9 +134,26 @@ fun MediaThumbnail(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = stringResource(R.string.chat_video_play),
+                        contentDescription = stringResource(
+                            if (media.isReel) R.string.chat_reel_play else R.string.chat_video_play,
+                        ),
                         tint = Color.White,
                         modifier = Modifier.size(32.dp),
+                    )
+                }
+                if (media.isReel) {
+                    Text(
+                        text = stringResource(R.string.chat_reel_badge),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.6f),
+                                shape = MaterialTheme.shapes.extraSmall,
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
                 if (media.durationMs > 0) {
@@ -165,8 +183,8 @@ private fun ThumbnailImage(
 ) {
     val context = LocalContext.current
     if (media.thumbnailUrl.isBlank()) {
-        // Videos without a preview still get the play card; images show a
-        // broken-attachment glyph.
+        // Videos and reels without a preview still get the play card; images
+        // show a broken-attachment glyph.
         if (!media.isVideo) MediaPlaceholder(isLoading = false)
     } else {
         SubcomposeAsyncImage(
@@ -178,7 +196,9 @@ private fun ThumbnailImage(
             contentScale = ContentScale.Crop,
             modifier = modifier,
             loading = { MediaPlaceholder(isLoading = true) },
-            error = { MediaPlaceholder(isLoading = false) },
+            // An expired preview should not cover the play card with a broken
+            // image; the viewer can still resolve a fresh URL.
+            error = { if (!media.isVideo) MediaPlaceholder(isLoading = false) },
         )
     }
 }
@@ -202,7 +222,7 @@ private fun InlineGif(
     LaunchedEffect(messageId, media.partIndex, active) {
         if (!active || file != null || failed) return@LaunchedEffect
         val loader = loadMedia ?: return@LaunchedEffect
-        runCatching { loader(threadId, messageId, media.partIndex, media.type) }
+        runCatching { loader(threadId, messageId, media) }
             .onSuccess { file = it }
             .onFailure { failed = true }
     }
@@ -292,6 +312,40 @@ fun ViewOnceNotice(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    NoticeCard(
+        icon = Icons.Rounded.VisibilityOff,
+        text = stringResource(viewOnceNoticeText(media)),
+        onLongClick = onLongClick,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Notice for an expired share (for example a story Instagram no longer has).
+ * It uses the same card as the view-once notice: the media cannot be opened,
+ * and the text explains why.
+ */
+@Composable
+fun UnavailableShareNotice(
+    text: String,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    NoticeCard(
+        icon = Icons.Rounded.VisibilityOff,
+        text = text,
+        onLongClick = onLongClick,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun NoticeCard(
+    icon: ImageVector,
+    text: String,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     val longClickLabel = stringResource(R.string.chat_message_actions)
     Row(
         modifier = modifier
@@ -307,14 +361,14 @@ fun ViewOnceNotice(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Rounded.VisibilityOff,
+            imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp),
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            text = stringResource(viewOnceNoticeText(media)),
+            text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -502,7 +556,7 @@ fun MediaViewerDialog(
                 return@LaunchedEffect
             }
             state = runCatching {
-                loader(threadId, target.messageId, target.media.partIndex, target.media.type)
+                loader(threadId, target.messageId, target.media)
             }.fold(
                 onSuccess = { MediaLoadState.Ready(it) },
                 onFailure = { MediaLoadState.Failed },
@@ -522,7 +576,9 @@ fun MediaViewerDialog(
                 )
 
                 MediaLoadState.Failed -> Text(
-                    text = stringResource(R.string.chat_media_error),
+                    text = stringResource(
+                        if (target.media.isReel) R.string.chat_reel_error else R.string.chat_media_error,
+                    ),
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
@@ -535,7 +591,7 @@ fun MediaViewerDialog(
                     if (target.media.isVideo) {
                         VideoPlayer(
                             file = current.file,
-                            loop = target.media.type == "gif",
+                            loop = target.media.type == "gif" || target.media.isReel,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {

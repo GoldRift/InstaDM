@@ -260,8 +260,8 @@ private fun ChatDestination(
         onRetryMedia = { messageId -> inboxState.retryMedia(threadId, messageId) },
         isLoading = inboxState.isLoading(threadId),
         errorMessage = inboxState.errorMessage,
-        onLoadMedia = { mediaThreadId, messageId, partIndex, mediaType ->
-            inboxState.downloadMedia(mediaThreadId, messageId, partIndex, mediaType)
+        onLoadMedia = { mediaThreadId, messageId, media ->
+            inboxState.downloadMedia(mediaThreadId, messageId, media)
         },
         onMarkRead = { messageId -> inboxState.markRead(threadId, messageId) },
         onLoadOlder = { inboxState.loadOlder(threadId) },

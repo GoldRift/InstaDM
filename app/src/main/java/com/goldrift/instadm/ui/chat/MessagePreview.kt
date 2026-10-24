@@ -78,7 +78,11 @@ internal fun mediaNoun(kind: String): Int? = when (kind.trim().lowercase()) {
     "audio" -> R.string.inbox_noun_voice
     "sticker" -> R.string.inbox_noun_sticker
     "gif" -> R.string.inbox_noun_gif
-    "link" -> R.string.inbox_noun_link
+    "link", "link-unavailable" -> R.string.inbox_noun_link
+    "post", "post-unavailable" -> R.string.inbox_noun_post
+    "story", "story-unavailable" -> R.string.inbox_noun_story
+    "reel", "reel-unavailable" -> R.string.inbox_noun_reel
+    "unavailable" -> R.string.inbox_noun_attachment
     "", "text" -> null
     else -> R.string.inbox_noun_attachment
 }

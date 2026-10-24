@@ -43,6 +43,14 @@ data class AttachmentEntity(
     @ColumnInfo(name = "view_once") val viewOnce: Boolean = false,
     /** Raven replay policy for [viewOnce] media: `viewed` or `replayed`. */
     @ColumnInfo(name = "view_mode") val viewMode: String = "",
+    /**
+     * Instagram media ID for a native reel share. Persisting it lets the app
+     * download the reel without re-querying a thread that may no longer
+     * contain the message.
+     */
+    @ColumnInfo(name = "target_id") val targetId: String = "",
+    /** Reel shortcode from the share URL, used as a media-info referer. */
+    val shortcode: String = "",
     @ColumnInfo(name = "download_state") val downloadState: String = DOWNLOAD_NONE,
 ) {
     companion object {

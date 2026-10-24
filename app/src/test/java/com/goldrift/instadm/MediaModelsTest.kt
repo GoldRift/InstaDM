@@ -112,4 +112,46 @@ class MediaModelsTest {
         assertEquals("[0.25,1.0]", waveformJson(listOf(0.25f, 2f)))
         assertEquals("[0.0,0.5]", waveformJson(listOf(-1f, 0.5f)))
     }
+
+    @Test
+    fun reelsArePlayableAndUseAPortraitCard() {
+        val reel = MessageMedia(
+            type = "reel",
+            url = "",
+            previewUrl = "https://cdn.example/reel.jpg",
+            targetId = "123456789",
+            shortcode = "ABC_123",
+        )
+
+        assertTrue(reel.isReel)
+        assertTrue(reel.isVideo)
+        assertTrue(reel.isVisual)
+        assertEquals("https://cdn.example/reel.jpg", reel.thumbnailUrl)
+        assertEquals(9f / 16f, reel.aspectRatio)
+        assertEquals("123456789", reel.targetId)
+        assertEquals("ABC_123", reel.shortcode)
+    }
+
+    @Test
+    fun linksAreNotVideoAndUseOnlyThePreviewForTheThumbnail() {
+        val link = MessageMedia(
+            type = "link",
+            url = "https://www.instagram.com/p/POST123/",
+            previewUrl = "https://cdn.example/post.jpg",
+        )
+
+        assertTrue(link.isLink)
+        assertFalse(link.isVideo)
+        assertFalse(link.isVisual)
+        assertEquals("https://cdn.example/post.jpg", link.thumbnailUrl)
+        assertEquals("https://www.instagram.com/p/POST123/", link.fullUrl)
+    }
+
+    @Test
+    fun linkWithoutPreviewDoesNotUseThePageAsAnImage() {
+        val link = MessageMedia(type = "link", url = "https://www.instagram.com/p/POST123/")
+
+        assertEquals("", link.thumbnailUrl)
+    }
+
 }

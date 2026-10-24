@@ -752,3 +752,283 @@ func TestNormalizeWaveform(t *testing.T) {
 		t.Errorf("wrapped = %v", wrapped)
 	}
 }
+
+func TestNewMessageViewNormalizesSharedReel(t *testing.T) {
+	timestamp := jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_000)}
+	message := &slidetypes.Message{
+		MessageID:   "mid.reel",
+		SenderFBID:  222,
+		TimestampMS: timestamp,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMATextBody: "watch this",
+				XMA: &slidetypes.XMAContent{
+					Typename:  "XDTReelShare",
+					TargetID:  "123456789",
+					TargetURL: "https://www.instagram.com/reel/ABC_123/?igsh=xyz",
+					PreviewImage: &slidetypes.XMAPreviewImage{
+						URL:         "https://cdn.example.invalid/reel.jpg",
+						FallbackURL: "https://cdn.example.invalid/reel-fallback.jpg",
+						Width:       1080,
+						Height:      1920,
+					},
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "reel" || view.MediaCount != 1 {
+		t.Errorf("kind/media_count = %q/%d, want reel/1", view.Kind, view.MediaCount)
+	}
+	if view.Text != "watch this" {
+		t.Errorf("text = %q, want the XMA body", view.Text)
+	}
+	if len(view.Media) != 1 {
+		t.Fatalf("media = %+v, want one reel", view.Media)
+	}
+	media := view.Media[0]
+	if media.Type != "reel" || media.TargetID != "123456789" || media.Shortcode != "ABC_123" {
+		t.Errorf("reel media = %+v, want type reel with target ID and shortcode", media)
+	}
+	if media.PreviewURL != "https://cdn.example.invalid/reel.jpg" ||
+		media.PreviewFallbackURL != "https://cdn.example.invalid/reel-fallback.jpg" ||
+		media.Width != 1080 || media.Height != 1920 {
+		t.Errorf("reel preview = %+v", media)
+	}
+}
+
+func TestNewMessageViewNormalizesSharedPostAsLink(t *testing.T) {
+	timestamp := jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_000)}
+	message := &slidetypes.Message{
+		MessageID:   "mid.post",
+		SenderFBID:  222,
+		TimestampMS: timestamp,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:  "XDTMediaShare",
+					TargetID:  "987654321",
+					TargetURL: "https://www.instagram.com/p/POST123/?igsh=xyz",
+					PreviewImage: &slidetypes.XMAPreviewImage{
+						URL:    "https://cdn.example.invalid/post.jpg",
+						Width:  1080,
+						Height: 1350,
+					},
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "post" || view.MediaCount != 1 {
+		t.Errorf("kind/media_count = %q/%d, want post/1", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 1 {
+		t.Fatalf("media = %+v, want one link", view.Media)
+	}
+	media := view.Media[0]
+	if media.Type != "link" || media.URL != "https://www.instagram.com/p/POST123/?igsh=xyz" {
+		t.Errorf("link media = %+v", media)
+	}
+	if media.PreviewURL != "https://cdn.example.invalid/post.jpg" {
+		t.Errorf("preview = %q, want the XMA preview", media.PreviewURL)
+	}
+}
+
+func TestNewMessageViewNormalizesStoryShareAsLink(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:  "mid.story",
+		SenderFBID: 222,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:  "XDTStoryShare",
+					TargetURL: "https://www.instagram.com/stories/someone/1234567890/?reel_id=1234567890",
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "story" || view.MediaCount != 1 {
+		t.Errorf("kind/media_count = %q/%d, want story/1", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 1 || view.Media[0].Type != "link" {
+		t.Fatalf("media = %+v, want one link", view.Media)
+	}
+}
+
+func TestXMAReelWithoutTargetIDFallsBackToLink(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:  "mid.reel-no-id",
+		SenderFBID: 222,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:  "XDTReelShare",
+					TargetURL: "https://www.instagram.com/reel/ABC_123/",
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "reel" || view.MediaCount != 1 {
+		t.Errorf("kind/media_count = %q/%d, want reel/1", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 1 || view.Media[0].Type != "link" || view.Media[0].URL == "" {
+		t.Fatalf("media = %+v, want a link fallback", view.Media)
+	}
+}
+
+func TestExpiredStoryPlaceholderShowsText(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:  "mid.story-expired",
+		SenderFBID: 222,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:        "SlideMessageExpiredPlaceholderXMA",
+					EyebrowText:     "Shared matt bernstein's story",
+					CaptionBodyText: "Story unavailable",
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "story-unavailable" || view.MediaCount != 0 {
+		t.Errorf("kind/media_count = %q/%d, want story-unavailable/0", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 0 {
+		t.Errorf("media = %+v, want no media for an expired story", view.Media)
+	}
+	want := "Shared matt bernstein's story. Story unavailable."
+	if view.Text != want {
+		t.Errorf("text = %q, want %q", view.Text, want)
+	}
+}
+
+func TestXMAWithoutTargetURLUsesSnippet(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:  "mid.empty",
+		SenderFBID: 222,
+		IGDSnippet: "Sent a post",
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{Typename: "XDTMediaShare"},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "link" || view.MediaCount != 0 {
+		t.Errorf("kind/media_count = %q/%d, want link/0", view.Kind, view.MediaCount)
+	}
+	if view.Text != "Sent a post" {
+		t.Errorf("text = %q, want the inbox snippet fallback", view.Text)
+	}
+}
+
+func TestSharedReelTarget(t *testing.T) {
+	cases := []struct {
+		name          string
+		xma           *slidetypes.XMAContent
+		wantOK        bool
+		wantTargetID  string
+		wantShortcode string
+	}{
+		{
+			name:          "reel URL",
+			xma:           &slidetypes.XMAContent{TargetID: "1", TargetURL: "https://www.instagram.com/reel/ABC_123/?igsh=xyz"},
+			wantOK:        true,
+			wantTargetID:  "1",
+			wantShortcode: "ABC_123",
+		},
+		{
+			name:          "reels URL",
+			xma:           &slidetypes.XMAContent{TargetID: "2", TargetURL: "https://www.instagram.com/reels/XYZ-9/"},
+			wantOK:        true,
+			wantTargetID:  "2",
+			wantShortcode: "XYZ-9",
+		},
+		{
+			name:          "redirect URL",
+			xma:           &slidetypes.XMAContent{TargetID: "3", TargetURL: "https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Freel%2FREDIRECT%2F"},
+			wantOK:        true,
+			wantTargetID:  "3",
+			wantShortcode: "REDIRECT",
+		},
+		{
+			name:          "typename fallback without URL",
+			xma:           &slidetypes.XMAContent{TargetID: "4", Typename: "XDTReelShare"},
+			wantOK:        true,
+			wantTargetID:  "4",
+			wantShortcode: "",
+		},
+		{
+			name:   "post URL",
+			xma:    &slidetypes.XMAContent{TargetID: "5", TargetURL: "https://www.instagram.com/p/POST123/"},
+			wantOK: false,
+		},
+		{
+			name:   "story URL",
+			xma:    &slidetypes.XMAContent{TargetURL: "https://www.instagram.com/stories/someone/123/"},
+			wantOK: false,
+		},
+		{
+			name:   "missing target ID",
+			xma:    &slidetypes.XMAContent{TargetURL: "https://www.instagram.com/reel/ABC/"},
+			wantOK: false,
+		},
+		{
+			name:   "non-numeric target ID",
+			xma:    &slidetypes.XMAContent{TargetID: "abc", TargetURL: "https://www.instagram.com/reel/ABC/"},
+			wantOK: false,
+		},
+		{
+			name:   "nil XMA",
+			xma:    nil,
+			wantOK: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			targetID, shortcode, ok := sharedReelTarget(tc.xma)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if targetID != tc.wantTargetID || shortcode != tc.wantShortcode {
+				t.Errorf("target/shortcode = %q/%q, want %q/%q", targetID, shortcode, tc.wantTargetID, tc.wantShortcode)
+			}
+		})
+	}
+}
+
+func TestUnknownMessageUsesSnippet(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:  "mid.unknown",
+		SenderFBID: 222,
+		IGDSnippet: "Sent a post",
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageUnknownContent",
+			Content:  slidetypes.MessageContentUnknown{},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "unknown" {
+		t.Errorf("kind = %q, want unknown", view.Kind)
+	}
+	if view.Text != "Sent a post" {
+		t.Errorf("text = %q, want the inbox snippet fallback", view.Text)
+	}
+}

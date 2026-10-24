@@ -3,6 +3,9 @@ package igcore
 import (
 	"encoding/json"
 	"math"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
@@ -319,6 +322,13 @@ type MediaView struct {
 	Height             int       `json:"height,omitempty"`
 	DurationMS         int       `json:"duration_ms,omitempty"`
 	Waveform           []float64 `json:"waveform,omitempty"`
+	// TargetID, TargetURL, and Shortcode identify a shared Instagram item
+	// (an XMA attachment). A reel's DM payload only carries a preview image;
+	// clients resolve the playable video from TargetID when the user opens it.
+	// Link shares (posts, stories, external pages) use URL as the target.
+	TargetID  string `json:"target_id,omitempty"`
+	TargetURL string `json:"target_url,omitempty"`
+	Shortcode string `json:"shortcode,omitempty"`
 	// ViewOnce marks Instagram's view-once ("raven") media. The one allowed
 	// view belongs to the official app, so no CDN URL is exposed and clients
 	// must show a notice instead of rendering or downloading the attachment.
@@ -626,8 +636,225 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 				Height:     attachment.PreviewHeight,
 			})
 		}
+	case *slidetypes.MessageContentXMA:
+		if view, ok := sharedReelMedia(content); ok {
+			media = append(media, view)
+		} else if view, ok := xmaLinkMedia(content); ok {
+			media = append(media, view)
+		}
 	}
 	return media
+}
+
+// sharedReelPathPattern matches Instagram's reel share URLs. Post and story
+// URLs deliberately do not match: they stay link shares.
+var sharedReelPathPattern = regexp.MustCompile(`/(?:reel|reels)/([A-Za-z0-9_-]+)`)
+
+// sharedReelTarget recognizes a native reel share. The DM payload carries the
+// media ID and a public reel URL, but no playable video URL.
+func sharedReelTarget(xma *slidetypes.XMAContent) (targetID, shortcode string, ok bool) {
+	if xma == nil {
+		return "", "", false
+	}
+	targetID = strings.TrimSpace(xma.TargetID)
+	if targetID == "" {
+		return "", "", false
+	}
+	if _, err := strconv.ParseInt(targetID, 10, 64); err != nil {
+		return "", "", false
+	}
+
+	targetURL := unwrapInstagramRedirect(strings.TrimSpace(xma.TargetURL))
+	if parsed, err := url.Parse(targetURL); err == nil {
+		if match := sharedReelPathPattern.FindStringSubmatch(parsed.Path); len(match) > 1 {
+			shortcode = match[1]
+		}
+	}
+	if shortcode == "" && !strings.Contains(strings.ToLower(xma.Typename), "reel") {
+		return "", "", false
+	}
+	return targetID, shortcode, true
+}
+
+// unwrapInstagramRedirect resolves the link wrapper Instagram sometimes uses
+// for share URLs. Other URLs are returned unchanged.
+func unwrapInstagramRedirect(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(parsed.Host, "l.instagram.com") {
+		return raw
+	}
+	if target := parsed.Query().Get("u"); target != "" {
+		return target
+	}
+	return raw
+}
+
+// xmaTargetURL returns the public URL carried by an XMA attachment. It is used
+// for link shares (posts, stories, external pages) that have no playable media.
+func xmaTargetURL(content *slidetypes.MessageContentXMA) string {
+	if content == nil || content.XMA == nil {
+		return ""
+	}
+	return unwrapInstagramRedirect(strings.TrimSpace(content.XMA.TargetURL))
+}
+
+// sharedReelMedia normalizes a native reel share into a media item. The item
+// keeps the preview image and the identifiers needed to resolve the video.
+func sharedReelMedia(content *slidetypes.MessageContentXMA) (MediaView, bool) {
+	if content == nil {
+		return MediaView{}, false
+	}
+	targetID, shortcode, ok := sharedReelTarget(content.XMA)
+	if !ok {
+		return MediaView{}, false
+	}
+	view := MediaView{
+		Type:      "reel",
+		TargetID:  targetID,
+		TargetURL: xmaTargetURL(content),
+		Shortcode: shortcode,
+	}
+	applyXMAPreview(&view, content.XMA)
+	return view, true
+}
+
+// xmaLinkMedia normalizes a non-reel XMA share into a link card. The target URL
+// is the link the user sees and opens; the preview image is optional.
+func xmaLinkMedia(content *slidetypes.MessageContentXMA) (MediaView, bool) {
+	targetURL := xmaTargetURL(content)
+	if targetURL == "" {
+		return MediaView{}, false
+	}
+	view := MediaView{
+		Type:      "link",
+		URL:       targetURL,
+		TargetURL: targetURL,
+	}
+	applyXMAPreview(&view, content.XMA)
+	return view, true
+}
+
+// xmaShareKind labels a link share so inbox previews and reply quotes can say
+// "post" or "story" instead of the generic "link".
+func xmaShareKind(targetURL string) string {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return "link"
+	}
+	switch {
+	case strings.HasPrefix(parsed.Path, "/p/"):
+		return "post"
+	case strings.HasPrefix(parsed.Path, "/stories/"):
+		return "story"
+	case sharedReelPathPattern.MatchString(parsed.Path):
+		return "reel"
+	default:
+		return "link"
+	}
+}
+
+// isExpiredXMA recognizes Instagram's placeholder for a share whose media is
+// gone. The payload has no URL, so clients can only show the notice text.
+func isExpiredXMA(xma *slidetypes.XMAContent) bool {
+	if xma == nil {
+		return false
+	}
+	if strings.Contains(strings.ToLower(xma.Typename), "expiredplaceholder") {
+		return true
+	}
+	eyebrow := strings.ToLower(xma.EyebrowText)
+	caption := strings.ToLower(xma.CaptionBodyText)
+	return strings.Contains(eyebrow, "shared") && strings.Contains(caption, "unavailable")
+}
+
+// xmaPlaceholderKind labels an XMA share that has no URL, such as Instagram's
+// "Story unavailable" placeholder. The caption/eyebrow text is the only clue.
+func xmaPlaceholderKind(xma *slidetypes.XMAContent) string {
+	if xma == nil {
+		return "link"
+	}
+	text := strings.ToLower(xma.EyebrowText + " " + xma.CaptionBodyText + " " + xma.TitleText)
+	switch {
+	case strings.Contains(text, "story"):
+		return "story"
+	case strings.Contains(text, "reel"):
+		return "reel"
+	case strings.Contains(text, "post"):
+		return "post"
+	default:
+		return "link"
+	}
+}
+
+// xmaFallbackText gives an XMA share without a URL a readable body instead of
+// an empty bubble. Expired story shares carry "Shared X's story" in the eyebrow
+// and "Story unavailable" in the caption.
+func xmaFallbackText(xma *slidetypes.XMAContent) string {
+	if xma == nil {
+		return ""
+	}
+	eyebrow := strings.TrimSpace(xma.EyebrowText)
+	caption := strings.TrimSpace(xma.CaptionBodyText)
+	title := strings.TrimSpace(xma.TitleText)
+	switch {
+	case eyebrow != "" && caption != "":
+		return joinSentence(eyebrow, caption)
+	case eyebrow != "":
+		return eyebrow
+	case caption != "":
+		return caption
+	default:
+		return title
+	}
+}
+
+// joinSentence joins two notice fragments into one sentence pair. The first
+// fragment gets a period unless it already ends with terminal punctuation, and
+// the second gets a final period for a finished sentence.
+func joinSentence(first, second string) string {
+	first = strings.TrimSpace(first)
+	second = strings.TrimSpace(second)
+	switch {
+	case first == "":
+		return ensureSentenceEnd(second)
+	case second == "":
+		return ensureSentenceEnd(first)
+	case hasTerminalPunctuation(first):
+		return first + " " + ensureSentenceEnd(second)
+	default:
+		return first + ". " + ensureSentenceEnd(second)
+	}
+}
+
+func ensureSentenceEnd(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || hasTerminalPunctuation(text) {
+		return text
+	}
+	return text + "."
+}
+
+func hasTerminalPunctuation(text string) bool {
+	return strings.HasSuffix(text, ".") ||
+		strings.HasSuffix(text, "!") ||
+		strings.HasSuffix(text, "?")
+}
+
+func applyXMAPreview(view *MediaView, xma *slidetypes.XMAContent) {
+	if view == nil || xma == nil {
+		return
+	}
+	preview := xma.PreviewImage
+	if preview == nil {
+		preview = xma.XMAPreviewImage
+	}
+	if preview == nil {
+		return
+	}
+	view.PreviewURL = preview.URL
+	view.PreviewFallbackURL = preview.FallbackURL
+	view.Width = preview.Width
+	view.Height = preview.Height
 }
 
 // appendRavenMedia normalizes Instagram's ephemeral ("raven") attachments.
@@ -791,8 +1018,28 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		kind = "sticker"
 		text = content.AltText
 	case *slidetypes.MessageContentXMA:
-		kind = "link"
 		text = content.XMATextBody
+		if _, _, ok := sharedReelTarget(content.XMA); ok {
+			kind = "reel"
+			mediaCount = 1
+		} else if targetURL := xmaTargetURL(content); targetURL != "" {
+			kind = xmaShareKind(targetURL)
+			mediaCount = 1
+		} else {
+			kind = xmaPlaceholderKind(content.XMA)
+			if isExpiredXMA(content.XMA) {
+				// The app renders the "-unavailable" kinds as a notice card
+				// instead of a normal text bubble.
+				kind += "-unavailable"
+			}
+			if fallback := xmaFallbackText(content.XMA); fallback != "" {
+				if text == "" {
+					text = fallback
+				} else {
+					text += "\n" + fallback
+				}
+			}
+		}
 	case *slidetypes.MessageContentMusicSticker:
 		kind = "music"
 	case *slidetypes.MessageContentAIRichResponse:
@@ -806,6 +1053,12 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 	}
 
 	if text == "" && kind == "admin" {
+		text = message.IGDSnippet
+	}
+	if text == "" && mediaCount == 0 && (kind == "link" || kind == "unknown") &&
+		message.TextBody == "" {
+		// A share with no URL and no body would otherwise render an empty
+		// bubble. Instagram's own inbox text is a readable fallback.
 		text = message.IGDSnippet
 	}
 	if text == "" && message.TextBody != "" && (kind == "text" || kind == "admin" || kind == "unknown") {

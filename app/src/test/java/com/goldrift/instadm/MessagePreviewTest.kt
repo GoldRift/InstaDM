@@ -31,6 +31,34 @@ class MessagePreviewTest {
     }
 
     @Test
+    fun reelsAndLinksHaveTheirOwnNouns() {
+        assertEquals(
+            Res(R.string.inbox_noun_reel),
+            mediaLabel(kind = "reel"),
+        )
+        assertEquals(
+            Res(R.string.inbox_noun_link),
+            mediaLabel(kind = "link"),
+        )
+        assertEquals(
+            Res(R.string.inbox_noun_post),
+            mediaLabel(kind = "post"),
+        )
+        assertEquals(
+            Res(R.string.inbox_noun_story),
+            mediaLabel(kind = "story"),
+        )
+        assertEquals(
+            Res(R.string.inbox_noun_story),
+            mediaLabel(kind = "story-unavailable"),
+        )
+        assertEquals(
+            Res(R.string.inbox_noun_post),
+            mediaLabel(kind = "post-unavailable"),
+        )
+    }
+
+    @Test
     fun captionsWinOverTheAttachmentLabel() {
         val label = ConversationPreview(kind = "image", text = "look at this").label(isGroup = false)
 

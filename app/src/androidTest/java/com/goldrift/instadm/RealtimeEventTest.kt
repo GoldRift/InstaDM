@@ -121,6 +121,78 @@ class RealtimeEventTest {
     }
 
     @Test
+    fun parsesSharedReelWithoutAPlayableUrl() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "message.new",
+              "thread_id": "thread-1",
+              "message": {
+                "id": "mid.reel",
+                "text": "",
+                "kind": "reel",
+                "timestamp_ms": 1700000000000,
+                "media": [
+                  {
+                    "type": "reel",
+                    "preview_url": "https://cdn.example/reel.jpg",
+                    "width": 1080,
+                    "height": 1920,
+                    "target_id": "123456789",
+                    "shortcode": "ABC_123"
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        val media = event!!.message!!.media.single()
+        assertEquals("reel", media.type)
+        assertTrue(media.isReel)
+        assertTrue(media.isVideo)
+        assertTrue(media.isVisual)
+        assertEquals("123456789", media.targetId)
+        assertEquals("ABC_123", media.shortcode)
+        assertEquals("https://cdn.example/reel.jpg", media.thumbnailUrl)
+    }
+
+    @Test
+    fun parsesSharedLinkWithItsTargetUrl() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "message.new",
+              "thread_id": "thread-1",
+              "message": {
+                "id": "mid.post",
+                "text": "",
+                "kind": "link",
+                "timestamp_ms": 1700000000000,
+                "media": [
+                  {
+                    "type": "link",
+                    "url": "https://www.instagram.com/p/POST123/",
+                    "preview_url": "https://cdn.example/post.jpg"
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        val media = event!!.message!!.media.single()
+        assertEquals("link", media.type)
+        assertTrue(media.isLink)
+        assertFalse(media.isVideo)
+        assertFalse(media.isVisual)
+        assertEquals("https://www.instagram.com/p/POST123/", media.fullUrl)
+        assertEquals("https://cdn.example/post.jpg", media.thumbnailUrl)
+    }
+
+    @Test
     fun parsesReadReceipt() {
         val event = RealtimeEvent.fromJson(
             """

@@ -1133,6 +1133,13 @@ private fun replyContent(reply: ReplySnapshot): String {
         "sticker" -> stringResource(R.string.chat_reply_sticker)
         "gif" -> stringResource(R.string.chat_reply_gif)
         "link" -> stringResource(R.string.chat_reply_link)
+        "link-unavailable" -> stringResource(R.string.chat_reply_link)
+        "post" -> stringResource(R.string.chat_reply_post)
+        "post-unavailable" -> stringResource(R.string.chat_reply_post)
+        "story" -> stringResource(R.string.chat_reply_story)
+        "story-unavailable" -> stringResource(R.string.chat_reply_story)
+        "reel" -> stringResource(R.string.chat_reply_reel)
+        "reel-unavailable" -> stringResource(R.string.chat_reply_reel)
         else -> stringResource(R.string.chat_reply_attachment)
     }
 }
@@ -1150,11 +1157,15 @@ private fun MessageBubbleContent(
     voicePlayer: VoicePlayer,
 ) {
     val media = message.media.filter { it.isVisual }
+    val links = message.media.filter { it.isLink && it.url.isNotBlank() }
     val viewOnce = message.media.filter { it.viewOnce }
     val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
-    val hasAttachment = media.isNotEmpty() || viewOnce.isNotEmpty() ||
-        voiceNotes.isNotEmpty() || localMedia != null
+    val unavailable = message.kind == "unavailable" ||
+        message.kind.endsWith("-unavailable")
+    val hasAttachment = media.isNotEmpty() || links.isNotEmpty() ||
+        viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null ||
+        unavailable
     Column(
         modifier = Modifier.padding(
             horizontal = if (hasAttachment) 4.dp else 14.dp,
@@ -1182,7 +1193,9 @@ private fun MessageBubbleContent(
             )
         }
 
-        if (viewOnce.isNotEmpty() && (media.isNotEmpty() || voiceNotes.isNotEmpty())) {
+        if (viewOnce.isNotEmpty() &&
+            (media.isNotEmpty() || links.isNotEmpty() || voiceNotes.isNotEmpty())
+        ) {
             Spacer(Modifier.height(4.dp))
         }
 
@@ -1199,8 +1212,16 @@ private fun MessageBubbleContent(
             )
         }
 
+        links.forEachIndexed { index, item ->
+            if (index > 0 || media.isNotEmpty()) Spacer(Modifier.height(4.dp))
+            LinkPreviewCard(
+                media = item,
+                onLongClick = onLongPress,
+            )
+        }
+
         if (voiceNotes.isNotEmpty()) {
-            if (media.isNotEmpty()) Spacer(Modifier.height(4.dp))
+            if (media.isNotEmpty() || links.isNotEmpty()) Spacer(Modifier.height(4.dp))
             voiceNotes.forEach { item ->
                 VoiceNoteBubble(
                     media = item,
@@ -1213,14 +1234,19 @@ private fun MessageBubbleContent(
             }
         }
 
-        if (media.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
+        if (media.isEmpty() && links.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
             LocalMediaThumbnail(
                 media = localMedia,
                 onLongClick = onLongPress,
             )
         }
 
-        if (message.text.isNotBlank()) {
+        if (unavailable && message.text.isNotBlank()) {
+            UnavailableShareNotice(
+                text = message.text,
+                onLongClick = onLongPress,
+            )
+        } else if (message.text.isNotBlank()) {
             Text(
                 text = message.text,
                 style = MaterialTheme.typography.bodyLarge,

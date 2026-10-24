@@ -20,7 +20,12 @@
     <string name="chat_media_close">Close</string>
     <string name="chat_media_unavailable">Media unavailable</string>
     <string name="chat_media_error">Couldn\'t load media</string>
+    <string name="chat_reel_error">Couldn\'t load this reel</string>
     <string name="chat_video_play">Play video</string>
+    <string name="chat_reel_play">Play reel</string>
+    <string name="chat_reel_badge">Reel</string>
+    <string name="chat_link_open">Open link</string>
+    <string name="chat_link_error">Couldn\'t open link</string>
     <string name="chat_view_once_photo">This photo can only be viewed once. Use the Instagram app to view.</string>
     <string name="chat_view_once_video">This video can only be viewed once. Use the Instagram app to view.</string>
     <string name="chat_view_twice_photo">This photo can only be viewed twice. Use the Instagram app to view.</string>
@@ -61,6 +66,9 @@
     <string name="chat_reply_sticker">Sticker</string>
     <string name="chat_reply_gif">GIF</string>
     <string name="chat_reply_link">Link</string>
+    <string name="chat_reply_post">Post</string>
+    <string name="chat_reply_story">Story</string>
+    <string name="chat_reply_reel">Reel</string>
     <string name="chat_reply_attachment">Attachment</string>
     <string name="chat_copied">Copied</string>
     <string name="chat_cancel">Cancel</string>
@@ -80,6 +88,9 @@
     <string name="inbox_noun_sticker">a sticker</string>
     <string name="inbox_noun_gif">a GIF</string>
     <string name="inbox_noun_link">a link</string>
+    <string name="inbox_noun_post">a post</string>
+    <string name="inbox_noun_story">a story</string>
+    <string name="inbox_noun_reel">a reel</string>
     <string name="inbox_noun_attachment">an attachment</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_unread">Unread</string>

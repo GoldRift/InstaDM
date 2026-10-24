@@ -380,6 +380,24 @@ func (c *Client) DownloadMediaJSON(threadID, messageID string, part int32, destP
 	return encode(result)
 }
 
+// DownloadSharedMediaJSON downloads a shared reel by its Instagram media ID.
+// It does not need the source thread or message, so it works for reels that
+// are older than the newest thread page.
+func (c *Client) DownloadSharedMediaJSON(mediaID, shortcode, destPath string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.DownloadSharedMedia(ctx, mediaID, shortcode, destPath)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) client() (*igcore.Client, error) {
 	if c == nil || c.inner == nil {
 		return nil, errors.New("client is not initialized")

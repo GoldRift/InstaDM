@@ -18,6 +18,7 @@ import (
 
 	"go.mau.fi/mautrix-meta/pkg/instameow"
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
+	"go.mau.fi/mautrix-meta/pkg/messagix/responses"
 	"go.mau.fi/util/jsontime"
 )
 
@@ -239,9 +240,94 @@ func TestSelectMediaPartRefusesViewOnce(t *testing.T) {
 		ViewOnce: true,
 		ViewMode: "viewed",
 	}}}
-	_, _, err := selectMediaPart(message, 0)
+	_, err := selectMediaPart(message, 0)
 	if err == nil || !strings.Contains(err.Error(), "view-once media can only be viewed") {
 		t.Errorf("view-once error = %v", err)
+	}
+}
+
+func TestSelectMediaPartAllowsReelWithoutURL(t *testing.T) {
+	message := &MessageView{Media: []MediaView{{
+		Type:      "reel",
+		TargetID:  "123456789",
+		Shortcode: "ABC_123",
+	}}}
+	media, err := selectMediaPart(message, 0)
+	if err != nil {
+		t.Fatalf("selectMediaPart: %v", err)
+	}
+	if media.Type != "reel" || media.TargetID != "123456789" || media.Shortcode != "ABC_123" {
+		t.Errorf("media = %+v", media)
+	}
+}
+
+func TestMediaDownloadTargetRejectsLink(t *testing.T) {
+	client := &Client{}
+	_, _, _, err := client.mediaDownloadTarget(context.Background(), MediaView{
+		Type: "link",
+		URL:  "https://www.instagram.com/p/POST123/",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not downloadable media") {
+		t.Errorf("link error = %v", err)
+	}
+}
+
+func TestBestVideoVersion(t *testing.T) {
+	cases := []struct {
+		name      string
+		versions  []responses.VideoVersions
+		wantURL   string
+		wantWidth int
+	}{
+		{
+			name: "prefers 1080p over 720p",
+			versions: []responses.VideoVersions{
+				{URL: "https://cdn.example/720.mp4", Width: 720, Height: 1280},
+				{URL: "https://cdn.example/1080.mp4", Width: 1080, Height: 1920},
+			},
+			wantURL:   "https://cdn.example/1080.mp4",
+			wantWidth: 1080,
+		},
+		{
+			name: "skips 4K when a smaller rendition exists",
+			versions: []responses.VideoVersions{
+				{URL: "https://cdn.example/4k.mp4", Width: 2160, Height: 3840},
+				{URL: "https://cdn.example/720.mp4", Width: 720, Height: 1280},
+			},
+			wantURL:   "https://cdn.example/720.mp4",
+			wantWidth: 720,
+		},
+		{
+			name: "falls back to the smallest rendition when all are large",
+			versions: []responses.VideoVersions{
+				{URL: "https://cdn.example/4k.mp4", Width: 2160, Height: 3840},
+				{URL: "https://cdn.example/1440.mp4", Width: 1440, Height: 2560},
+			},
+			wantURL:   "https://cdn.example/1440.mp4",
+			wantWidth: 1440,
+		},
+		{
+			name: "skips empty URLs",
+			versions: []responses.VideoVersions{
+				{URL: "", Width: 1080, Height: 1920},
+				{URL: "https://cdn.example/720.mp4", Width: 720, Height: 1280},
+			},
+			wantURL:   "https://cdn.example/720.mp4",
+			wantWidth: 720,
+		},
+		{
+			name:     "empty versions",
+			versions: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rawURL, width, _ := bestVideoVersion(tc.versions)
+			if rawURL != tc.wantURL || width != tc.wantWidth {
+				t.Errorf("url/width = %q/%d, want %q/%d", rawURL, width, tc.wantURL, tc.wantWidth)
+			}
+		})
 	}
 }
 

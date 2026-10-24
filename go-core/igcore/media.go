@@ -18,12 +18,17 @@ import (
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
 	"go.mau.fi/mautrix-meta/pkg/messagix/httpclient"
 	"go.mau.fi/mautrix-meta/pkg/messagix/methods"
+	"go.mau.fi/mautrix-meta/pkg/messagix/responses"
 	"go.mau.fi/mautrix-meta/pkg/messagix/useragent"
 )
 
 const (
 	MaxImageBytes = 8 * 1024 * 1024
 	MaxMediaBytes = 25 * 1024 * 1024
+
+	// MaxSharedMediaBytes bounds a shared reel download. Reels are usually
+	// much larger than chat attachments; the app's media cache is 250 MiB.
+	MaxSharedMediaBytes = 100 * 1024 * 1024
 
 	// VoiceWaveformSamplingFrequency is the sample rate Instagram expects for
 	// voice clip waveforms. The app samples MediaRecorder amplitudes at the
@@ -375,15 +380,19 @@ var ErrMediaForbidden = errors.New("media download forbidden")
 
 type DownloadResult struct {
 	ProtocolVersion string `json:"protocol_version"`
-	ThreadID        string `json:"thread_id"`
-	MessageID       string `json:"message_id"`
+	ThreadID        string `json:"thread_id,omitempty"`
+	MessageID       string `json:"message_id,omitempty"`
 	PartIndex       int    `json:"part_index"`
 	Type            string `json:"type"`
 	AttachmentFBID  string `json:"attachment_fbid,omitempty"`
-	MimeType        string `json:"mime_type"`
-	Path            string `json:"path"`
-	SizeBytes       int64  `json:"size_bytes"`
-	URL             string `json:"url"`
+	// MediaID and Shortcode identify a shared reel resolved through the media
+	// info endpoint. They are empty for ordinary message attachments.
+	MediaID   string `json:"media_id,omitempty"`
+	Shortcode string `json:"shortcode,omitempty"`
+	MimeType  string `json:"mime_type"`
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"size_bytes"`
+	URL       string `json:"url"`
 }
 
 // LoadMessage fetches the newest page and returns one message by IG message ID.
@@ -441,7 +450,7 @@ func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID stri
 	if err != nil {
 		return nil, err
 	}
-	media, mediaURL, err := selectMediaPart(message, partIndex)
+	media, err := selectMediaPart(message, partIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -450,17 +459,25 @@ func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID stri
 		return nil, errors.New("destination path is required")
 	}
 
-	result, err := downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
+	mediaURL, downloadType, maxBytes, err := c.mediaDownloadTarget(ctx, media)
+	if err != nil {
+		return nil, err
+	}
+	result, err := downloadMediaURL(ctx, mediaURL, downloadType, media.AttachmentFBID, destPath, maxBytes)
 	if errors.Is(err, ErrMediaForbidden) && refresh != nil {
 		refreshed, refreshErr := refresh(ctx, threadID, messageID)
 		if refreshErr != nil {
 			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
 		}
-		media, mediaURL, refreshErr = selectMediaPart(refreshed, partIndex)
+		media, refreshErr = selectMediaPart(refreshed, partIndex)
 		if refreshErr != nil {
 			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
 		}
-		result, err = downloadMediaURL(ctx, mediaURL, media.Type, media.AttachmentFBID, destPath, MaxMediaBytes)
+		mediaURL, downloadType, maxBytes, refreshErr = c.mediaDownloadTarget(ctx, media)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
+		}
+		result, err = downloadMediaURL(ctx, mediaURL, downloadType, media.AttachmentFBID, destPath, maxBytes)
 	}
 	if err != nil {
 		return nil, err
@@ -469,25 +486,153 @@ func (c *Client) downloadMediaPart(ctx context.Context, threadID, messageID stri
 	result.ThreadID = strings.TrimSpace(threadID)
 	result.MessageID = strings.TrimSpace(messageID)
 	result.PartIndex = partIndex
+	if media.Type == "reel" {
+		result.MediaID = media.TargetID
+		result.Shortcode = media.Shortcode
+	}
 	return result, nil
 }
 
-func selectMediaPart(message *MessageView, partIndex int) (MediaView, string, error) {
+// mediaDownloadTarget resolves the URL and limits for one normalized media
+// item. Reels have no CDN URL in the message payload, so they are resolved
+// through Instagram's media info endpoint on demand.
+func (c *Client) mediaDownloadTarget(ctx context.Context, media MediaView) (rawURL, downloadType string, maxBytes int64, err error) {
+	switch media.Type {
+	case "reel":
+		resolved, resolveErr := c.resolveSharedMedia(ctx, media.TargetID, media.Shortcode)
+		if resolveErr != nil {
+			return "", "", 0, resolveErr
+		}
+		return resolved.URL, resolved.Type, MaxSharedMediaBytes, nil
+	case "link":
+		return "", "", 0, errors.New("link attachments are not downloadable media")
+	}
+	rawURL = firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
+	if rawURL == "" {
+		return "", "", 0, errors.New("media attachment has no download URL")
+	}
+	return rawURL, media.Type, MaxMediaBytes, nil
+}
+
+func selectMediaPart(message *MessageView, partIndex int) (MediaView, error) {
 	if len(message.Media) == 0 {
-		return MediaView{}, "", errors.New("message has no downloadable media")
+		return MediaView{}, errors.New("message has no downloadable media")
 	}
 	if partIndex < 0 || partIndex >= len(message.Media) {
-		return MediaView{}, "", fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
+		return MediaView{}, fmt.Errorf("media part %d is out of range; message has %d part(s)", partIndex, len(message.Media))
 	}
 	media := message.Media[partIndex]
 	if media.ViewOnce {
-		return MediaView{}, "", errors.New("view-once media can only be viewed in the Instagram app")
+		return MediaView{}, errors.New("view-once media can only be viewed in the Instagram app")
 	}
-	mediaURL := firstNonEmpty(media.URL, media.FallbackURL, media.PreviewURL, media.PreviewFallbackURL)
-	if mediaURL == "" {
-		return MediaView{}, "", errors.New("media attachment has no download URL")
+	return media, nil
+}
+
+// sharedMediaResolution is the playable media resolved from an XMA reel share.
+type sharedMediaResolution struct {
+	URL        string
+	Type       string
+	Width      int
+	Height     int
+	DurationMS int
+}
+
+// resolveSharedMedia fetches a shared reel's media metadata and picks a
+// playable video rendition. It is only called when the user opens the reel.
+func (c *Client) resolveSharedMedia(ctx context.Context, mediaID, shortcode string) (*sharedMediaResolution, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
 	}
-	return media, mediaURL, nil
+	mediaID = strings.TrimSpace(mediaID)
+	if mediaID == "" {
+		return nil, errors.New("shared reel has no media ID")
+	}
+	if _, err := c.bootstrap(ctx); err != nil {
+		return nil, err
+	}
+	response, err := c.inner.FetchMedia(ctx, mediaID, strings.TrimSpace(shortcode))
+	if err != nil {
+		return nil, fmt.Errorf("resolve shared reel: %w", err)
+	}
+	if response == nil || len(response.Items) == 0 {
+		return nil, errors.New("shared reel is unavailable")
+	}
+	item := response.Items[0]
+	if item == nil {
+		return nil, errors.New("shared reel is unavailable")
+	}
+	rawURL, width, height := bestVideoVersion(item.VideoVersions)
+	if rawURL == "" {
+		return nil, errors.New("shared reel has no playable video")
+	}
+	return &sharedMediaResolution{
+		URL:        rawURL,
+		Type:       "video",
+		Width:      width,
+		Height:     height,
+		DurationMS: int(item.VideoDuration * 1000),
+	}, nil
+}
+
+// bestVideoVersion prefers the largest rendition up to 1080p. If every
+// rendition is larger, it picks the smallest one so a 4K stream is not
+// downloaded into the chat media cache by accident.
+func bestVideoVersion(versions []responses.VideoVersions) (rawURL string, width, height int) {
+	var best *responses.VideoVersions
+	var smallest *responses.VideoVersions
+	for index := range versions {
+		version := &versions[index]
+		if version.URL == "" {
+			continue
+		}
+		area := version.Width * version.Height
+		if version.Width <= 1080 && (best == nil || area > best.Width*best.Height) {
+			best = version
+		}
+		if smallest == nil || area < smallest.Width*smallest.Height {
+			smallest = version
+		}
+	}
+	if best == nil {
+		best = smallest
+	}
+	if best == nil {
+		return "", 0, 0
+	}
+	return best.URL, best.Width, best.Height
+}
+
+// DownloadSharedMedia downloads a shared reel by its Instagram media ID. It
+// does not need the source thread or message, so clients can play reels that
+// are older than the newest thread page.
+func (c *Client) DownloadSharedMedia(ctx context.Context, mediaID, shortcode, destPath string) (*DownloadResult, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
+	}
+	destPath = strings.TrimSpace(destPath)
+	if destPath == "" {
+		return nil, errors.New("destination path is required")
+	}
+
+	resolved, err := c.resolveSharedMedia(ctx, mediaID, shortcode)
+	if err != nil {
+		return nil, err
+	}
+	result, err := downloadMediaURL(ctx, resolved.URL, resolved.Type, "", destPath, MaxSharedMediaBytes)
+	if errors.Is(err, ErrMediaForbidden) {
+		resolved, refreshErr := c.resolveSharedMedia(ctx, mediaID, shortcode)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("%w (refresh failed: %v)", err, refreshErr)
+		}
+		result, err = downloadMediaURL(ctx, resolved.URL, resolved.Type, "", destPath, MaxSharedMediaBytes)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result.MediaID = strings.TrimSpace(mediaID)
+	result.Shortcode = strings.TrimSpace(shortcode)
+	return result, nil
 }
 
 func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, destPath string, maxBytes int64) (*DownloadResult, error) {

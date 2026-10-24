@@ -286,7 +286,7 @@ fun VoiceNoteBubble(
         failed = false
         scope.launch {
             val downloaded = runCatching {
-                loader(threadId, messageId, media.partIndex, media.type)
+                loader(threadId, messageId, media)
             }.getOrNull()
             loading = false
             if (downloaded != null) {

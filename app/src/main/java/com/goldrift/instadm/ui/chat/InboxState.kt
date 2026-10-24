@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
+import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RecordedVoice
@@ -487,11 +488,10 @@ class InboxState(
     suspend fun downloadMedia(
         threadId: String,
         messageId: String,
-        partIndex: Int,
-        mediaType: String,
+        media: MessageMedia,
     ): File {
-        val file = repository.downloadMedia(threadId, messageId, partIndex, mediaType)
-        chatStore.markAttachmentReady(messageId, partIndex, file.absolutePath)
+        val file = repository.downloadMedia(threadId, messageId, media)
+        chatStore.markAttachmentReady(messageId, media.partIndex, file.absolutePath)
         return file
     }
 

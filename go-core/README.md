@@ -229,7 +229,15 @@ the viewer's messages, and `has_more_older`/`oldest_cursor` for the next paginat
 step. It also includes `read_receipts` with each participant's FBID, watermark, and
 `from_viewer` flag. The viewer's own receipt only means the viewer read the thread; it
 never produces a `seen` flag. Media messages also get a `media` array with attachment
-FBIDs, full and preview CDN URLs, dimensions, and duration where available. View-once
+FBIDs, full and preview CDN URLs, dimensions, and duration where available. Native reel
+shares are normalized as `kind=reel` with a `reel` media item whose `target_id`/
+`shortcode` identify the playable video; post, story, and external-page shares are
+normalized as `kind=post`, `kind=story`, or `kind=link` with a `link` media item whose
+`url` is the target. A share with no URL (for example Instagram's expired-story
+placeholder) keeps its kind with an `-unavailable` suffix (`kind=story-unavailable`) and
+uses the XMA eyebrow/caption text (`"Shared X's story"`, `"Story unavailable"`) as the
+message body, so clients can render a notice instead of an empty bubble; `media_count`
+stays `0`.
 and replayable ("raven") attachments instead carry `view_once: true` plus `view_mode`
 (`viewed` or `replayed`) and omit every CDN URL, because the allowed views belong to the
 official app; the item is still present when Instagram has not sent an attachment yet,
@@ -296,14 +304,21 @@ unit-tested, but a live send is still unverified.
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN
 URL is fresh; if the CDN rejects the URL with HTTP 403, it re-queries once and retries.
 Download URLs expire, so re-run the command instead of storing a URL long-term.
-Downloads are capped at 25 MiB and written with mode `0600`. It supports
-images, video, audio, GIFs, stickers, and multi-media messages. The source bytes may be
-recompressed by the CDN, so compare decoded pixels rather than file hashes. Both listing
-and downloading search the newest 100 messages unless a recently loaded thread page
-already contains the message; older media messages need a paginated lookup in a later
-pass. A CDN 403 causes one cache-bypassing thread refresh and retry. View-once media is
-listed but cannot be downloaded; `--save` returns an error directing the user to the
-Instagram app.
+Downloads are capped at 25 MiB and written with mode `0600`; shared reels use a 100 MiB
+cap. It supports images, video, audio, GIFs, stickers, multi-media messages, and shared
+reels. A reel's DM payload only carries a preview, so `--save` resolves a fresh playable
+rendition through the media info endpoint (`/api/v1/media/<id>/info/`) from the persisted
+`target_id`/`shortcode`; the largest rendition up to 1080p is preferred, with a smaller
+fallback when every rendition is larger. Link shares (posts, stories, and external
+pages) are listed with their target URL but cannot be downloaded as media; `--save`
+returns an error. The source bytes may be recompressed by the CDN, so compare decoded
+pixels rather than file hashes. Both listing and downloading search the newest 100
+messages unless a recently loaded thread page already contains the message; older media
+messages need a paginated lookup in a later pass. The Android app persists the reel's
+media ID and uses the mobile `downloadSharedMedia` call instead, so it can play a reel
+without re-querying the thread. A CDN 403 causes one cache-bypassing thread refresh and
+retry. View-once media is listed but cannot be downloaded; `--save` returns an error
+directing the user to the Instagram app.
 
 `mark-read` resolves the short thread ID to the long thread ID required by read
 receipts, selects the newest message (or `--message-id`), sends the initial read

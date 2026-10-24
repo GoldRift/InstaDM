@@ -138,6 +138,20 @@ class GoClient(cookiesJson: String) : Closeable {
     )
 
     /**
+     * Downloads a shared reel by its Instagram media ID. This does not need
+     * the source thread or message, so it also works for reels older than the
+     * newest loaded thread page.
+     */
+    fun downloadSharedMedia(
+        mediaId: String,
+        shortcode: String,
+        destPath: String,
+        timeoutSeconds: Int = 180,
+    ): JSONObject = JSONObject(
+        client.downloadSharedMediaJSON(mediaId, shortcode, destPath, timeoutSeconds),
+    )
+
+    /**
      * Starts the Go watch loop. Events arrive as JSON on a Go-owned thread, so
      * the callback must be fast and must not call back into this client.
      */

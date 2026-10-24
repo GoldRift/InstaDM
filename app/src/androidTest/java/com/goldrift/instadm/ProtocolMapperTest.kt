@@ -311,4 +311,72 @@ class ProtocolMapperTest {
         assertEquals(2, conversation.participants.size)
     }
 
+    @Test
+    fun mapsSharedReelAttachment() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.reel",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_003_000,
+                kind = "reel",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.reel",
+                    partIndex = 0,
+                    kind = "reel",
+                    previewUrl = "https://cdn.example.invalid/reel.jpg",
+                    width = 1080,
+                    height = 1920,
+                    targetId = "123456789",
+                    shortcode = "ABC_123",
+                ),
+            ),
+            reactions = emptyList(),
+        )
+
+        val chat = message.toChatMessage()
+
+        assertEquals("reel", chat.kind)
+        assertEquals(1, chat.media.size)
+        val media = chat.media.single()
+        assertTrue(media.isReel)
+        assertTrue(media.isVideo)
+        assertEquals("123456789", media.targetId)
+        assertEquals("ABC_123", media.shortcode)
+        assertEquals("https://cdn.example.invalid/reel.jpg", media.thumbnailUrl)
+    }
+
+    @Test
+    fun mapsSharedLinkAttachment() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.post",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_004_000,
+                kind = "link",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.post",
+                    partIndex = 0,
+                    kind = "link",
+                    url = "https://www.instagram.com/p/POST123/",
+                    previewUrl = "https://cdn.example.invalid/post.jpg",
+                ),
+            ),
+            reactions = emptyList(),
+        )
+
+        val chat = message.toChatMessage()
+
+        assertEquals("link", chat.kind)
+        val media = chat.media.single()
+        assertTrue(media.isLink)
+        assertFalse(media.isVideo)
+        assertEquals("https://www.instagram.com/p/POST123/", media.url)
+        assertEquals("https://cdn.example.invalid/post.jpg", media.thumbnailUrl)
+    }
 }

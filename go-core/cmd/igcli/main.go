@@ -1477,6 +1477,8 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 		len(message.Media),
 	)
 	downloadable := false
+	hasLink := false
+	hasViewOnce := false
 	for index, media := range message.Media {
 		fmt.Fprintf(w, "\n#%d  %s", index, valueOrDash(media.Type))
 		if media.ViewOnce {
@@ -1490,12 +1492,27 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 		}
 		fmt.Fprintln(w)
 		if media.ViewOnce {
+			hasViewOnce = true
 			fmt.Fprintln(w, "    can only be viewed in the Instagram app; not downloadable")
+			continue
+		}
+		if media.Type == "link" {
+			hasLink = true
+			fmt.Fprintf(w, "    link: %s\n", truncate(media.URL, 180))
+			if media.PreviewURL != "" {
+				fmt.Fprintf(w, "    preview: %s\n", truncate(media.PreviewURL, 180))
+			}
 			continue
 		}
 		downloadable = true
 		if media.AttachmentFBID != "" {
 			fmt.Fprintf(w, "    fbid: %s\n", media.AttachmentFBID)
+		}
+		if media.TargetID != "" {
+			fmt.Fprintf(w, "    media id: %s\n", media.TargetID)
+		}
+		if media.Shortcode != "" {
+			fmt.Fprintf(w, "    shortcode: %s\n", media.Shortcode)
 		}
 		if media.URL != "" {
 			fmt.Fprintf(w, "    url: %s\n", truncate(media.URL, 180))
@@ -1507,15 +1524,29 @@ func printMediaList(w io.Writer, threadID string, message *igcore.MessageView) {
 	fmt.Fprintln(w)
 	if downloadable {
 		fmt.Fprintln(w, "Tip: use --save <path> --part <n> to download. Attachment URLs are sensitive and expire.")
-	} else {
+	}
+	if hasLink {
+		fmt.Fprintln(w, "Link attachments open in a browser; they are not downloadable media.")
+	}
+	if hasViewOnce {
 		fmt.Fprintln(w, "View-once attachments can only be opened in the Instagram app.")
 	}
 }
 
 func printDownloadResult(w io.Writer, result *igcore.DownloadResult) {
 	fmt.Fprintln(w, "Downloaded media")
-	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
-	fmt.Fprintf(w, "  message: %s\n", valueOrDash(result.MessageID))
+	if result.ThreadID != "" {
+		fmt.Fprintf(w, "  thread: %s\n", result.ThreadID)
+	}
+	if result.MessageID != "" {
+		fmt.Fprintf(w, "  message: %s\n", result.MessageID)
+	}
+	if result.MediaID != "" {
+		fmt.Fprintf(w, "  media id: %s\n", result.MediaID)
+	}
+	if result.Shortcode != "" {
+		fmt.Fprintf(w, "  shortcode: %s\n", result.Shortcode)
+	}
 	fmt.Fprintf(w, "  part: %d (%s)\n", result.PartIndex, valueOrDash(result.Type))
 	if result.AttachmentFBID != "" {
 		fmt.Fprintf(w, "  attachment: %s\n", result.AttachmentFBID)
