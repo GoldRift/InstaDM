@@ -68,8 +68,9 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
             optimization {
+                // Full-tree R8. Gradual packageScope emitted synthetic holders with
+                // package-private superclasses, crashing launch with IllegalAccessError.
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }
