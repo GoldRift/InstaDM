@@ -7,7 +7,8 @@ adds/removes reactions, edits and unsends messages, marks threads read, download
 attachments, mutes/pins threads, starts new DMs by recipient FBID, persists pending
 sends in a local outbox, and watches the DGW realtime stream.
 
-It does **not** touch the Android app yet. That is a later level.
+The Android app embeds this core through the gomobile wrapper in `mobile/`, which
+`scripts/build-android-aar.sh` compiles into `app/libs/igcore.aar`.
 
 ## Upstream dependency
 
@@ -298,7 +299,7 @@ array of amplitudes in the 0..1 range, uploaded as `voice_clip_waveform_data` wi
 sampling frequency of 9. The waveform is optional; without it the note still plays,
 just with a flat waveform. Voice uploads must be audio MIME types and share the 25 MiB
 cap. The upload fields mirror `mautrix-meta`'s voice path; payload construction is
-unit-tested, but a live send is still unverified.
+unit-tested, and the live send path is exercised through the Android app.
 
 `media` lists the attachments on one message. With `--save`, it downloads the selected
 `--part` (default `0`) to a file. The command re-queries the message first, so the CDN

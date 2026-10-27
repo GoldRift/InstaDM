@@ -1,223 +1,234 @@
 # InstaDM
 
-An Android Instagram DM client built around a Go protocol core.
+An Android Instagram Direct client with a Go protocol core.
 
-- [`go-core/`](go-core/) — Go protocol core and CLI: cookie validation, mailbox,
-  thread read, text/media send, reactions, edits, unsend, mark-read, media
-  download, mute/pin, new DMs, a durable outbox, and DGW realtime watch. See
-  [`go-core/README.md`](go-core/README.md).
-- [`app/`](app/) — Android Jetpack Compose app. It embeds the Go core through the
-  generated `igcore.aar`, loads the real inbox and threads, sends text, media, and
-  voice notes from the camera, gallery, or microphone, renders inline image/video/voice
-  attachments, and keeps a realtime watch alive in a foreground service.
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Platform: Android](https://img.shields.io/badge/platform-Android-3DDC84.svg)](#requirements)
+[![Go: 1.27](https://img.shields.io/badge/go-1.27-00ADD8.svg)](#requirements)
+
+InstaDM is an unofficial, experimental Instagram DM client. It pairs a Jetpack
+Compose app with a Go core that speaks the Instagram messaging protocol, so the
+inbox, conversations, sending, and realtime delivery all work without the
+official app.
+
+> **Warning:** InstaDM is not affiliated with, endorsed by, or supported by
+> Instagram or Meta. Third-party clients can violate Instagram's Terms of
+> Service and may get an account restricted or banned.
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Build](#build)
+- [Run](#run)
+- [Sign in](#sign-in)
+- [Command-line core](#command-line-core)
+- [Repository layout](#repository-layout)
+- [Development](#development)
+- [Status and limitations](#status-and-limitations)
+- [Disclaimer](#disclaimer)
+- [License](#license)
+
+## Features
+
+**Android app**
+
+- In-app Instagram login in a WebView. 2FA, challenges, consent, and checkpoints
+  stay on Instagram's own page; the app never handles the password.
+- Sessions are encrypted with a non-exportable Android Keystore key and stored
+  in `noBackupFilesDir`, never in backups or the repo.
+- Inbox with cached previews, avatars, unread badges, group attribution, and
+  pull-to-refresh.
+- Conversations page 30 messages at a time and scroll back to the start of the
+  thread, keeping the viewport stable while older pages load.
+- Send text, photos, videos, files, and voice notes. Every send is an optimistic
+  bubble plus a durable outbox row that retries with the same offline threading
+  ID after a failure or process death.
+- Inline images, GIFs, stickers, videos, and reels, plus a full-screen viewer for
+  attachments and shared reels.
+- Voice notes record with hold-to-send, slide-up to lock, and slide-left to
+  cancel, then play inline with a waveform and tap-to-seek.
+- Replies (swipe or long-press), reactions, edits, unsend, read receipts, and
+  per-message seen ticks.
+- Link cards for shared posts, stories, reels, and external pages.
+- Realtime delivery through a foreground `dataSync`/`remoteMessaging` service, so
+  new messages, edits, deletes, reactions, and receipts land even when the UI is
+  in the background; background events also post notifications.
+- Material 3 with Material You colors, date headers, a two-pane inbox/chat layout
+  at 840 dp and wider, and TalkBack-friendly controls.
+- Bounded storage: at most 1,000 messages per thread and a 250 MB media cache,
+  with 8 MB image and 25 MB other-attachment upload caps.
+
+**Go core and CLI**
+
+- Cookie validation and normalization, with rotated session cookies exported
+  after successful calls.
+- `mailbox`, `thread` (with older-page cursors), `send`, `send-media`, `send-new`,
+  `media`, `mark-read`, `react`, `edit`, `unsend`, `mute`, `pin`, and `watch`.
+- A durable CLI outbox (`outbox list/retry/remove`) that reuses the original OTID.
+- An NDJSON `watch` stream with reconnect backoff and permanent-error handling.
+- A JSON-only `gomobile` wrapper (`go-core/mobile`) that the app embeds as
+  `igcore.aar`.
+
+## Requirements
+
+- **Go 1.27.1+** for the core and CLI.
+- **JDK 25** for the Gradle daemon; the wrapper pins the toolchain.
+- **Android SDK** with `compileSdk` 37 and an NDK under `$ANDROID_HOME/ndk`.
+  `minSdk` is 24 and `targetSdk` is 37.
+- **`gomobile` and `gobind` on `PATH`:**
+
+  ```bash
+  go install golang.org/x/mobile/cmd/gomobile@latest
+  go install golang.org/x/mobile/cmd/gobind@latest
+  ```
+
+- **adb** and a device or emulator for instrumented tests and real-account runs.
+
+Toolchain versions are pinned in `gradle/libs.versions.toml` (Gradle 9.6,
+AGP 9.4, Kotlin 2.2, Compose Material 3).
 
 ## Build
 
 The Android AAR is generated locally and is not committed:
 
 ```bash
+# 1. Compile the Go core into app/libs/igcore.aar
 ./scripts/build-android-aar.sh
+
+# 2. Build the debug APK
 ./gradlew :app:assembleDebug
 ```
 
-The script needs `ANDROID_HOME`, an NDK under `$ANDROID_HOME/ndk`, and `gomobile`
-on `PATH`.
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. The debug build
+currently bundles all four gomobile ABIs and is about 129 MB; ABI filters can
+trim it later.
 
-The debug APK currently includes all four gomobile ABIs and is about 129 MB.
-ABI filters can trim that once the emulator/device targets are fixed.
+The script defaults `ANDROID_HOME` to `$HOME/Android/Sdk` and picks the newest
+NDK under `$ANDROID_HOME/ndk`.
 
-## First run
+## Run
 
-On a fresh install the app opens an in-app Instagram login. The page is
-Instagram's own login UI inside a WebView, so 2FA, challenges, consent, and
-checkpoints all happen there; the app never handles the password. When the
-required cookies appear, the Go core validates them by loading the inbox, then
-the session is encrypted with a non-exportable Android Keystore key and stored
-in the app's no-backup directory.
+```bash
+./gradlew :app:installDebug
+adb shell am start -n com.goldrift.instadm/.MainActivity
+```
 
-For development and the runtime smoke test, debuggable builds still accept a
-cookie file at the app-specific external path. It is only read when no encrypted
+On first launch the app shows Instagram's login page. Once `sessionid`,
+`csrftoken`, and `ds_user_id` exist, it validates them by loading the mailbox
+and only then persists the encrypted session.
+
+## Sign in
+
+Normal use happens entirely in the app: the WebView is Instagram's own login UI,
+so two-factor prompts and checkpoints behave as they do on the web.
+
+For development and the runtime smoke test, debuggable builds also accept a
+cookie file at the app-specific external path. It is read only when no encrypted
 session exists, so replacing it after login requires clearing app data first:
 
 ```bash
 adb shell mkdir -p /sdcard/Android/data/com.goldrift.instadm/files
 adb push ~/.config/instadm/cookies.json \
   /sdcard/Android/data/com.goldrift.instadm/files/cookies.json
-
-./gradlew :app:installDebug
-adb shell am start -n com.goldrift.instadm/.MainActivity
 ```
 
-The debug `cookies.json` is excluded from Android backup. The encrypted session
+The debug cookie file is excluded from Android backup, and the encrypted session
 is kept only in `noBackupFilesDir`.
 
-The inbox loads the mailbox from the Go core and persists it in Room, so a cold start
-shows the last conversation list and message previews before the network request
-finishes. Previews come from the `last_message` stub Instagram includes in the mailbox;
-they are not full messages, so opening a chat still fetches its newest page. Rows describe
-the newest attachment the same way a message reads ("Sent you a video", "Maya sent a photo",
-"You sent a voice message"), and an image/video caption is shown instead of the label.
-Rows with unseen messages stand out the way other messengers do: a bold name and preview,
-the timestamp in the accent color, and a count badge (capped at "99+") under it; a thread
-Instagram flags as unread that has nothing newer cached gets a dot instead. Opening a chat
-sends the viewer's read receipt, and the badge clears once Instagram accepts it.
-Conversation rows and chat headers show
-profile pictures from the mailbox payload: a direct chat uses the other person's picture,
-a group uses its custom photo, and a group without one falls back to a collage of its
-members. Contacts without a picture get a colored initial avatar. Opening a thread
-refreshes the title and photo along with the newest messages. Inside a group thread each
-run of incoming bubbles is attributed once: the member's picture sits beside the first
-bubble with their display name above it, and the following bubbles in that run keep the
-same indent without repeating either.
-Loaded chats and their paging cursor are stored in Room, so reopening a chat (even
-after a restart) paints its messages before the newest page finishes refreshing; a
-thread is only re-fetched when its newest page is more than 30 seconds old or the
-mailbox shows a newer last message.
-Opening a thread fetches its newest
-30 messages, and scrolling to the oldest bubble pages in older messages until the
-thread begins. Sending text or an attachment writes an optimistic bubble and a durable
-outbox row before the network call, so the message survives process death and retries
-with the same OTID; a failed send keeps its bubble and can be retried by tapping the
-error. Attachments can be captured with the camera button or picked from the system
-photo
-picker; the composer shows the local copy immediately and clears the pending tick
-once the upload finishes. A failed upload keeps the bubble so it can be retried.
-The mic sits outside the composer pill, at its right edge, and records a
-voice note while held. Releasing sends it, sliding up locks the recorder so the finger can
-be lifted, and sliding left cancels. A locked recording can be paused, resumed, deleted,
-or sent. There is no duration limit; recording stops cleanly when the file reaches the
-same 25 MB upload cap as other attachments. Voice notes are playable inline in both directions, with
-tap-to-seek and a waveform; outgoing notes use the local file until Instagram's copy
-takes over.
-Chats group messages under `Today`, `Yesterday`, or a localized date header. On screens
-at least 840 dp wide the inbox and the open chat sit side by side, the list keeps the
-selected thread highlighted, and tapping another thread switches the right pane; narrower
-screens keep the one-screen-per-thread flow. Screen changes use the emphatic Material 3
-fade-and-slide transition. Colors come from the system's Material You palette on Android
-12+, so the app follows the device wallpaper and theme like other Material You apps;
-older versions fall back to a Google-blue scheme generated from a single seed. App bars
-sit on the `surfaceContainer` tone above the page. TalkBack
-users get a real record button (tap to start, tap to send) instead of the hold gesture,
-long-press actions on every message bubble, and an adjustable waveform for voice notes.
-Swipe a bubble to the right (or pick Reply from its long-press menu) to quote it above
-the composer; the sent reply shows the quoted sender and snippet inside the bubble, using
-the snapshot Instagram embeds so it still renders after the original scrolls out of the
-loaded page.
-Opening a chat also marks it read, and only the newest own message keeps its sent/seen
-tick; tapping an older own bubble reveals its tick until you leave the chat. Realtime read
-receipts update the open chat immediately. Image, GIF, sticker, video, and native reel
-attachments render inline, and GIFs autoplay while their row is visible. A reel shows its
-preview with a play card and a `Reel` badge; tapping it downloads the playable video
-through the Go core and opens the full-screen player. The DM payload only carries a
-preview, so the Go core resolves a fresh video URL from the reel's media ID (up to 1080p,
-100 MiB) and the app caches it like other media. Posts, stories, and external pages
-shared into a chat render as a link card with the target URL; tapping the card opens
-the link in the browser or the Instagram app.
-Inbox previews and reply quotes label these as a post or a story rather than a generic
-link. An expired story share has no URL in Instagram's payload, so it renders a notice
-card with the same eye-off treatment as a view-once attachment, using Instagram's
-"Story unavailable" text and the original sender context instead of an empty bubble.
-Tapping other attachments opens a full-screen viewer; it downloads the original through
-the Go core into the app cache (so expired thumbnail URLs still work) and plays videos
-with the platform player, including looping GIFs. Instagram view-once photos and videos
-are never fetched: their bubble says the attachment can only be viewed in the Instagram
-app, because the allowed view belongs there. Downloaded attachments live in a 250 MB LRU cache; sent attachments move
-out of the outbox into that cache once uploaded. The database keeps at most 1,000
-messages per thread, and a missing session clears the database, the media cache, and
-pending sends.
-Pull down on the inbox to reload it and reconnect realtime when the stored
-session changed. The inbox header also shows the viewer's own profile picture and a
-search placeholder for the future in-app search. Instagram rotates routing cookies on
-responses; the Go core exports the updated jar after successful calls and the app
-re-encrypts it when it differs. If no usable session exists, the inbox offers a `Log in`
-action.
+## Command-line core
 
-The app starts a `dataSync`/`remoteMessaging` foreground service that keeps the DGW
-watch connected while the UI is in the background. Incoming messages update the open
-thread and inbox immediately and are written to Room by
-a process-scoped recorder, so new messages, edits, deletes, reactions, and read receipts
-survive a restart (and are stored even when the activity was never opened). When the app
-is in the background, they also post a notification in the `Messages` channel; Android
-13+ asks for notification permission on first launch. The notification actions include
-`Stop` for the foreground service.
+`go-core` is usable on its own for scripted checks and real-account testing:
 
-## Runtime smoke test
+```bash
+cd go-core
+
+go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli thread <thread-id> --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli send <thread-id> "hello" --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
+```
+
+The CLI accepts a flat JSON cookie file, a Cookie-Editor style array, a raw
+`Cookie` header, or `--cookies -` for stdin. See
+[`go-core/README.md`](go-core/README.md) for every command, flag, output shape,
+and the pinned upstream protocol dependency.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `app/` | Android app, one Gradle module, Jetpack Compose. |
+| `app/libs/igcore.aar` | Generated by `scripts/build-android-aar.sh`; not committed. |
+| `go-core/igcore/` | Protocol calls and normalized JSON views. |
+| `go-core/cmd/igcli/` | CLI dispatch and the file outbox. |
+| `go-core/mobile/` | JSON-only gomobile API used by the app. |
+| `go-core/fixtures/` | Synthetic, redacted mailbox and thread samples. |
+| `scripts/` | AAR build script. |
+
+The app keeps Room as its source of truth; the Go core owns only session and
+protocol state. `go-core` is a thin normalized layer over the pinned
+[`mautrix-meta`](https://github.com/mautrix/meta) library and does not invent
+endpoints or field names.
+
+## Development
+
+Go checks, from `go-core/`:
+
+```bash
+go build ./...
+go vet ./...
+go test ./...
+```
+
+Android checks, from the repository root:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:connectedDebugAndroidTest   # needs a device/emulator
+```
+
+The runtime smoke test loads the mailbox, the first thread, and an older page,
+then waits for a `connected` watch event. It skips when no cookie file exists:
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.goldrift.instadm.GoBindingSmokeTest
 ```
 
-The test skips if the cookie file is missing. It creates the Go client, loads the
-mailbox, fetches the first thread, and starts the watch until a `connected` event
-arrives. `RealtimeEventTest` covers the JSON event parser without needing cookies.
+There is no CI; these local checks are the gate. `connectedDebugAndroidTest` may
+reinstall the app and clear its external files, so real-account runs are more
+reliable when you install both APKs, push the cookie file, and invoke the runner
+directly.
 
-Because `connectedDebugAndroidTest` may reinstall the app and remove its external
-files, the reliable real-account path is to install both APKs, push cookies, and run
-the instrumentation directly:
+Please keep real cookies and unredacted captures out of issues and pull
+requests; `go-core/fixtures/` holds synthetic samples only.
 
-```bash
-./gradlew :app:installDebug :app:installDebugAndroidTest
-adb shell mkdir -p /sdcard/Android/data/com.goldrift.instadm/files
-adb push ~/.config/instadm/cookies.json \
-  /sdcard/Android/data/com.goldrift.instadm/files/cookies.json
-adb shell am instrument -w com.goldrift.instadm.test/androidx.test.runner.AndroidJUnitRunner
-```
+## Status and limitations
 
-## Media send checks
+InstaDM works, but it is still early:
 
-Uploads reach a live account, so verify the composer and the pickers before sending:
+- Single account only. There is no logout or session-expiry UI yet; an expired
+  session shows a manual "log in again" action. Account switching is out of
+  scope.
+- View-once photos and videos are deliberately never fetched; their bubbles point
+  to the official app.
+- Instagram can challenge or block an embedded browser. The login uses a desktop
+  Chrome user agent because Instagram's mobile Bloks login page renders with a
+  zero-height root in Android WebView.
+- The protocol is unofficial and can change at any time, so features may break
+  without a release.
+- The inbox shows a search placeholder, but in-app search is not implemented.
+- The shared protocol library is AGPL-3.0, so this project is too.
 
-- The empty composer shows the camera circle, `Message…`, the mic, and the gallery
-  icon. Typing replaces the left and right actions with the primary send button.
-- The camera writes into `cacheDir/outgoing` through the app `FileProvider`; the
-  gallery opens the system photo picker.
-- Holding the mic records; releasing sends, sliding up locks, sliding left cancels.
-  The first use asks for `RECORD_AUDIO`. The locked bar can pause, delete, or send.
-- Voice upload uses Instagram's `voice_clip` upload field with a waveform. The
-  payload is unit-tested, but a live send has not been exercised yet; check that the
-  note renders as a voice bubble in an official client.
-- Images are capped at 8 MB and other attachments at 25 MB, mirroring
-  `go-core/igcore/media.go`. A larger file is rejected before uploading; a voice
-  recording that reaches the cap stops and shows the same message.
-- HEIC images and other unsupported MIME types are rejected with a readable error.
-- In airplane mode, a picked photo keeps a failed bubble; reconnecting and tapping
-  the retry label uploads it.
+## Disclaimer
 
-## Status
-
-The Go core implements text and media send/download, reactions, edits, unsend,
-mark-read with read-receipt state, mute/pin, new DMs, reconnect backoff with a
-post-subscribe flap brake, a durable send outbox, and cookie-jar export for
-session persistence. The Android app adds in-app WebView login with encrypted
-session storage, loads real mailbox/thread JSON, sends text, media, and voice notes
-through the AAR with optimistic bubbles and retry, applies realtime events from a
-foreground watch service, marks open threads read with coalesced receipts, and renders
-inline media with full-screen image/video viewers, playable shared reels, link cards for
-posts and stories, inline voice playback, and seen ticks driven by real read receipts.
-
-### Planned session lifecycle
-
-Login is the only session UI in v1. The follow-up work is:
-
-- **Logout**: an inbox overflow action clears the encrypted blob and legacy debug
-  file, clears WebView cookies and web storage, closes the Go client, stops the
-  foreground realtime service, and returns to the login screen.
-  `SessionStore.clearCookies()` and `clearWebViewSession()` are already in place.
-- **Session expiry**: recognize the Go core's invalid-viewer/auth failures, clear
-  the stored session, stop the realtime service, and route to login instead of
-  retrying the same expired cookies. Until then the inbox error state offers a
-  manual `Log in again` action.
-- **Account switching** stays out of scope: WebView cookie storage and the
-  realtime socket are single-account.
-
-Instagram can still challenge or block an embedded browser. The login uses a
-desktop Chrome user agent because Instagram's mobile Bloks login page renders
-with a zero-height root in Android WebView; at phone widths the desktop page
-shows a short "Log in" landing before the normal username/password form. The
-WebView enables third-party cookies and DOM storage and never injects scripts
-into the page. If an account is challenged in the WebView, the native
-web/password flow remains the fallback.
+This project is provided for personal, educational use. It is not affiliated
+with Instagram or Meta and comes with no warranty. You are responsible for how
+you use it and for complying with Instagram's Terms of Service and any local law.
+Using an unofficial client can result in account restrictions, so test with a
+secondary account.
 
 ## License
 
