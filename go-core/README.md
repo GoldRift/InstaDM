@@ -428,7 +428,12 @@ Build the Android AAR from the repository root:
 
 The script finds the newest NDK under `$ANDROID_HOME/ndk`, checks that `gomobile` is on
 `PATH`, ensures the module has the `gobind` tool directive, and writes
-`app/libs/igcore.aar`. The AAR is generated, not committed. It is consumed by
+`app/libs/igcore.aar`. It strips Go debug info with `-trimpath -ldflags="-s -w"` and
+builds all four ABIs by default; set `ABIS` to a comma-separated subset
+(`armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`) to build only those, or `STRIP=0` to
+keep Go symbols. `scripts/build-release.sh` wraps this with a per-ABI release build;
+tagged releases rebuild it in `.github/workflows/release.yml` and sign the APKs.
+The AAR is generated, not committed. It is consumed by
 `app/build.gradle.kts`; the app manifest requests `INTERNET`, and the release keep rules
 retain the gomobile classes.
 

@@ -5,6 +5,36 @@ plugins {
     alias(libs.plugins.androidx.room)
 }
 
+// scripts/build-release.sh requests one APK per ABI; ordinary debug builds stay
+// a single universal APK.
+val splitAbis = providers.gradleProperty("instadm.abiSplits").orNull == "true"
+
+// CI passes these from the release tag; defaults keep local builds unchanged.
+val appVersionCode = providers.gradleProperty("versionCode").orNull?.let {
+    it.toIntOrNull() ?: error("versionCode must be an integer, got '$it'")
+} ?: 1
+val appVersionName = providers.gradleProperty("versionName").orNull ?: "1.0"
+
+// Signing is optional locally; CI sets all four or fails before building.
+val signingEnvNames = listOf(
+    "INSTADM_KEYSTORE",
+    "INSTADM_KEYSTORE_PASSWORD",
+    "INSTADM_KEY_ALIAS",
+    "INSTADM_KEY_PASSWORD",
+)
+val signingValues = signingEnvNames
+    .mapNotNull { name ->
+        providers.environmentVariable(name).orNull
+            ?.takeIf { it.isNotBlank() }
+            ?.let { name to it }
+    }
+    .toMap()
+if (signingValues.isNotEmpty() && signingValues.size != signingEnvNames.size) {
+    val missing = signingEnvNames - signingValues.keys
+    error("Release signing env vars must be set together; missing: ${missing.joinToString()}")
+}
+val signingConfigured = signingValues.size == signingEnvNames.size
+
 android {
     namespace = "com.goldrift.instadm"
     compileSdk {
@@ -15,18 +45,48 @@ android {
         applicationId = "com.goldrift.instadm"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (signingConfigured) {
+            create("release") {
+                storeFile = rootProject.file(signingValues.getValue("INSTADM_KEYSTORE"))
+                storePassword = signingValues.getValue("INSTADM_KEYSTORE_PASSWORD")
+                keyAlias = signingValues.getValue("INSTADM_KEY_ALIAS")
+                keyPassword = signingValues.getValue("INSTADM_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (signingConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
+        }
+    }
+    if (splitAbis) {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                isUniversalApk = false
+            }
+        }
+    }
+    packaging {
+        jniLibs {
+            // The Go linker stripped libgojni.so; AGP's stripper cannot.
+            keepDebugSymbols += "**/libgojni.so"
         }
     }
     compileOptions {
