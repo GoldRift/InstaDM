@@ -15,6 +15,7 @@ private const val UNKNOWN_THREAD_REFRESH_MS = 60_000L
 class RealtimeRecorder(
     private val chatStore: ChatStore,
     private val scope: CoroutineScope,
+    private val onIncomingMessage: (RealtimeEvent) -> Unit = {},
     private val refreshMailbox: suspend () -> Unit,
 ) {
     private val unknownThreadRefreshAt = mutableMapOf<String, Long>()
@@ -44,6 +45,7 @@ class RealtimeRecorder(
         val known = chatStore.threadExists(event.threadId)
         chatStore.ingestRealtimeMessage(event.threadId, message)
         if (!known) refreshUnknownThread(event.threadId)
+        onIncomingMessage(event)
     }
 
     private suspend fun editMessage(event: RealtimeEvent) {

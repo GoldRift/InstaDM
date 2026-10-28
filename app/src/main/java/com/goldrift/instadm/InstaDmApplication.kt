@@ -12,6 +12,7 @@ import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeRecorder
 import com.goldrift.instadm.data.SessionStore
 import com.goldrift.instadm.data.db.InstaDmDatabase
+import com.goldrift.instadm.service.MessageNotifier
 import com.goldrift.instadm.ui.chat.InboxState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +36,13 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }
     val mailboxSync by lazy { MailboxSync(repository, chatStore) }
+    val messageNotifier by lazy { MessageNotifier(this, chatStore) }
     val realtimeRecorder by lazy {
-        RealtimeRecorder(chatStore, appScope) { mailboxSync.fetchAndStore() }
+        RealtimeRecorder(
+            chatStore = chatStore,
+            scope = appScope,
+            onIncomingMessage = { messageNotifier.enqueue(it) },
+        ) { mailboxSync.fetchAndStore() }
     }
     val outbox by lazy {
         Outbox(

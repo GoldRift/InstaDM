@@ -1,14 +1,11 @@
 package com.goldrift.instadm.service
 
-import android.Manifest
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -24,9 +21,6 @@ import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RealtimeStatus
 import com.goldrift.instadm.data.SessionStore
-import com.goldrift.instadm.ui.chat.ConversationPreview
-import com.goldrift.instadm.ui.chat.label
-import com.goldrift.instadm.ui.chat.render
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,8 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Keeps the DGW watch loop alive while the UI is not visible. The service owns
- * its own Go client, publishes events into [RealtimeBus], and posts a message
- * notification for incoming messages.
+ * its own Go client and publishes events into [RealtimeBus]; the process-scoped
+ * [MessageNotifier] consumes them to post per-conversation notifications.
  */
 class RealtimeService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -71,7 +65,7 @@ class RealtimeService : Service() {
     override fun onCreate() {
         super.onCreate()
         destroyed = false
-        createChannels()
+        NotificationChannels.ensure(this)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -254,7 +248,6 @@ class RealtimeService : Service() {
             else -> when (event.type) {
                 "message.new", "message.admin" -> {
                     RealtimeBus.publish(event)
-                    maybeNotify(event)
                 }
 
                 "message.edit", "message.delete", "read.receipt",
@@ -264,46 +257,6 @@ class RealtimeService : Service() {
                 }
             }
         }
-    }
-
-    private fun maybeNotify(event: RealtimeEvent) {
-        val message = event.message ?: return
-        if (message.isFromViewer || message.id.isBlank()) return
-        if (AppVisibility.isForeground) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-
-        val preview = ConversationPreview(
-            kind = message.kind,
-            text = message.text,
-            fromViewer = message.isFromViewer,
-            senderName = message.senderName,
-        )
-            .label(isGroup = false)
-            ?.render { id, args -> getString(id, *args.toTypedArray()) }
-            .orEmpty()
-            .ifBlank { getString(R.string.notification_message) }
-            .take(500)
-        val title = message.senderName.ifBlank { getString(R.string.notification_new_message) }
-        val notificationId = MESSAGE_NOTIFICATION_BASE +
-            (event.threadId.ifBlank { message.id }.hashCode() and 0x7FFFFFFF) % 1_000_000
-        val notification = NotificationCompat.Builder(this, CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(preview)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .setWhen(message.timestampMs.takeIf { it > 0 } ?: System.currentTimeMillis())
-            .setContentIntent(appPendingIntent(notificationId))
-            .build()
-
-        getSystemService(NotificationManager::class.java).notify(notificationId, notification)
     }
 
     private fun startForegroundNow(text: String) {
@@ -329,7 +282,7 @@ class RealtimeService : Service() {
     }
 
     private fun buildStatusNotification(text: String): Notification =
-        NotificationCompat.Builder(this, CHANNEL_STATUS)
+        NotificationCompat.Builder(this, NotificationChannels.STATUS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -373,40 +326,13 @@ class RealtimeService : Service() {
         RealtimeStatus.Stopped -> getString(R.string.realtime_stopped)
     }
 
-    private fun createChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_STATUS,
-                getString(R.string.notification_channel_status),
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = getString(R.string.notification_channel_status_description)
-                setShowBadge(false)
-            },
-        )
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_MESSAGES,
-                getString(R.string.notification_channel_messages),
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply {
-                description = getString(R.string.notification_channel_messages_description)
-            },
-        )
-    }
-
     companion object {
         private const val TAG = "RealtimeService"
         private const val ACTION_START = "com.goldrift.instadm.action.START_REALTIME"
         private const val ACTION_RESTART = "com.goldrift.instadm.action.RESTART_REALTIME"
         private const val ACTION_STOP = "com.goldrift.instadm.action.STOP_REALTIME"
-        private const val CHANNEL_STATUS = "realtime_status"
-        private const val CHANNEL_MESSAGES = "messages"
         private const val FOREGROUND_ID = 1001
         private const val STOP_REQUEST_CODE = 1002
-        private const val MESSAGE_NOTIFICATION_BASE = 2000
 
         fun start(context: Context) {
             val intent = Intent(context, RealtimeService::class.java).setAction(ACTION_START)

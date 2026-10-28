@@ -134,6 +134,8 @@ private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(
     shortcode = shortcode,
 )
 
+internal const val UNKNOWN_CONVERSATION_TITLE = "(unknown)"
+
 /** Display name of a group participant, used to attribute the newest message. */
 private fun participantName(participants: List<ParticipantEntity>, fbid: Long): String {
     if (fbid == 0L) return ""
@@ -147,7 +149,7 @@ private fun participantTitle(participants: List<ParticipantEntity>): String {
         .filterNot { it.isViewer }
         .map { it.name.ifBlank { it.username } }
         .filter { it.isNotBlank() }
-    return if (names.isEmpty()) "(unknown)" else names.joinToString(", ")
+    return if (names.isEmpty()) UNKNOWN_CONVERSATION_TITLE else names.joinToString(", ")
 }
 
 fun formatMessageTime(milliseconds: Long): String {

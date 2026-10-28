@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.goldrift.instadm.InstaDmApplication
@@ -40,6 +41,7 @@ import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
+import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
@@ -63,7 +65,10 @@ private val TwoPaneMinWidth = 840.dp
 private val InboxPaneWidth = 380.dp
 
 @Composable
-fun InstaDmApp() {
+fun InstaDmApp(
+    pendingThreadId: String? = null,
+    onPendingThreadHandled: () -> Unit = {},
+) {
     val context = LocalContext.current
     val application = context.applicationContext as InstaDmApplication
     val inboxState = application.inboxState
@@ -85,6 +90,15 @@ fun InstaDmApp() {
         }
         return
     }
+
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val currentChatThreadId = if (currentRoute == Routes.ChatRoute) {
+        backStackEntry?.arguments?.getString(Routes.ThreadIdArg)
+    } else {
+        null
+    }
+    val pendingConversation = pendingThreadId?.let(inboxState::conversation)
 
     NavHost(
         navController = navController,
@@ -161,6 +175,35 @@ fun InstaDmApp() {
                     },
                 )
             }
+        }
+    }
+
+    LaunchedEffect(
+        pendingThreadId,
+        pendingConversation?.id,
+        inboxState.status,
+        currentRoute,
+        currentChatThreadId,
+    ) {
+        val threadId = pendingThreadId ?: return@LaunchedEffect
+        if (currentRoute == null) return@LaunchedEffect
+        if (currentRoute == Routes.Login) {
+            onPendingThreadHandled()
+            return@LaunchedEffect
+        }
+
+        val conversation = pendingConversation
+        when {
+            conversation != null -> {
+                onPendingThreadHandled()
+                if (currentChatThreadId != threadId) {
+                    navController.navigate(Routes.chat(threadId)) {
+                        popUpTo(Routes.Inbox)
+                        launchSingleTop = true
+                    }
+                }
+            }
+            inboxState.status != InboxStatus.Loading -> onPendingThreadHandled()
         }
     }
 }

@@ -54,6 +54,10 @@ interface ThreadDao {
     @Query("SELECT * FROM threads WHERE id = :threadId")
     fun observeThread(threadId: String): Flow<ThreadWithParticipants?>
 
+    @Transaction
+    @Query("SELECT * FROM threads WHERE id = :threadId")
+    suspend fun threadWithParticipants(threadId: String): ThreadWithParticipants?
+
     @Query("SELECT * FROM threads WHERE id = :threadId")
     suspend fun thread(threadId: String): ThreadEntity?
 

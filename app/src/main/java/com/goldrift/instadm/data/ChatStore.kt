@@ -65,6 +65,9 @@ class ChatStore(
     fun observeThreadMeta(threadId: String): Flow<ThreadWithParticipants?> =
         threadDao.observeThread(threadId)
 
+    suspend fun threadWithParticipants(threadId: String): ThreadWithParticipants? =
+        threadDao.threadWithParticipants(threadId)
+
     suspend fun viewer(key: String): String? = metaDao.get(key)
 
     /** Name and profile picture of the logged-in account. */
