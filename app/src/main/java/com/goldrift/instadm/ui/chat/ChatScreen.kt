@@ -1843,8 +1843,8 @@ private fun MessageComposer(
                     ) {
                         Row(
                             modifier = Modifier
-                                .heightIn(min = 52.dp)
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 4.dp, vertical = 0.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             if (showActions) {
