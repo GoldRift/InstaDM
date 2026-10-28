@@ -60,6 +60,13 @@ official app.
 - Bounded storage: at most 1,000 messages per thread and a 250 MB media cache,
   with 8 MB image and 25 MB other-attachment upload caps.
 
+> **Note:** Android does not let a normal app keep a connection alive in the
+> background; the supported way is a foreground service, and every foreground
+> service must show an ongoing notification. That notification is the cost of
+> realtime delivery: it reports the connection state (`Live` when connected) and
+> carries a **Stop** action, which ends background delivery until the app is
+> opened again.
+
 **Go core and CLI**
 
 - Cookie validation and normalization, with rotated session cookies exported
