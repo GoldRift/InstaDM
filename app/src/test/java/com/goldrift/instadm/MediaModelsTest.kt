@@ -183,6 +183,32 @@ class MediaModelsTest {
     }
 
     @Test
+    fun stickersPreferTheAnimatedWebpOverTheStaticPreview() {
+        val media = MessageMedia(
+            type = "sticker",
+            url = "https://cdn.example/sticker.webp",
+            previewUrl = "https://cdn.example/sticker-preview.jpg",
+            altText = "A bunny in the dark",
+        )
+
+        assertTrue(media.isSticker)
+        assertTrue(media.isVisual)
+        assertEquals("https://cdn.example/sticker.webp", media.stickerUrl)
+        assertEquals("A bunny in the dark", media.altText)
+    }
+
+    @Test
+    fun stickerWithoutAFullUrlFallsBackToThePreview() {
+        val media = MessageMedia(
+            type = "sticker",
+            url = "",
+            previewUrl = "https://cdn.example/sticker.webp",
+        )
+
+        assertEquals("https://cdn.example/sticker.webp", media.stickerUrl)
+    }
+
+    @Test
     fun linkWithoutPreviewDoesNotUseThePageAsAnImage() {
         val link = MessageMedia(type = "link", url = "https://www.instagram.com/p/POST123/")
 

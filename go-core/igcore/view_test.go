@@ -388,6 +388,55 @@ func TestNewMessageViewAnimatedMedia(t *testing.T) {
 	}
 }
 
+func TestNewMessageViewStickerContent(t *testing.T) {
+	message := textMessage("message-1", 222, "")
+	message.Content = slidetypes.MessageContentWrapper{
+		TypeName: "SlideMessageStoreStickerContent",
+		Content: &slidetypes.MessageContentSticker{
+			AltText:       "A bunny sits in a dark corner",
+			PreviewURL:    "https://cdn.example/sticker.webp",
+			PreviewWidth:  300,
+			PreviewHeight: 300,
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "sticker" || len(view.Media) != 1 {
+		t.Fatalf("kind/media = %q/%d, want sticker/1", view.Kind, len(view.Media))
+	}
+	if view.Text != "" {
+		t.Errorf("text = %q, want empty: sticker alt text is not message text", view.Text)
+	}
+	media := view.Media[0]
+	if media.Type != "sticker" || media.URL != "https://cdn.example/sticker.webp" {
+		t.Errorf("sticker media = %+v", media)
+	}
+	if media.PreviewURL != media.URL || media.Width != 300 || media.Height != 300 {
+		t.Errorf("sticker preview = %+v", media)
+	}
+	if media.AltText != "A bunny sits in a dark corner" {
+		t.Errorf("sticker alt text = %q", media.AltText)
+	}
+}
+
+func TestNewMessageViewStickerWithoutPreviewKeepsAltText(t *testing.T) {
+	message := textMessage("message-1", 222, "")
+	message.Content = slidetypes.MessageContentWrapper{
+		TypeName: "SlideMessageStoreStickerContent",
+		Content: &slidetypes.MessageContentSticker{
+			AltText: "A bunny sits in a dark corner",
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "sticker" || len(view.Media) != 0 {
+		t.Fatalf("kind/media = %q/%d, want sticker/0", view.Kind, len(view.Media))
+	}
+	if view.Text != "A bunny sits in a dark corner" {
+		t.Errorf("text = %q, want the alt text fallback", view.Text)
+	}
+}
+
 func TestNewMessageViewReactions(t *testing.T) {
 	message := textMessage("message-1", 222, "hello")
 	message.Reactions = []*slidetypes.Reaction{

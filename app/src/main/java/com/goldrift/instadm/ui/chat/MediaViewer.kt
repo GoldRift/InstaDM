@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -88,6 +89,15 @@ fun MediaThumbnail(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    if (media.isSticker) {
+        StickerImage(
+            media = media,
+            onClick = onClick,
+            onLongClick = onLongClick,
+            modifier = modifier,
+        )
+        return
+    }
     val longClickLabel = stringResource(R.string.chat_message_actions)
     Box(
         modifier = modifier
@@ -173,6 +183,42 @@ fun MediaThumbnail(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StickerImage(
+    media: MessageMedia,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val longClickLabel = stringResource(R.string.chat_message_actions)
+    val description = media.altText.ifBlank { stringResource(R.string.chat_sticker) }
+    Box(
+        modifier = modifier
+            .sizeIn(maxWidth = 160.dp, maxHeight = 160.dp)
+            .aspectRatio(media.aspectRatio)
+            .combinedClickable(
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(media.stickerUrl)
+                // A crossfade restarts the animation from frame zero.
+                .crossfade(false)
+                .build(),
+            contentDescription = description,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+            loading = {},
+            error = { MediaPlaceholder(isLoading = false) },
+        )
     }
 }
 

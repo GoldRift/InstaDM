@@ -322,6 +322,9 @@ type MediaView struct {
 	Height             int       `json:"height,omitempty"`
 	DurationMS         int       `json:"duration_ms,omitempty"`
 	Waveform           []float64 `json:"waveform,omitempty"`
+	// AltText is Instagram's accessibility description for a sticker. It is
+	// not message body text and must not be rendered in place of the sticker.
+	AltText string `json:"alt_text,omitempty"`
 	// TargetID, TargetURL, and Shortcode identify a shared Instagram item
 	// (an XMA attachment). A reel's DM payload only carries a preview image;
 	// clients resolve the playable video from TargetID when the user opens it.
@@ -641,6 +644,19 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 			media = append(media, view)
 		} else if view, ok := xmaLinkMedia(content); ok {
 			media = append(media, view)
+		}
+	case *slidetypes.MessageContentSticker:
+		// Store, cutout, avatar, and AI stickers all arrive as this content
+		// type with only a preview image and an accessibility description.
+		if url := strings.TrimSpace(content.PreviewURL); url != "" {
+			media = append(media, MediaView{
+				Type:       "sticker",
+				URL:        url,
+				PreviewURL: url,
+				Width:      content.PreviewWidth,
+				Height:     content.PreviewHeight,
+				AltText:    content.AltText,
+			})
 		}
 	}
 	return media
@@ -1016,7 +1032,13 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		mediaCount = 1
 	case *slidetypes.MessageContentSticker:
 		kind = "sticker"
-		text = content.AltText
+		if strings.TrimSpace(content.PreviewURL) != "" {
+			mediaCount = 1
+		} else {
+			// Without an image the accessibility description is the only
+			// content left, so keep it as a readable fallback.
+			text = content.AltText
+		}
 	case *slidetypes.MessageContentXMA:
 		text = content.XMATextBody
 		if _, _, ok := sharedReelTarget(content.XMA); ok {

@@ -40,9 +40,15 @@ data class MessageMedia(
      * ID; for posts, stories, and pages it matches [url].
      */
     val targetUrl: String = "",
+    /** Instagram's accessibility description for a sticker. */
+    val altText: String = "",
 ) {
     val isAudio: Boolean
         get() = type == "audio"
+
+    /** Instagram's store, cutout, avatar, AI, and animated stickers. */
+    val isSticker: Boolean
+        get() = type == "sticker"
 
     /** Playable voice note: audio with a local file or a downloadable URL. */
     val isVoiceNote: Boolean
@@ -81,6 +87,17 @@ data class MessageMedia(
     val fullUrl: String
         get() = url.ifBlank {
             fallbackUrl.ifBlank { previewUrl.ifBlank { previewFallbackUrl } }
+        }
+
+    /**
+     * Sticker image to animate inline. The full URL is Instagram's animated
+     * WebP; the preview is often a static JPEG used for normal thumbnails.
+     */
+    val stickerUrl: String
+        get() {
+            if (url.isNotBlank() && !url.isVideoUrl()) return url
+            if (fallbackUrl.isNotBlank() && !fallbackUrl.isVideoUrl()) return fallbackUrl
+            return thumbnailUrl
         }
 
     /**
@@ -155,6 +172,7 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
             targetId = item.optString("target_id"),
             shortcode = item.optString("shortcode"),
             targetUrl = item.optString("target_url"),
+            altText = item.optString("alt_text"),
         )
     }
     return result

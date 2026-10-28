@@ -19,6 +19,7 @@
     <string name="chat_media_empty">That file is empty.</string>
     <string name="chat_media_unreadable">Couldn\'t read that file.</string>
     <string name="chat_media_open">Open media</string>
+    <string name="chat_sticker">Sticker</string>
     <string name="chat_media_close">Close</string>
     <string name="chat_media_unavailable">Media unavailable</string>
     <string name="chat_media_error">Couldn\'t load media</string>

@@ -107,6 +107,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -883,6 +884,13 @@ private fun MessageRow(
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    // A sticker is its own artwork: drawing the message bubble behind it turns
+    // transparent stickers into a colored tile.
+    val stickerOnly = message.media.isNotEmpty() &&
+        message.media.all { it.isSticker } &&
+        message.text.isBlank() &&
+        message.reply == null &&
+        message.localMedia == null
     val canReply = message.canReply()
     val replyThreshold = with(density) { SWIPE_REPLY_THRESHOLD.toPx() }
     val maxDrag = with(density) { SWIPE_REPLY_MAX.toPx() }
@@ -1028,7 +1036,13 @@ private fun MessageRow(
                             )
                         },
                     shape = BubbleShape,
-                    color = if (isMine) bubbles.outgoing else bubbles.incoming,
+                    color = if (stickerOnly) {
+                        Color.Transparent
+                    } else if (isMine) {
+                        bubbles.outgoing
+                    } else {
+                        bubbles.incoming
+                    },
                     contentColor = if (isMine) bubbles.onOutgoing else bubbles.onIncoming,
                 ) {
                     MessageBubbleContent(

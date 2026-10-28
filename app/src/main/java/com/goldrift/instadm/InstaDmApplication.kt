@@ -1,8 +1,11 @@
 package com.goldrift.instadm
 
 import android.app.Application
+import android.os.Build
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
@@ -69,6 +72,16 @@ class InstaDmApplication : Application(), ImageLoaderFactory {
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .components {
+            // Instagram delivers most stickers as animated WebP. ImageDecoder
+            // is the only platform API that animates them (API 28+); the GIF
+            // decoder keeps the older fallback path working.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                add(ImageDecoderDecoder.Factory())
+            } else {
+                add(GifDecoder.Factory())
+            }
+        }
         .okHttpClient {
             OkHttpClient.Builder()
                 .addInterceptor { chain ->
