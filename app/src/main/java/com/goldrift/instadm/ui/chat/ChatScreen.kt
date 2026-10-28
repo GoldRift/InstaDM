@@ -161,7 +161,13 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
 
-private val BubbleShape = RoundedCornerShape(24.dp)
+/** Bubble corner radius, shared with nested share cards so their curves line up. */
+internal val BubbleCornerRadius = 24.dp
+
+/** Inset between a bubble's edge and an inline attachment. */
+internal val AttachmentInset = 4.dp
+
+private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
 
 private val ChatContentShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
@@ -1217,20 +1223,20 @@ private fun MessageBubbleContent(
     onLoadMedia: MediaLoader?,
     voicePlayer: VoicePlayer,
 ) {
-    val media = message.media.filter { it.isVisual }
-    val links = message.media.filter { it.isLink && it.url.isNotBlank() }
+    val media = message.media.filter { it.isVisual && !it.isReel }
+    val shares = message.media.filter { (it.isLink || it.isReel) && !it.viewOnce }
     val viewOnce = message.media.filter { it.viewOnce }
     val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
     val unavailable = message.kind == "unavailable" ||
         message.kind.endsWith("-unavailable")
-    val hasAttachment = media.isNotEmpty() || links.isNotEmpty() ||
+    val hasAttachment = media.isNotEmpty() || shares.isNotEmpty() ||
         viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null ||
         unavailable
     Column(
         modifier = Modifier.padding(
-            horizontal = if (hasAttachment) 4.dp else 14.dp,
-            vertical = if (hasAttachment) 4.dp else 9.dp,
+            horizontal = if (hasAttachment) AttachmentInset else 14.dp,
+            vertical = if (hasAttachment) AttachmentInset else 9.dp,
         ),
     ) {
         if (reply != null) {
@@ -1255,7 +1261,7 @@ private fun MessageBubbleContent(
         }
 
         if (viewOnce.isNotEmpty() &&
-            (media.isNotEmpty() || links.isNotEmpty() || voiceNotes.isNotEmpty())
+            (media.isNotEmpty() || shares.isNotEmpty() || voiceNotes.isNotEmpty())
         ) {
             Spacer(Modifier.height(4.dp))
         }
@@ -1273,16 +1279,17 @@ private fun MessageBubbleContent(
             )
         }
 
-        links.forEachIndexed { index, item ->
+        shares.forEachIndexed { index, item ->
             if (index > 0 || media.isNotEmpty()) Spacer(Modifier.height(4.dp))
-            LinkPreviewCard(
+            ShareCard(
                 media = item,
+                onOpenReel = { if (message.isServerMessage()) onOpenMedia(item) },
                 onLongClick = onLongPress,
             )
         }
 
         if (voiceNotes.isNotEmpty()) {
-            if (media.isNotEmpty() || links.isNotEmpty()) Spacer(Modifier.height(4.dp))
+            if (media.isNotEmpty() || shares.isNotEmpty()) Spacer(Modifier.height(4.dp))
             voiceNotes.forEach { item ->
                 VoiceNoteBubble(
                     media = item,
@@ -1295,7 +1302,7 @@ private fun MessageBubbleContent(
             }
         }
 
-        if (media.isEmpty() && links.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
+        if (media.isEmpty() && shares.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
             LocalMediaThumbnail(
                 media = localMedia,
                 onLongClick = onLongPress,

@@ -139,7 +139,8 @@ class RealtimeEventTest {
                     "width": 1080,
                     "height": 1920,
                     "target_id": "123456789",
-                    "shortcode": "ABC_123"
+                    "shortcode": "ABC_123",
+                    "target_url": "https://www.instagram.com/reel/ABC_123/"
                   }
                 ]
               }
@@ -155,6 +156,7 @@ class RealtimeEventTest {
         assertTrue(media.isVisual)
         assertEquals("123456789", media.targetId)
         assertEquals("ABC_123", media.shortcode)
+        assertEquals("https://www.instagram.com/reel/ABC_123/", media.shareUrl)
         assertEquals("https://cdn.example/reel.jpg", media.thumbnailUrl)
     }
 

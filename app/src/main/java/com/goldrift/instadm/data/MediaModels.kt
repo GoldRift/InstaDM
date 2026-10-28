@@ -35,6 +35,11 @@ data class MessageMedia(
     val targetId: String = "",
     /** Reel shortcode from the share URL, used only as a media-info referer. */
     val shortcode: String = "",
+    /**
+     * Public URL of a shared item. Instagram sends it alongside a reel's media
+     * ID; for posts, stories, and pages it matches [url].
+     */
+    val targetUrl: String = "",
 ) {
     val isAudio: Boolean
         get() = type == "audio"
@@ -78,6 +83,18 @@ data class MessageMedia(
             fallbackUrl.ifBlank { previewUrl.ifBlank { previewFallbackUrl } }
         }
 
+    /**
+     * Link shown under a shared post, story, reel, or page. Older reel rows
+     * only keep the shortcode, so the public reel URL is rebuilt from it.
+     */
+    val shareUrl: String
+        get() = when {
+            targetUrl.isNotBlank() -> targetUrl
+            isLink -> url.ifBlank { fallbackUrl }
+            isReel && shortcode.isNotBlank() -> "$INSTAGRAM_REEL_URL$shortcode/"
+            else -> ""
+        }
+
     val aspectRatio: Float
         get() {
             if (isReel && (width <= 0 || height <= 0)) return REEL_ASPECT_RATIO
@@ -93,6 +110,7 @@ data class MessageMedia(
 
     private companion object {
         val VISUAL_TYPES = setOf("image", "gif", "sticker", "media")
+        const val INSTAGRAM_REEL_URL = "https://www.instagram.com/reel/"
         const val DEFAULT_ASPECT_RATIO = 1f
         const val REEL_ASPECT_RATIO = 9f / 16f
         const val MIN_ASPECT_RATIO = 0.6f
@@ -136,6 +154,7 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
             viewMode = item.optString("view_mode"),
             targetId = item.optString("target_id"),
             shortcode = item.optString("shortcode"),
+            targetUrl = item.optString("target_url"),
         )
     }
     return result

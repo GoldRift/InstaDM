@@ -132,6 +132,7 @@ private fun AttachmentEntity.toMessageMedia(): MessageMedia = MessageMedia(
     viewMode = viewMode,
     targetId = targetId,
     shortcode = shortcode,
+    targetUrl = targetUrl,
 )
 
 internal const val UNKNOWN_CONVERSATION_TITLE = "(unknown)"

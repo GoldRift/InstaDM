@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReactionEntity::class,
         OutboxEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
@@ -84,9 +84,24 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /** v6 keeps a shared item's public URL so reel cards can show their link. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE attachments ADD COLUMN target_url TEXT NOT NULL DEFAULT ''",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                )
                 .build()
     }
 }

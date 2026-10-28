@@ -145,6 +145,41 @@ class MediaModelsTest {
         assertFalse(link.isVisual)
         assertEquals("https://cdn.example/post.jpg", link.thumbnailUrl)
         assertEquals("https://www.instagram.com/p/POST123/", link.fullUrl)
+        assertEquals("https://www.instagram.com/p/POST123/", link.shareUrl)
+    }
+
+    @Test
+    fun shareUrlPrefersTheTargetUrlCarriedByAReelShare() {
+        val reel = MessageMedia(
+            type = "reel",
+            url = "",
+            previewUrl = "https://cdn.example/reel.jpg",
+            targetId = "123456789",
+            shortcode = "ABC_123",
+            targetUrl = "https://www.instagram.com/reel/ABC_123/",
+        )
+
+        assertEquals("https://www.instagram.com/reel/ABC_123/", reel.shareUrl)
+    }
+
+    @Test
+    fun shareUrlRebuildsTheReelLinkFromItsShortcode() {
+        val reel = MessageMedia(type = "reel", url = "", targetId = "123456789", shortcode = "ABC_123")
+        val withoutIdentifiers = MessageMedia(type = "reel", url = "", targetId = "123456789")
+
+        assertEquals("https://www.instagram.com/reel/ABC_123/", reel.shareUrl)
+        assertEquals("", withoutIdentifiers.shareUrl)
+    }
+
+    @Test
+    fun plainAttachmentsHaveNoShareUrl() {
+        val image = MessageMedia(
+            type = "image",
+            url = "https://cdn.example/image.jpg",
+            shortcode = "ABC_123",
+        )
+
+        assertEquals("", image.shareUrl)
     }
 
     @Test

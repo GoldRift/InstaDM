@@ -331,6 +331,7 @@ class ProtocolMapperTest {
                     height = 1920,
                     targetId = "123456789",
                     shortcode = "ABC_123",
+                    targetUrl = "https://www.instagram.com/reel/ABC_123/",
                 ),
             ),
             reactions = emptyList(),
@@ -345,6 +346,7 @@ class ProtocolMapperTest {
         assertTrue(media.isVideo)
         assertEquals("123456789", media.targetId)
         assertEquals("ABC_123", media.shortcode)
+        assertEquals("https://www.instagram.com/reel/ABC_123/", media.shareUrl)
         assertEquals("https://cdn.example.invalid/reel.jpg", media.thumbnailUrl)
     }
 

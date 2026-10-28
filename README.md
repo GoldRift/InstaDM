@@ -51,7 +51,11 @@ official app.
   cancel, then play inline with a waveform and tap-to-seek.
 - Replies (swipe or long-press), reactions, edits, unsend, read receipts, and
   per-message seen ticks.
-- Link cards for shared posts, stories, reels, and external pages.
+- Share cards for posts, stories, reels, and external pages: the preview (or reel
+  cover) sits on top and a clean link strip underneath. Tracking parameters are
+  stripped and Instagram shares read `/reel/…`, `/p/…`, or `/stories/…`, while
+  tapping still opens the full URL. Tapping a reel cover plays it in the
+  full-screen viewer.
 - Realtime delivery through a foreground `dataSync`/`remoteMessaging` service, so
   new messages, edits, deletes, reactions, and receipts land even when the UI is
   in the background. Background messages stack into one notification per
