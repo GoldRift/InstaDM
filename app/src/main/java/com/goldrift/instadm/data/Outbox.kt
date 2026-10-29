@@ -42,7 +42,7 @@ interface OutboxSender {
     ): JSONObject
 }
 
-class ProtocolOutboxSender(private val repository: ProtocolRepository) : OutboxSender {
+class ProtocolOutboxSender(private val repository: ProtocolApi) : OutboxSender {
     override suspend fun sendText(
         threadId: String,
         text: String,

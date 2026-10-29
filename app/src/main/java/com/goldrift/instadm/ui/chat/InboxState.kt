@@ -12,7 +12,7 @@ import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.Outbox
-import com.goldrift.instadm.data.ProtocolRepository
+import com.goldrift.instadm.data.ProtocolApi
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.db.MessageWithMedia
@@ -48,7 +48,7 @@ private const val THREAD_STALE_MS = 30_000L
  */
 @Stable
 class InboxState(
-    private val repository: ProtocolRepository,
+    private val repository: ProtocolApi,
     private val chatStore: ChatStore,
     private val mailboxSync: MailboxSync,
     private val outbox: Outbox,

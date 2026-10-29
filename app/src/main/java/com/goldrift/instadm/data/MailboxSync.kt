@@ -9,7 +9,7 @@ import org.json.JSONObject
  * a realtime-triggered refresh cannot issue overlapping requests.
  */
 class MailboxSync(
-    private val repository: ProtocolRepository,
+    private val repository: ProtocolApi,
     private val chatStore: ChatStore,
 ) {
     private val mutex = Mutex()

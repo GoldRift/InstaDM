@@ -17,12 +17,12 @@ internal const val MEDIA_CACHE_MAX_BYTES = 250L * 1024 * 1024
  * Serializes calls into the Go client and owns its lifetime. The Go side keeps
  * the session and socket; this repository only moves JSON across the boundary.
  */
-class ProtocolRepository(private val sessionStore: SessionStore) {
+class ProtocolRepository(private val sessionStore: SessionStore) : ProtocolApi {
     private val mutex = Mutex()
     private var client: GoClient? = null
     private var clientCookies: String? = null
 
-    suspend fun hasCookies(): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun hasCookies(): Boolean = withContext(Dispatchers.IO) {
         sessionStore.readCookies() != null
     }
 
@@ -31,7 +31,7 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
      * it. The returned mailbox feeds the first inbox render without another
      * fetch. A failed candidate leaves any existing session untouched.
      */
-    suspend fun signIn(cookiesJson: String): JSONObject = withContext(Dispatchers.IO) {
+    override suspend fun signIn(cookiesJson: String): JSONObject = withContext(Dispatchers.IO) {
         mutex.withLock {
             val candidate = GoClient(cookiesJson)
             try {
@@ -67,35 +67,35 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
         clientCookies = null
     }
 
-    suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(90) }
+    override suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(90) }
 
-    suspend fun loadThread(threadId: String): JSONObject = withClient {
+    override suspend fun loadThread(threadId: String): JSONObject = withClient {
         it.thread(threadId, THREAD_PAGE_SIZE)
     }
 
     /** Fetches the page of messages older than [cursor] (an `oldest_cursor` value). */
-    suspend fun loadOlder(threadId: String, cursor: String): JSONObject = withClient {
+    override suspend fun loadOlder(threadId: String, cursor: String): JSONObject = withClient {
         it.thread(threadId, THREAD_PAGE_SIZE, cursor)
     }
 
-    suspend fun sendText(
+    override suspend fun sendText(
         threadId: String,
         text: String,
-        replyTo: String = "",
-        otid: String = "",
+        replyTo: String,
+        otid: String,
     ): JSONObject = withClient {
         it.sendText(threadId, text, replyTo, otid)
     }
 
     /** Uploads one attachment and sends it to an existing thread. */
-    suspend fun sendMedia(
+    override suspend fun sendMedia(
         threadId: String,
         fileName: String,
         mimeType: String,
         data: ByteArray,
         otid: String,
-        voice: Boolean = false,
-        waveformJson: String = "",
+        voice: Boolean,
+        waveformJson: String,
     ): JSONObject = withClient {
         it.sendMedia(
             threadId,
@@ -113,17 +113,17 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
      * timestamp come from the loaded conversation, so the Go core does not have
      * to fetch the whole thread page again.
      */
-    suspend fun markRead(
+    override suspend fun markRead(
         threadId: String,
-        messageId: String = "",
-        longThreadId: String = "",
-        timestampMs: Long = 0,
+        messageId: String,
+        longThreadId: String,
+        timestampMs: Long,
     ): JSONObject = withClient {
         it.markRead(threadId, messageId, longThreadId, timestampMs)
     }
 
     /** Adds or removes one emoji reaction on [messageId]. */
-    suspend fun react(
+    override suspend fun react(
         threadId: String,
         messageId: String,
         emoji: String,
@@ -133,12 +133,12 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
     }
 
     /** Replaces the text of one of the viewer's own messages. */
-    suspend fun edit(threadId: String, messageId: String, text: String): JSONObject = withClient {
+    override suspend fun edit(threadId: String, messageId: String, text: String): JSONObject = withClient {
         it.edit(threadId, messageId, text)
     }
 
     /** Removes one of the viewer's own messages for everyone. */
-    suspend fun unsend(threadId: String, messageId: String): JSONObject = withClient {
+    override suspend fun unsend(threadId: String, messageId: String): JSONObject = withClient {
         it.unsend(threadId, messageId)
     }
 
@@ -148,7 +148,7 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
      * is fresh. A reel is resolved from its persisted media ID instead, which
      * also works when the message is older than the newest thread page.
      */
-    suspend fun downloadMedia(
+    override suspend fun downloadMedia(
         threadId: String,
         messageId: String,
         media: MessageMedia,
@@ -186,8 +186,9 @@ class ProtocolRepository(private val sessionStore: SessionStore) {
     }
 
     /** Removes every downloaded attachment; safe to call from any screen. */
-    suspend fun clearMediaCache() = withContext(Dispatchers.IO) {
+    override suspend fun clearMediaCache(): Unit = withContext(Dispatchers.IO) {
         sessionStore.mediaCacheDir.listFiles()?.forEach { runCatching { it.delete() } }
+        Unit
     }
 
     private suspend fun <T> withClient(block: (GoClient) -> T): T = withContext(Dispatchers.IO) {
