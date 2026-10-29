@@ -87,10 +87,7 @@ official app.
 
 ## Screenshots
 
-Captured from the offline demo build on an API 37 emulator. Running
-`./scripts/demo-screenshots.sh` replaces these files and regenerates this gallery
-from `docs/screenshots/`; the gallery between the `demo-screenshots` markers is
-generated, so do not edit it by hand.
+Captured from the offline demo build on an API 37 emulator.
 
 <!-- demo-screenshots:start -->
 
@@ -353,7 +350,8 @@ APKs, push the cookie file, and invoke the runner directly.
 
 `scripts/demo-screenshots.sh` builds the offline demo app, runs it on the
 `Medium_Phone_API_37.0` emulator, replaces the light, dark, and two-pane captures
-in `docs/screenshots/`, and regenerates the screenshot gallery above:
+in `docs/screenshots/`, and regenerates the screenshot gallery above. The block
+between the `demo-screenshots` markers is generated; do not edit it by hand:
 
 ```bash
 ./scripts/demo-screenshots.sh
