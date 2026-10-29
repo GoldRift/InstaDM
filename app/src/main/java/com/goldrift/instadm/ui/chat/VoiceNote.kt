@@ -275,6 +275,10 @@ fun VoiceNoteBubble(
     val durationMs = if (isActive && player.durationMs > 0) player.durationMs else media.durationMs
 
     fun togglePlayback() {
+        if (player.isPlaying(messageId)) {
+            player.pause()
+            return
+        }
         val ready = file?.takeIf { it.isFile }
         if (ready != null) {
             player.play(messageId, ready, media.durationMs)
