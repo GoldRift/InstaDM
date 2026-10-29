@@ -18,6 +18,7 @@ official app.
 ## Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Build](#build)
 - [Releases](#releases)
@@ -83,6 +84,66 @@ official app.
 - An NDJSON `watch` stream with reconnect backoff and permanent-error handling.
 - A JSON-only `gomobile` wrapper (`go-core/mobile`) that the app embeds as
   `igcore.aar`.
+
+## Screenshots
+
+Captured from the offline demo build on an API 37 emulator. Running
+`./scripts/demo-screenshots.sh` replaces these files and regenerates this gallery
+from `docs/screenshots/`; the gallery between the `demo-screenshots` markers is
+generated, so do not edit it by hand.
+
+<!-- demo-screenshots:start -->
+
+### Light
+
+<table>
+    <tr>
+      <td align="center"><img src="docs/screenshots/light/01-inbox-light.png" width="220" alt="Inbox"><br><sub>Inbox</sub></td>
+      <td align="center"><img src="docs/screenshots/light/02-chat-light.png" width="220" alt="Chat"><br><sub>Chat</sub></td>
+      <td align="center"><img src="docs/screenshots/light/03-media-viewer-light.png" width="220" alt="Media viewer"><br><sub>Media viewer</sub></td>
+      <td align="center"><img src="docs/screenshots/light/04-actions-light.png" width="220" alt="Message actions"><br><sub>Message actions</sub></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="docs/screenshots/light/05-voice-light.png" width="220" alt="Voice note"><br><sub>Voice note</sub></td>
+      <td align="center"><img src="docs/screenshots/light/06-echo-light.png" width="220" alt="Send and reply"><br><sub>Send and reply</sub></td>
+      <td align="center"><img src="docs/screenshots/light/07-edit-light.png" width="220" alt="Edit"><br><sub>Edit</sub></td>
+      <td align="center"><img src="docs/screenshots/light/08-unsend-light.png" width="220" alt="Unsend"><br><sub>Unsend</sub></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="docs/screenshots/light/09-link-and-voice-light.png" width="220" alt="Links and voice"><br><sub>Links and voice</sub></td>
+      <td align="center"><img src="docs/screenshots/light/10-group-light.png" width="220" alt="Group chat"><br><sub>Group chat</sub></td>
+      <td align="center"><img src="docs/screenshots/light/11-media-cards-light.png" width="220" alt="Video, reel, view-once"><br><sub>Video, reel, view-once</sub></td>
+      <td></td>
+    </tr>
+</table>
+
+### Dark
+
+<table>
+    <tr>
+      <td align="center"><img src="docs/screenshots/dark/01-inbox-dark.png" width="220" alt="Inbox (dark)"><br><sub>Inbox (dark)</sub></td>
+      <td align="center"><img src="docs/screenshots/dark/02-chat-dark.png" width="220" alt="Chat (dark)"><br><sub>Chat (dark)</sub></td>
+      <td align="center"><img src="docs/screenshots/dark/03-media-viewer-dark.png" width="220" alt="Media viewer (dark)"><br><sub>Media viewer (dark)</sub></td>
+      <td align="center"><img src="docs/screenshots/dark/04-actions-dark.png" width="220" alt="Message actions (dark)"><br><sub>Message actions (dark)</sub></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="docs/screenshots/dark/05-group-dark.png" width="220" alt="Group chat (dark)"><br><sub>Group chat (dark)</sub></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+</table>
+
+### Two-pane
+
+<table>
+    <tr>
+      <td align="center"><img src="docs/screenshots/two-pane/01-two-pane-empty-light.png" width="430" alt="Two-pane inbox"><br><sub>Two-pane inbox</sub></td>
+      <td align="center"><img src="docs/screenshots/two-pane/02-two-pane-chat-light.png" width="430" alt="Two-pane chat"><br><sub>Two-pane chat</sub></td>
+    </tr>
+</table>
+
+<!-- demo-screenshots:end -->
 
 ## Requirements
 
@@ -250,7 +311,7 @@ and the pinned upstream protocol dependency.
 | `go-core/cmd/igcli/` | CLI dispatch and the file outbox. |
 | `go-core/mobile/` | JSON-only gomobile API used by the app. |
 | `go-core/fixtures/` | Synthetic, redacted mailbox and thread samples. |
-| `scripts/` | AAR build script. |
+| `scripts/` | AAR build script and demo screenshot automation. |
 
 The app keeps Room as its source of truth; the Go core owns only session and
 protocol state. `go-core` is a thin normalized layer over the pinned
@@ -287,6 +348,42 @@ CI only runs the tag-driven release workflow; these local checks remain the gate
 for normal changes. `connectedDebugAndroidTest` may reinstall the app and clear
 its external files, so real-account runs are more reliable when you install both
 APKs, push the cookie file, and invoke the runner directly.
+
+### Offline demo and screenshots
+
+`scripts/demo-screenshots.sh` builds the offline demo app, runs it on the
+`Medium_Phone_API_37.0` emulator, replaces the light, dark, and two-pane captures
+in `docs/screenshots/`, and regenerates the screenshot gallery above:
+
+```bash
+./scripts/demo-screenshots.sh
+```
+
+The demo is a separate build (`com.goldrift.instadm.demo`) with fictional
+conversations, generated media, and no `INTERNET` permission. It has its own
+storage sandbox, so it never reads a real session. The demo shares the app's
+source, so UI and feature changes arrive on the next build; only new demo
+content needs a change in `app/src/demo`. Build or install it directly with:
+
+```bash
+./gradlew :app:assembleDemo
+adb install -r app/build/outputs/apk/demo/app-demo.apk
+```
+
+The screenshot suites live in `src/androidTestDemo/` and need the demo
+instrumentation target, which the script passes automatically:
+
+```bash
+./gradlew :app:connectedDemoAndroidTest \
+  -Pinstadm.testBuildType=demo \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.goldrift.instadm.demo.screenshots.DemoScreenshotTest
+```
+
+The test target defaults to `debug`, so the ordinary device tests and
+`connectedDebugAndroidTest` are unchanged. The script leaves the latest demo APK
+installed on the emulator when it finishes, and relinks the README gallery with
+the newly captured files. `docs/screenshots/` is committed; the intermediate
+device copy lives at `/sdcard/Download/instadm-demo`.
 
 Please keep real cookies and unredacted captures out of issues and pull
 requests; `go-core/fixtures/` holds synthetic samples only.

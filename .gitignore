@@ -24,3 +24,7 @@ app/libs/*
 *.jks
 *.keystore
 keystore.properties
+
+# Python bytecode from the screenshot gallery helper
+__pycache__/
+*.pyc

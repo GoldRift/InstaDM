@@ -10,6 +10,7 @@ import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
+import com.goldrift.instadm.data.ProtocolApi
 import com.goldrift.instadm.data.ProtocolOutboxSender
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeRecorder
@@ -30,11 +31,14 @@ import okhttp3.OkHttpClient
  * It also owns the process-scoped session, repository, and inbox state so a
  * configuration change does not rebuild the Go client or refetch the inbox.
  */
-class InstaDmApplication : Application(), ImageLoaderFactory {
+open class InstaDmApplication : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val sessionStore by lazy { SessionStore(this) }
-    val repository by lazy { ProtocolRepository(sessionStore) }
+    open val repository: ProtocolApi by lazy { ProtocolRepository(sessionStore) }
+
+    /** The demo build has no notification permission prompt. */
+    open val requestsNotificationPermission: Boolean = true
     val mediaReader by lazy { MediaReader(this) }
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }

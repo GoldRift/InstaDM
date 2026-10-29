@@ -35,11 +35,19 @@ if (signingValues.isNotEmpty() && signingValues.size != signingEnvNames.size) {
 }
 val signingConfigured = signingValues.size == signingEnvNames.size
 
+// Screenshot automation switches the instrumented test target to the demo build:
+//   ./gradlew :app:connectedDemoAndroidTest -Pinstadm.testBuildType=demo
+// The default stays "debug" so the normal device tests are unaffected.
+val testBuildTypeName = providers.gradleProperty("instadm.testBuildType")
+    .orElse("debug")
+    .get()
+
 android {
     namespace = "com.goldrift.instadm"
     compileSdk {
         version = release(37)
     }
+    testBuildType = testBuildTypeName
 
     defaultConfig {
         applicationId = "com.goldrift.instadm"
@@ -72,6 +80,15 @@ android {
                 // package-private superclasses, crashing launch with IllegalAccessError.
                 enable = true
             }
+        }
+        // Offline demo build for screenshots and manual tours. It has its own
+        // application ID, so it never shares the real session or database.
+        create("demo") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".demo"
+            versionNameSuffix = "-demo"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "debug"
         }
     }
     if (splitAbis) {
@@ -127,6 +144,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.test.uiautomator)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
