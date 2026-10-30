@@ -10,6 +10,7 @@ import com.goldrift.instadm.ui.chat.canEdit
 import com.goldrift.instadm.ui.chat.canReact
 import com.goldrift.instadm.ui.chat.canReply
 import com.goldrift.instadm.ui.chat.canUnsend
+import com.goldrift.instadm.ui.chat.isReactionLog
 import com.goldrift.instadm.ui.chat.reactionGroups
 import com.goldrift.instadm.ui.chat.restoreViewerReaction
 import com.goldrift.instadm.ui.chat.toggleViewerReaction
@@ -207,11 +208,11 @@ class MessageActionsTest {
 
     @Test
     fun adminActivityNoticesCannotBeQuoted() {
-        val like = message(id = "mid.like", text = "Liked a message", kind = "admin")
+        val like = message(id = "mid.like", text = "Liked a message", kind = "reaction-log")
         val reaction = message(
             id = "mid.reaction",
             text = "Reacted ❤ to your message",
-            kind = "admin",
+            kind = "reaction-log",
         )
         val text = message()
         val pending = message(pending = true)
@@ -222,5 +223,12 @@ class MessageActionsTest {
         assertTrue(text.canReply())
         assertFalse(pending.canReply())
         assertFalse(placeholder.canReply())
+    }
+
+    @Test
+    fun onlyReactionLogsAreHeldBackFromTheTranscript() {
+        assertTrue(message(id = "mid.like", kind = "reaction-log").isReactionLog())
+        assertFalse(message(id = "mid.admin", kind = "admin").isReactionLog())
+        assertFalse(message(id = "mid.text").isReactionLog())
     }
 }

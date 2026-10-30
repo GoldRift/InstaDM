@@ -238,13 +238,14 @@ normalized as `kind=post`, `kind=story`, or `kind=link` with a `link` media item
 placeholder) keeps its kind with an `-unavailable` suffix (`kind=story-unavailable`) and
 uses the XMA eyebrow/caption text (`"Shared X's story"`, `"Story unavailable"`) as the
 message body, so clients can render a notice instead of an empty bubble; `media_count`
-stays `0`.
-and replayable ("raven") attachments instead carry `view_once: true` plus `view_mode`
-(`viewed` or `replayed`) and omit every CDN URL, because the allowed views belong to the
-official app; the item is still present when Instagram has not sent an attachment yet,
-so clients can show a notice. Replies carry `replied_to_message_id` plus a
-`replied_to_message` snapshot (ID, sender, kind, text, and media count) so a client can
-render the quote without loading the original.
+stays `0`. Admin activity entries are `kind=admin`, except like/reaction logs, which
+are `kind=reaction-log` and keep their text so clients can preview and notify on them
+without drawing a bubble. View-once and replayable ("raven") attachments instead carry
+`view_once: true` plus `view_mode` (`viewed` or `replayed`) and omit every CDN URL, because
+the allowed views belong to the official app; the item is still present when Instagram has
+not sent an attachment yet, so clients can show a notice. Replies carry
+`replied_to_message_id` plus a `replied_to_message` snapshot (ID, sender, kind, text, and
+media count) so a client can render the quote without loading the original.
 CDN URLs are sensitive and expire; do not put them in shared fixtures.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older

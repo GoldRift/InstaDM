@@ -12,12 +12,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -186,6 +189,76 @@ class RealtimeRecorderTest {
         assertFalse(thread.markedUnread)
     }
 
+    @Test
+    fun incomingReactionFetchesTheActivityLogAndNotifies() = runBlocking {
+        val notified = Channel<RealtimeEvent>(Channel.UNLIMITED)
+        recorder = RealtimeRecorder(
+            chatStore = store,
+            scope = scope,
+            onIncomingMessage = { notified.trySend(it) },
+            syncThread = { threadId -> store.ingestThread(JSONObject(threadWithLog(threadId))) },
+        ) { mailboxRefreshes++ }
+        // A reaction row references the target message, so it must exist first.
+        store.ingestRealtimeMessage(
+            "thread-1",
+            incoming("mid.target", "like me", 1_700_000_005_000, fromViewer = true),
+        )
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "reaction.add",
+                threadId = "thread-1",
+                message = incoming("mid.target", "like me", 1_700_000_005_000),
+                reaction = "❤",
+                participantFbid = 222,
+                timestampMs = 1_700_000_020_000,
+            ),
+        )
+
+        val event = withTimeout(5_000) { notified.receive() }
+        assertEquals("message.admin", event.type)
+        assertEquals("mid.log", event.message?.id)
+        assertEquals("reaction-log", event.message?.kind)
+        assertEquals("Liked a message", event.message?.text)
+        assertEquals(222L, event.message?.senderFbid)
+
+        val thread = db.threads().thread("thread-1")!!
+        assertEquals("Liked a message", thread.lastMessageText)
+        assertEquals("reaction-log", thread.lastMessageKind)
+        assertEquals("mid.log", thread.lastMessageId)
+    }
+
+    @Test
+    fun viewerReactionDoesNotFetchOrNotify() = runBlocking {
+        var fetches = 0
+        val notified = Channel<RealtimeEvent>(Channel.UNLIMITED)
+        recorder = RealtimeRecorder(
+            chatStore = store,
+            scope = scope,
+            onIncomingMessage = { notified.trySend(it) },
+            syncThread = { fetches++ },
+        ) { mailboxRefreshes++ }
+        store.ingestRealtimeMessage(
+            "thread-1",
+            incoming("mid.target", "like me", 1_700_000_005_000, fromViewer = true),
+        )
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "reaction.add",
+                threadId = "thread-1",
+                message = incoming("mid.target", "like me", 1_700_000_005_000),
+                reaction = "❤",
+                participantFbid = 111,
+                fromViewer = true,
+                timestampMs = 1_700_000_020_000,
+            ),
+        )
+
+        assertEquals(0, fetches)
+        assertNull(notified.tryReceive().getOrNull())
+    }
+
     private fun incoming(
         id: String,
         text: String,
@@ -203,6 +276,40 @@ class RealtimeRecorderTest {
     )
 
     private companion object {
+        /** Newest page for thread-1 whose last entry is the reaction activity log. */
+        fun threadWithLog(threadId: String): String = """
+            {
+              "thread": {
+                "id": "$threadId",
+                "thread_id": "long-thread-1",
+                "thread_fbid": "thread-1",
+                "title": "Test Participant"
+              },
+              "messages": [
+                {
+                  "id": "mid.target",
+                  "sender_fbid": 111,
+                  "sender_name": "Me",
+                  "is_from_viewer": true,
+                  "timestamp_ms": 1700000005000,
+                  "kind": "text",
+                  "text": "like me"
+                },
+                {
+                  "id": "mid.log",
+                  "sender_fbid": 222,
+                  "sender_name": "Test Participant",
+                  "is_from_viewer": false,
+                  "timestamp_ms": 1700000020000,
+                  "kind": "reaction-log",
+                  "text": "Liked a message"
+                }
+              ],
+              "oldest_cursor": "cursor-1",
+              "has_more_older": false
+            }
+        """.trimIndent()
+
         val MAILBOX = """
             {
               "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111 },

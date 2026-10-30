@@ -49,6 +49,9 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
             chatStore = chatStore,
             scope = appScope,
             onIncomingMessage = { messageNotifier.enqueue(it) },
+            syncThread = { threadId ->
+                chatStore.ingestThread(repository.loadThread(threadId))
+            },
         ) { mailboxSync.fetchAndStore() }
     }
     val outbox by lazy {

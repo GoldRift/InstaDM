@@ -1,5 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
+import com.goldrift.instadm.data.REACTION_LOG_KIND
+
 /**
  * One reaction on a message. Instagram keeps at most one reaction per sender,
  * so a new emoji from the same sender replaces the previous one.
@@ -26,10 +28,17 @@ const val MAX_MESSAGE_LENGTH = 1000
 fun ChatMessage.canReact(): Boolean = isServerMessage()
 
 /**
- * Admin notices such as "Liked a message" or "Reacted ❤️ to your message" are
- * activity entries, not messages Instagram lets the viewer quote.
+ * Admin notices such as "Joined the chat" and the like/reaction activity logs
+ * are entries Instagram does not let the viewer quote.
  */
-fun ChatMessage.canReply(): Boolean = isServerMessage() && kind != "admin"
+fun ChatMessage.canReply(): Boolean = isServerMessage() && kind != "admin" && !isReactionLog()
+
+/**
+ * Likes and reactions arrive as a reaction on the target message plus an
+ * activity entry ("Liked a message", "Reacted ❤ to your message"). The
+ * transcript hides the entry; inbox previews and notifications still show it.
+ */
+fun ChatMessage.isReactionLog(): Boolean = kind == REACTION_LOG_KIND
 
 fun ChatMessage.canUnsend(): Boolean = sender == MessageSender.Me && isServerMessage()
 

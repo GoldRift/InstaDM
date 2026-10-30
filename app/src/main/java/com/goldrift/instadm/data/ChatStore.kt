@@ -22,6 +22,9 @@ import java.io.File
 /** Messages kept per thread; older rows are pruned after each ingest. */
 private const val MESSAGE_RETENTION = 1000
 
+/** Kind the Go core assigns to like/reaction activity entries. */
+internal const val REACTION_LOG_KIND = "reaction-log"
+
 private const val META_INBOX_SYNCED_AT = "inbox_synced_at"
 private const val META_VIEWER_ID = "viewer_ig_id"
 private const val META_VIEWER_USERNAME = "viewer_username"
@@ -81,6 +84,13 @@ class ChatStore(
 
     suspend fun threadExists(threadId: String): Boolean =
         threadId.isNotBlank() && threadDao.thread(threadId) != null
+
+    /**
+     * The activity entry Instagram wrote for a reaction, matched by the
+     * reaction's own timestamp because the realtime delta carries no entry ID.
+     */
+    suspend fun reactionLog(threadId: String, timestampMs: Long): MessageEntity? =
+        messageDao.activityLog(threadId, REACTION_LOG_KIND, timestampMs)
 
     suspend fun inboxSyncedAt(): Long? = metaDao.get(META_INBOX_SYNCED_AT)?.toLongOrNull()
 

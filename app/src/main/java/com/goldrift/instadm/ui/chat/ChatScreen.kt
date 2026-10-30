@@ -203,6 +203,9 @@ fun ChatScreen(
     onSendVoice: (RecordedVoice) -> Unit = {},
 ) {
     val messages = conversation.messages
+    // Like/reaction activity logs stay in the inbox preview and notifications;
+    // in the transcript they would repeat the reaction shown on the bubble.
+    val transcript = remember(messages) { messages.filterNot { it.isReactionLog() } }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -353,7 +356,7 @@ fun ChatScreen(
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
-    val lastOutgoingId = lastOutgoingMessageId(messages)
+    val lastOutgoingId = lastOutgoingMessageId(transcript)
     val replyLabel = replyTarget?.let { message ->
         when {
             message.sender == MessageSender.Me -> stringResource(R.string.chat_you)
@@ -376,7 +379,7 @@ fun ChatScreen(
     // on the newest message ID rather than the list size; a new message only
     // scrolls when the newest bubble is already on screen, unless the viewer
     // sent it.
-    val newestMessage = messages.lastOrNull()
+    val newestMessage = transcript.lastOrNull()
     LaunchedEffect(newestMessage?.id, isTyping) {
         if (newestMessage == null) return@LaunchedEffect
         if (listState.firstVisibleItemIndex <= 1 || newestMessage.sender == MessageSender.Me) {
@@ -470,7 +473,7 @@ fun ChatScreen(
                 }
 
                 when {
-                    isLoading && messages.isEmpty() -> {
+                    isLoading && transcript.isEmpty() -> {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
@@ -479,7 +482,7 @@ fun ChatScreen(
                         }
                     }
 
-                    messages.isEmpty() -> {
+                    transcript.isEmpty() -> {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
@@ -494,7 +497,7 @@ fun ChatScreen(
 
                     else -> {
                         MessageList(
-                            messages = messages,
+                            messages = transcript,
                             contact = conversation.contact,
                             isGroup = conversation.isGroup,
                             participants = conversation.participants,

@@ -52,6 +52,10 @@ official app.
   cancel, then play inline with a waveform and tap-to-seek.
 - Replies (swipe or long-press), reactions, edits, unsend, read receipts, and
   per-message seen ticks.
+- Instagram's like and reaction activity entries (`kind=reaction-log`, such as
+  "Liked a message") are kept out of the transcript: the reaction itself already
+  shows on the bubble, while the entry still appears in the inbox preview and
+  notifications.
 - Share cards for posts, stories, reels, and external pages: the preview (or reel
   cover) sits on top and a clean link strip underneath. Tracking parameters are
   stripped and Instagram shares read `/reel/…`, `/p/…`, or `/stories/…`, while

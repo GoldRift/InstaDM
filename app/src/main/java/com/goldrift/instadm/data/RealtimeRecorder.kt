@@ -2,6 +2,8 @@ package com.goldrift.instadm.data
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Avoid a mailbox refresh per message for a thread outside the first page. */
@@ -16,9 +18,11 @@ class RealtimeRecorder(
     private val chatStore: ChatStore,
     private val scope: CoroutineScope,
     private val onIncomingMessage: (RealtimeEvent) -> Unit = {},
+    private val syncThread: suspend (String) -> Unit = {},
     private val refreshMailbox: suspend () -> Unit,
 ) {
     private val unknownThreadRefreshAt = mutableMapOf<String, Long>()
+    private val reactionSyncLocks = mutableMapOf<String, Mutex>()
     private val started = AtomicBoolean(false)
 
     fun start() {
@@ -70,15 +74,64 @@ class RealtimeRecorder(
             } else if (event.fromViewer) {
                 chatStore.removeViewerReaction(messageID)
             }
-        } else {
-            chatStore.setReaction(
-                messageId = messageID,
-                senderFbid = if (event.fromViewer) chatStore.viewerFbid() else event.participantFbid,
-                emoji = event.reaction,
-                isFromViewer = event.fromViewer,
-            )
+            return
+        }
+
+        chatStore.setReaction(
+            messageId = messageID,
+            senderFbid = if (event.fromViewer) chatStore.viewerFbid() else event.participantFbid,
+            emoji = event.reaction,
+            isFromViewer = event.fromViewer,
+        )
+        syncReactionLog(event)
+    }
+
+    /**
+     * Instagram pushes a like or reaction as a reaction delta only; the matching
+     * "Liked a message" / "Reacted … to your message" entry is written
+     * server-side and never arrives over DGW. Fetching the newest page is what
+     * puts that entry in Room, so the inbox preview and the notification can use
+     * its real text and timestamp instead of waiting for an unrelated refresh.
+     */
+    private fun syncReactionLog(event: RealtimeEvent) {
+        if (event.fromViewer || event.timestampMs <= 0 || event.threadId.isBlank()) return
+        scope.launch {
+            reactionLock(event.threadId).withLock { publishReactionLog(event) }
         }
     }
+
+    private suspend fun publishReactionLog(event: RealtimeEvent) {
+        val log = chatStore.reactionLog(event.threadId, event.timestampMs)
+            ?: run {
+                runCatching { syncThread(event.threadId) }
+                chatStore.reactionLog(event.threadId, event.timestampMs)
+            }
+            ?: return
+        if (log.isFromViewer) return
+
+        onIncomingMessage(
+            RealtimeEvent(
+                type = "message.admin",
+                threadId = event.threadId,
+                message = RealtimeMessage(
+                    id = log.id,
+                    text = log.text,
+                    senderName = log.senderName,
+                    senderFbid = log.senderFbid,
+                    isFromViewer = false,
+                    timestampMs = log.timestampMs,
+                    kind = log.kind,
+                ),
+            ),
+        )
+    }
+
+    // Reactions land one delta per emoji, so a burst of them must not start a
+    // page fetch each; the second fetch also sees the first one's entry.
+    private fun reactionLock(threadId: String): Mutex =
+        synchronized(reactionSyncLocks) {
+            reactionSyncLocks.getOrPut(threadId) { Mutex() }
+        }
 
     private suspend fun readReceipt(event: RealtimeEvent) {
         if (event.threadId.isBlank() || event.timestampMs <= 0) return

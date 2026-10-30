@@ -1002,6 +1002,12 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		text = content.TextBody
 	case *slidetypes.MessageContentAdminText:
 		kind = "admin"
+		if content.IsReactionActionLog {
+			// Likes and reactions arrive twice: as a reaction on the target
+			// message and as this activity entry, which the app keeps out of
+			// the transcript.
+			kind = "reaction-log"
+		}
 		text = joinTextFragments(content.TextFragments)
 	case *slidetypes.MessageContentImage:
 		kind = "image"
@@ -1074,7 +1080,7 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		kind = "unknown"
 	}
 
-	if text == "" && kind == "admin" {
+	if text == "" && (kind == "admin" || kind == "reaction-log") {
 		text = message.IGDSnippet
 	}
 	if text == "" && mediaCount == 0 && (kind == "link" || kind == "unknown") &&
@@ -1083,7 +1089,8 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		// bubble. Instagram's own inbox text is a readable fallback.
 		text = message.IGDSnippet
 	}
-	if text == "" && message.TextBody != "" && (kind == "text" || kind == "admin" || kind == "unknown") {
+	if text == "" && message.TextBody != "" &&
+		(kind == "text" || kind == "admin" || kind == "reaction-log" || kind == "unknown") {
 		text = message.TextBody
 	}
 	return kind, text, mediaCount

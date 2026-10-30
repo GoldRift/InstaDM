@@ -550,6 +550,22 @@ func TestDescribeMessageContent(t *testing.T) {
 			wantText: "joined the chat",
 		},
 		{
+			name: "reaction action log",
+			message: &slidetypes.Message{
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						IsReactionActionLog: true,
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "Reacted ❤ to your message"},
+						},
+					},
+				},
+			},
+			wantKind: "reaction-log",
+			wantText: "Reacted ❤ to your message",
+		},
+		{
 			name: "admin snippet fallback",
 			message: &slidetypes.Message{
 				IGDSnippet: "snippet",

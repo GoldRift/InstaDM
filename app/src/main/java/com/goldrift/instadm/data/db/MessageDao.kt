@@ -49,6 +49,10 @@ interface MessageDao {
         "ORDER BY timestamp_ms DESC, id DESC LIMIT 1")
     suspend fun newest(threadId: String): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE thread_id = :threadId AND kind = :kind " +
+        "AND timestamp_ms = :timestampMs AND status != 'deleted' LIMIT 1")
+    suspend fun activityLog(threadId: String, kind: String, timestampMs: Long): MessageEntity?
+
     @Query("SELECT * FROM attachments WHERE message_id = :messageId")
     suspend fun attachments(messageId: String): List<AttachmentEntity>
 
