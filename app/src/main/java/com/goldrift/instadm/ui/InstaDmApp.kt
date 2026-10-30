@@ -312,6 +312,8 @@ private fun ChatDestination(
         onReact = { messageId, emoji -> inboxState.react(threadId, messageId, emoji) },
         onEdit = { messageId, text -> inboxState.edit(threadId, messageId, text) },
         onUnsend = { messageId -> inboxState.unsend(threadId, messageId) },
+        viewerName = inboxState.viewerName,
+        viewerAvatarUrl = inboxState.viewerAvatarUrl,
         modifier = modifier,
     )
 }

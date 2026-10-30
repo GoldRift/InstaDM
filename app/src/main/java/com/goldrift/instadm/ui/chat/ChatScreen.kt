@@ -35,6 +35,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -182,6 +183,9 @@ private val SWIPE_REPLY_MAX = 88.dp
 private val SenderAvatarSize = 28.dp
 private val SenderAvatarGap = 8.dp
 
+/** Picture inside a group reaction bubble, scaled to the pill's text line. */
+private val ReactionAvatarSize = 18.dp
+
 @Composable
 fun ChatScreen(
     conversation: Conversation,
@@ -201,6 +205,8 @@ fun ChatScreen(
     onEdit: (messageId: String, text: String) -> Unit = { _, _ -> },
     onUnsend: (messageId: String) -> Unit = {},
     onSendVoice: (RecordedVoice) -> Unit = {},
+    viewerName: String = "",
+    viewerAvatarUrl: String = "",
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -561,6 +567,8 @@ fun ChatScreen(
                             onRetryMedia = onRetryMedia,
                             onLoadMedia = onLoadMedia,
                             voicePlayer = voicePlayer,
+                            viewerName = viewerName,
+                            viewerAvatarUrl = viewerAvatarUrl,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -688,6 +696,8 @@ private fun MessageList(
     onRetryMedia: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
     voicePlayer: VoicePlayer,
+    viewerName: String,
+    viewerAvatarUrl: String,
     modifier: Modifier = Modifier,
 ) {
     val reversed = messages.asReversed()
@@ -831,6 +841,10 @@ private fun MessageList(
                     onRetry = { onRetryMedia(message.id) },
                     onLoadMedia = onLoadMedia,
                     voicePlayer = voicePlayer,
+                    isGroup = isGroup,
+                    participants = participants,
+                    viewerName = viewerName,
+                    viewerAvatarUrl = viewerAvatarUrl,
                 )
             }
         }
@@ -878,6 +892,10 @@ private fun MessageRow(
     onRetry: () -> Unit,
     onLoadMedia: MediaLoader?,
     voicePlayer: VoicePlayer,
+    isGroup: Boolean,
+    participants: List<ConversationParticipant>,
+    viewerName: String,
+    viewerAvatarUrl: String,
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
@@ -1092,7 +1110,13 @@ private fun MessageRow(
                 }
             }
 
-            ReactionPills(message)
+            ReactionPills(
+                message = message,
+                isGroup = isGroup,
+                participants = participants,
+                viewerName = viewerName,
+                viewerAvatarUrl = viewerAvatarUrl,
+            )
 
             // Failure and in-flight states stay actionable on every bubble. The
             // sent/seen ticks are a receipt, so they belong only to the newest
@@ -1360,9 +1384,60 @@ private fun MessageBubbleContent(
     }
 }
 
-/** Grouped reaction pills under a bubble, in first-seen order. */
+/**
+ * Reaction bubbles under a message, in first-seen order. Direct chats group
+ * identical emoji; groups keep one bubble per reactor so each carries a face.
+ */
 @Composable
-private fun ReactionPills(message: ChatMessage) {
+private fun ReactionPills(
+    message: ChatMessage,
+    isGroup: Boolean,
+    participants: List<ConversationParticipant>,
+    viewerName: String,
+    viewerAvatarUrl: String,
+) {
+    // Groups attribute each reaction to its sender, so every reactor gets a
+    // picture bubble. Direct chats have one other person, and the pill only
+    // needs the emoji.
+    if (isGroup) {
+        val reactions = message.reactions.filter { it.emoji.isNotBlank() }
+        if (reactions.isEmpty()) return
+        FlowRow(
+            modifier = Modifier.padding(top = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            reactions.forEach { reaction ->
+                val participant = participants.firstOrNull {
+                    reaction.senderFbid != 0L && it.fbid == reaction.senderFbid
+                }
+                ReactionPill(
+                    emoji = reaction.emoji,
+                    count = 1,
+                    fromViewer = reaction.isFromViewer,
+                    author = ReactionAuthor(
+                        initials = if (reaction.isFromViewer) {
+                            initialsOf(viewerName)
+                        } else {
+                            participant?.initials.orEmpty()
+                        },
+                        avatarUrl = if (reaction.isFromViewer) {
+                            viewerAvatarUrl
+                        } else {
+                            participant?.avatarUrl.orEmpty()
+                        },
+                        colorSeed = if (reaction.isFromViewer) {
+                            viewerName
+                        } else {
+                            reaction.senderFbid.toString()
+                        },
+                    ),
+                )
+            }
+        }
+        return
+    }
+
     val groups = message.reactionGroups()
     if (groups.isEmpty()) return
 
@@ -1371,25 +1446,66 @@ private fun ReactionPills(message: ChatMessage) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         groups.forEach { group ->
-            Surface(
-                shape = CircleShape,
-                color = if (group.fromViewer) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                contentColor = if (group.fromViewer) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            ) {
-                Text(
-                    text = if (group.count > 1) "${group.emoji} ${group.count}" else group.emoji,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            ReactionPill(
+                emoji = group.emoji,
+                count = group.count,
+                fromViewer = group.fromViewer,
+                author = null,
+            )
+        }
+    }
+}
+
+/** Reactor shown inside a group reaction bubble. */
+private data class ReactionAuthor(
+    val initials: String,
+    val avatarUrl: String,
+    val colorSeed: String,
+)
+
+/** One reaction bubble: emoji alone in direct chats, with the reactor's picture in groups. */
+@Composable
+private fun ReactionPill(
+    emoji: String,
+    count: Int,
+    fromViewer: Boolean,
+    author: ReactionAuthor?,
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (fromViewer) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        contentColor = if (fromViewer) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                start = if (author == null) 8.dp else 3.dp,
+                end = if (author == null) 8.dp else 7.dp,
+                top = 2.dp,
+                bottom = 2.dp,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (author != null) {
+                Avatar(
+                    initials = author.initials,
+                    size = ReactionAvatarSize,
+                    imageUrl = author.avatarUrl,
+                    colorSeed = author.colorSeed,
                 )
             }
+            Text(
+                text = if (count > 1) "$emoji $count" else emoji,
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
     }
 }

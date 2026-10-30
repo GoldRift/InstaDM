@@ -200,7 +200,11 @@ internal object DemoData {
             maya,
             now - 150 * MINUTE,
             "the new palette is 🔥",
-            reactions = listOf(reaction("👍", dev, now - 149 * MINUTE)),
+            reactions = listOf(
+                reaction("👍", dev, now - 149 * MINUTE),
+                reaction("😮", sofia, now - 148 * MINUTE),
+                reaction("❤️", viewer, now - 147 * MINUTE),
+            ),
         )
         val confetti = message(
             "demo_design_5",
