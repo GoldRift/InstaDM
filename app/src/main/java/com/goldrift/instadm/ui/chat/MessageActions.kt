@@ -25,6 +25,12 @@ const val EDIT_WINDOW_MS = 15 * 60_000L
 /** Maximum text length accepted by the Go core for sends, edits, and new DMs. */
 const val MAX_MESSAGE_LENGTH = 1000
 
+/**
+ * Emoji a double tap sends. Once there is a settings section this should become
+ * the viewer's chosen like instead of a fixed default.
+ */
+const val DEFAULT_LIKE_EMOJI = "❤️"
+
 fun ChatMessage.canReact(): Boolean = isServerMessage()
 
 /**

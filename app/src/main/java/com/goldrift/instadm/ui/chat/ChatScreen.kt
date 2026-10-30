@@ -822,6 +822,7 @@ private fun MessageList(
                     actionsExpanded = actionMessageId == message.id,
                     onDismissActions = onDismissActions,
                     onReact = { emoji -> onReactAt(message.id, emoji) },
+                    onLike = { onReactAt(message.id, DEFAULT_LIKE_EMOJI) },
                     onCopy = { onCopyAt(message.id) },
                     onReplyAt = { onReplyAt(message.id) },
                     onMoreEmoji = { onMoreEmojiAt(message.id) },
@@ -868,6 +869,7 @@ private fun MessageRow(
     actionsExpanded: Boolean,
     onDismissActions: () -> Unit,
     onReact: (String) -> Unit,
+    onLike: () -> Unit,
     onCopy: () -> Unit,
     onReplyAt: () -> Unit,
     onMoreEmoji: () -> Unit,
@@ -879,13 +881,14 @@ private fun MessageRow(
     modifier: Modifier = Modifier,
 ) {
     val isMine = message.sender == MessageSender.Me
-    // The tap and long-press detectors live in a pointerInput keyed only on the
-    // message, so read the current callbacks through state rather than
-    // capturing the ones present when the bubble first composed. Without this a
-    // bubble composed while it was the newest send would never become tappable
-    // once a newer message took the tick row.
+    // The tap, double-tap, and long-press detectors live in a pointerInput keyed
+    // only on the message, so read the current callbacks through state rather
+    // than capturing the ones present when the bubble first composed. Without
+    // this a bubble composed while it was the newest send would never become
+    // tappable once a newer message took the tick row.
     val currentOnToggleStatus by rememberUpdatedState(onToggleStatus)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentOnLike by rememberUpdatedState(onLike)
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -1037,6 +1040,17 @@ private fun MessageRow(
                         .pointerInput(message.id) {
                             detectTapGestures(
                                 onTap = { currentOnToggleStatus?.invoke() },
+                                // A double tap likes the message, so a single
+                                // tap now waits out the double-tap timeout; the
+                                // tick reveal can absorb that delay.
+                                onDoubleTap = if (message.canReact()) {
+                                    {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        currentOnLike()
+                                    }
+                                } else {
+                                    null
+                                },
                                 onLongPress = { currentOnLongPress() },
                             )
                         },

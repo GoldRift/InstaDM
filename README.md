@@ -50,8 +50,8 @@ official app.
   attachments and shared reels.
 - Voice notes record with hold-to-send, slide-up to lock, and slide-left to
   cancel, then play inline with a waveform and tap-to-seek.
-- Replies (swipe or long-press), reactions, edits, unsend, read receipts, and
-  per-message seen ticks.
+- Replies (swipe or long-press), reactions (double-tap to like, long-press for
+  the full set), edits, unsend, read receipts, and per-message seen ticks.
 - Instagram's like and reaction activity entries (`kind=reaction-log`, such as
   "Liked a message") are kept out of the transcript: the reaction itself already
   shows on the bubble, while the entry still appears in the inbox preview and
