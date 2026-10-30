@@ -165,6 +165,7 @@ class ChatStoreTest {
         )
 
         assertEquals(1, store.observeUnreadCounts().first().single().unreadCount)
+        assertEquals(1, store.unreadCount("thread-1"))
 
         store.ingestSentText(
             "thread-1",
@@ -175,10 +176,12 @@ class ChatStoreTest {
         )
         // The viewer's own reply does not belong in the badge.
         assertEquals(1, store.observeUnreadCounts().first().single().unreadCount)
+        assertEquals(1, store.unreadCount("thread-1"))
 
         store.markThreadRead("thread-1", 1_700_000_003_000)
 
         assertTrue(store.observeUnreadCounts().first().isEmpty())
+        assertEquals(0, store.unreadCount("thread-1"))
     }
 
     @Test

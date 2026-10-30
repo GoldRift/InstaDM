@@ -50,6 +50,19 @@ interface ThreadDao {
     )
     fun observeUnreadCounts(): Flow<List<ThreadUnreadCount>>
 
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM messages AS m
+        INNER JOIN threads AS t ON t.id = m.thread_id
+        WHERE m.thread_id = :threadId
+          AND m.is_from_viewer = 0
+          AND m.status != 'deleted'
+          AND m.timestamp_ms > t.read_watermark_ms
+        """,
+    )
+    suspend fun unreadCount(threadId: String): Int
+
     @Transaction
     @Query("SELECT * FROM threads WHERE id = :threadId")
     fun observeThread(threadId: String): Flow<ThreadWithParticipants?>

@@ -66,11 +66,12 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
-        // The recorder is process-scoped so realtime deltas are stored even when
-        // only the foreground service is running. The outbox retries sends that
-        // were interrupted by a previous process death.
+        // These are process-scoped so realtime deltas are stored and stale
+        // notifications are pruned even when only the foreground service is
+        // running; the outbox retries sends interrupted by a previous death.
         if (sessionStore.hasStoredSession()) {
             realtimeRecorder.start()
+            messageNotifier.start()
             outbox.start()
         }
     }

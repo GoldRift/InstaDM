@@ -49,13 +49,21 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Posts one stacked notification per conversation. It is process-scoped and
  * consumes incoming events on its own IO coroutine so avatar downloads and
  * notification IPC never block the realtime recorder.
+ *
+ * A notification lives only while its conversation is unread: reading the
+ * thread in the app (or on another device) advances the Room read watermark and
+ * the notification is removed.
  */
 class MessageNotifier(
     context: Context,
@@ -67,11 +75,26 @@ class MessageNotifier(
     private val events = Channel<RealtimeEvent>(Channel.UNLIMITED)
     private val history = ThreadNotificationHistory()
     private val avatars = LruCache<String, Bitmap>(AVATAR_CACHE_ENTRIES)
+    private val lock = Mutex()
+    private val started = AtomicBoolean(false)
     private val viewerPerson = Person.Builder()
         .setName(appContext.getString(R.string.chat_you))
         .build()
 
-    init {
+    /**
+     * Starts event consumption and read-state cleanup once per process. The app
+     * calls this on process start so notifications left by a previous process
+     * are pruned even before the first message arrives.
+     */
+    fun start() {
+        if (!started.compareAndSet(false, true)) return
+        scope.launch {
+            runCatching {
+                chatStore.observeUnreadCounts().collect { dismissReadNotifications() }
+            }.onFailure {
+                Log.w(TAG, "notification cleanup failed: ${it.javaClass.simpleName}")
+            }
+        }
         scope.launch {
             for (event in events) {
                 runCatching { post(event) }
@@ -81,6 +104,7 @@ class MessageNotifier(
     }
 
     fun enqueue(event: RealtimeEvent) {
+        start()
         events.trySend(event)
     }
 
@@ -102,6 +126,7 @@ class MessageNotifier(
         val isGroup = conversation?.isGroup == true
         val sender = senderFor(message, conversation, isGroup)
         val notificationId = messageNotificationId(threadId)
+        val tag = notificationTag(threadId)
         val entries = history.record(
             threadId = threadId,
             message = NotifiedMessage(
@@ -112,7 +137,7 @@ class MessageNotifier(
                 senderName = sender.name,
                 senderAvatarUrl = sender.avatarUrl,
             ),
-            append = isNotificationActive(notificationId),
+            append = isNotificationActive(tag, notificationId),
         ).sortedBy { it.timestampMs }
 
         val title = titleFor(conversation, isGroup, entries.last().senderName)
@@ -142,7 +167,42 @@ class MessageNotifier(
             .setNumber(entries.size)
             .setContentIntent(contentIntent(threadId, notificationId))
 
-        manager.notify(notificationId, builder.build())
+        lock.withLock {
+            // The reader can open the chat and finish the receipt while the
+            // avatar loads above, so re-check immediately before posting.
+            if (chatStore.unreadCount(threadId) == 0) {
+                history.forget(threadId)
+                return@withLock
+            }
+            manager.notify(tag, notificationId, builder.build())
+        }
+    }
+
+    /**
+     * Removes notifications whose conversation is no longer unread. The Room
+     * read watermark is the single source of truth, so a receipt accepted from
+     * this app and one mirrored from another client behave the same, and
+     * notifications left by a previous process are cleaned up on the first
+     * emission.
+     */
+    private suspend fun dismissReadNotifications() {
+        val active = runCatching { manager.activeNotifications }.getOrNull() ?: return
+        val shown = active.mapNotNull { entry ->
+            val tag = entry.tag ?: return@mapNotNull null
+            val threadId = tag.removePrefix(NOTIFICATION_TAG_PREFIX)
+            if (threadId == tag || threadId.isBlank()) return@mapNotNull null
+            threadId to entry
+        }
+        if (shown.isEmpty()) return
+
+        lock.withLock {
+            for ((threadId, entry) in shown) {
+                val unread = runCatching { chatStore.unreadCount(threadId) }.getOrNull() ?: continue
+                if (unread > 0) continue
+                history.forget(threadId)
+                manager.cancel(entry.tag, entry.id)
+            }
+        }
     }
 
     /**
@@ -174,6 +234,9 @@ class MessageNotifier(
     }
 
     private fun conversationShortcutId(threadId: String): String = "instadm.thread.$threadId"
+
+    /** The tag carries the thread ID so notifications left by an earlier process stay addressable. */
+    private fun notificationTag(threadId: String): String = NOTIFICATION_TAG_PREFIX + threadId
 
     private fun titleFor(
         conversation: Conversation?,
@@ -414,8 +477,8 @@ class MessageNotifier(
 
     // A swiped notification leaves no platform entry; starting a fresh stack
     // keeps dismissed lines from reappearing on the next message.
-    private fun isNotificationActive(notificationId: Int): Boolean = runCatching {
-        manager.activeNotifications.any { it.id == notificationId }
+    private fun isNotificationActive(tag: String, notificationId: Int): Boolean = runCatching {
+        manager.activeNotifications.any { it.tag == tag && it.id == notificationId }
     }.getOrDefault(false)
 
     private fun contentIntent(threadId: String, requestCode: Int): PendingIntent {
@@ -439,6 +502,7 @@ class MessageNotifier(
         const val EXTRA_THREAD_ID = "com.goldrift.instadm.extra.THREAD_ID"
 
         private const val TAG = "MessageNotifier"
+        private const val NOTIFICATION_TAG_PREFIX = "instadm.notification."
         private const val PERSON_AVATAR_SIZE_PX = 72
         private const val CONVERSATION_AVATAR_SIZE_PX = 128
         private const val AVATAR_CACHE_ENTRIES = 32

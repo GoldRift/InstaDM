@@ -59,6 +59,9 @@ class ChatStore(
     /** Unread incoming messages per thread, used by the inbox badges. */
     fun observeUnreadCounts(): Flow<List<ThreadUnreadCount>> = threadDao.observeUnreadCounts()
 
+    /** Incoming messages newer than the viewer's read watermark in one thread. */
+    suspend fun unreadCount(threadId: String): Int = threadDao.unreadCount(threadId)
+
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
         messageDao.observeThread(threadId)
 

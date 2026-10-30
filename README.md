@@ -61,7 +61,8 @@ official app.
   new messages, edits, deletes, reactions, and receipts land even when the UI is
   in the background. Background messages stack into one notification per
   conversation: groups show the group name on top with each sender and profile
-  picture on their messages, and tapping a notification opens that chat.
+  picture on their messages, tapping a notification opens that chat, and the
+  notification goes away once that conversation is read.
 - Material 3 with Material You colors, date headers, a two-pane inbox/chat layout
   at 840 dp and wider, and TalkBack-friendly controls.
 - Bounded storage: at most 1,000 messages per thread and a 250 MB media cache,

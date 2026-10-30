@@ -86,6 +86,17 @@ class NotificationHistoryTest {
     }
 
     @Test
+    fun aForgottenThreadStartsAFreshStack() {
+        val history = ThreadNotificationHistory()
+
+        history.record("thread-1", message("message-1"), append = false)
+        history.forget("thread-1")
+        val stacked = history.record("thread-1", message("message-2"), append = true)
+
+        assertEquals(listOf("message-2"), stacked.map { it.id })
+    }
+
+    @Test
     fun notificationIdsAreStableAndAboveTheServiceNotification() {
         assertEquals(messageNotificationId("thread-1"), messageNotificationId("thread-1"))
         assertTrue(messageNotificationId("thread-1") >= MESSAGE_NOTIFICATION_BASE)

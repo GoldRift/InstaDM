@@ -48,4 +48,9 @@ internal class ThreadNotificationHistory(private val limit: Int = 8) {
         }
         return entries.toList()
     }
+
+    /** Clears a thread once its notification is dismissed, so the next message starts fresh. */
+    fun forget(threadId: String) {
+        threads.remove(threadId)
+    }
 }
