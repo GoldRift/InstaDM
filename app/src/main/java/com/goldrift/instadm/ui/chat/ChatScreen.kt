@@ -79,6 +79,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -200,6 +202,7 @@ private val ReactionAvatarSize = 18.dp
 /** How many typing pictures the group bubble stacks before it stops growing. */
 private const val MaxTypingAvatars = 3
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatScreen(
     conversation: Conversation,
@@ -549,7 +552,10 @@ fun ChatScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            CircularProgressIndicator()
+                            val loading = stringResource(R.string.app_loading)
+                            LoadingIndicator(
+                                modifier = Modifier.semantics { contentDescription = loading },
+                            )
                         }
                     }
 
