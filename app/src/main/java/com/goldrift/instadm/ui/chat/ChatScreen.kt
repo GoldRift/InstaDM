@@ -18,13 +18,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,6 +57,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -123,6 +122,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
@@ -174,7 +174,6 @@ internal val AttachmentInset = 4.dp
 
 private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
 
-private val ChatContentShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 /** Horizontal drag needed to start a reply, and the distance the bubble follows. */
 private val SWIPE_REPLY_THRESHOLD = 56.dp
@@ -470,11 +469,17 @@ fun ChatScreen(
             )
         },
     ) { innerPadding ->
+        val chatContentShape = RoundedCornerShape(
+            topStart = MaterialTheme.shapes.extraLarge.topStart,
+            topEnd = MaterialTheme.shapes.extraLarge.topEnd,
+            bottomEnd = CornerSize(0.dp),
+            bottomStart = CornerSize(0.dp),
+        )
         Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            shape = ChatContentShape,
+            shape = chatContentShape,
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.fillMaxSize()) {
@@ -755,7 +760,10 @@ private fun MessageList(
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
                     senders = typingSenders,
-                    modifier = Modifier.animateItem(),
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                        placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    ),
                 )
             }
         }
@@ -817,7 +825,12 @@ private fun MessageList(
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
             val showStatusTicks = message.showsStatusTicks(lastOutgoingId, revealedStatusMessageId)
 
-            Column(modifier = Modifier.animateItem()) {
+            Column(
+                modifier = Modifier.animateItem(
+                    fadeInSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                    placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                ),
+            ) {
                 if (showDayHeader) {
                     DayHeader(timestampMs = message.timestampMs)
                 }
@@ -947,7 +960,7 @@ private fun MessageRow(
         animationSpec = if (dragging) {
             snap()
         } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
+            MaterialTheme.motionScheme.defaultSpatialSpec()
         },
         label = "replySwipeOffset",
     )
@@ -1227,29 +1240,28 @@ private fun ReplyQuote(
     val bubbles = LocalMessageBubbleColors.current
     val quoteColor = if (isMine) bubbles.outgoingQuote else bubbles.incomingQuote
     val contentColor = if (isMine) bubbles.onOutgoingQuote else bubbles.onIncomingQuote
-    Column(
-        modifier = modifier
-            .widthIn(min = 180.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(quoteColor)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+    Surface(
+        modifier = modifier.widthIn(min = 180.dp),
+        shape = MaterialTheme.shapes.small,
+        color = quoteColor,
+        contentColor = contentColor,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = replyContent(reply),
-            style = MaterialTheme.typography.bodyMedium,
-            color = contentColor.copy(alpha = 0.78f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = replyContent(reply),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
