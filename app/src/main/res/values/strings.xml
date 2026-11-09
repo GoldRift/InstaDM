@@ -55,6 +55,11 @@
     <string name="chat_older_retry">Retry</string>
     <string name="chat_message_actions">Message actions</string>
     <string name="chat_more_reactions">More reactions</string>
+    <string name="chat_react_with">React with %1$s</string>
+    <plurals name="chat_reaction_count">
+        <item quantity="one">Reaction %1$s</item>
+        <item quantity="other">Reaction %1$s from %2$d people</item>
+    </plurals>
     <string name="chat_action_copy">Copy</string>
     <string name="chat_action_edit">Edit</string>
     <string name="chat_action_reply">Reply</string>

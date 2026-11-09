@@ -79,6 +79,11 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,6 +97,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -119,8 +125,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
@@ -137,6 +145,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.takeOrElse
@@ -1172,7 +1181,7 @@ private fun MessageRow(
                             Spacer(Modifier.width(3.dp))
                             Text(
                                 text = stringResource(R.string.chat_media_failed),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
@@ -1498,7 +1507,9 @@ private fun ReactionPill(
     fromViewer: Boolean,
     author: ReactionAuthor?,
 ) {
+    val description = pluralStringResource(R.plurals.chat_reaction_count, count, emoji, count)
     Surface(
+        modifier = Modifier.clearAndSetSemantics { contentDescription = description },
         shape = CircleShape,
         color = if (fromViewer) {
             MaterialTheme.colorScheme.primaryContainer
@@ -1608,6 +1619,18 @@ private fun MessageActionsPopup(
     }
 }
 
+/**
+ * Emoji keep their 26dp size at any font scale: they are decorative glyphs, and
+ * scaling them with text clips them out of their 48dp target.
+ */
+@Composable
+private fun EmojiGlyph(emoji: String) {
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(density.density)) {
+        Text(text = emoji, fontSize = 26.sp, maxLines = 1)
+    }
+}
+
 @Composable
 private fun ReactionBar(
     onReact: (String) -> Unit,
@@ -1627,10 +1650,13 @@ private fun ReactionBar(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .clickable(role = Role.Button) { onReact(emoji) },
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = stringResource(R.string.chat_react_with, emoji),
+                        ) { onReact(emoji) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = emoji, fontSize = 26.sp)
+                    EmojiGlyph(emoji)
                 }
             }
             Box(
@@ -1742,31 +1768,26 @@ private fun MessageActionRow(
     onClick: () -> Unit,
     destructive: Boolean = false,
 ) {
-    val tint = if (destructive) {
-        MaterialTheme.colorScheme.error
+    val colors = if (destructive) {
+        MenuDefaults.itemColors(
+            textColor = MaterialTheme.colorScheme.error,
+            leadingIconColor = MaterialTheme.colorScheme.error,
+        )
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        MenuDefaults.itemColors()
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 22.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(16.dp))
-        Text(
-            text = stringResource(label),
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (destructive) tint else MaterialTheme.colorScheme.onSurface,
-        )
-    }
+    DropdownMenuItem(
+        text = { Text(stringResource(label)) },
+        onClick = onClick,
+        leadingIcon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+        },
+        colors = colors,
+    )
 }
 
 @Composable
@@ -1787,6 +1808,7 @@ private fun EditMessageDialog(
                 value = text,
                 onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) text = it },
                 modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.chat_edit_title)) },
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                 ),
@@ -1795,8 +1817,7 @@ private fun EditMessageDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(trimmed) },
-                enabled = canSave,
+                onClick = { if (canSave) onSave(trimmed) else onDismiss() },
             ) {
                 Text(stringResource(R.string.chat_edit_save))
             }
@@ -1819,11 +1840,13 @@ private fun UnsendMessageDialog(
         title = { Text(stringResource(R.string.chat_unsend_title)) },
         text = { Text(stringResource(R.string.chat_unsend_body)) },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(
-                    text = stringResource(R.string.chat_action_unsend),
-                    color = MaterialTheme.colorScheme.error,
-                )
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text(stringResource(R.string.chat_action_unsend))
             }
         },
         dismissButton = {
@@ -2064,13 +2087,11 @@ private fun MessageComposer(
                                 .padding(horizontal = 4.dp, vertical = 0.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (showActions) {
+                            if (showActions && !recording) {
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
-                                        .alpha(if (recording) 0f else 1f)
                                         .clickable(
-                                            enabled = !recording,
                                             role = Role.Button,
                                             onClick = onCamera,
                                         ),
@@ -2135,13 +2156,11 @@ private fun MessageComposer(
                                 )
                             }
 
-                            if (showActions) {
+                            if (showActions && !recording) {
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
-                                        .alpha(if (recording) 0f else 1f)
                                         .clickable(
-                                            enabled = !recording,
                                             role = Role.Button,
                                             onClick = onPickMedia,
                                         ),
@@ -2169,26 +2188,19 @@ private fun MessageComposer(
                             onRelease = onMicRelease,
                         )
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clickable(role = Role.Button, onClick = onSend),
-                            contentAlignment = Alignment.Center,
+                        FilledIconButton(
+                            onClick = onSend,
+                            modifier = Modifier.size(48.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = bubbles.composerAccent,
+                                contentColor = bubbles.onComposerAccent,
+                            ),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(bubbles.composerAccent),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                                    contentDescription = stringResource(R.string.chat_send),
-                                    tint = bubbles.onComposerAccent,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = stringResource(R.string.chat_send),
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
@@ -2455,18 +2467,13 @@ private fun LockedRecordingBar(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .clickable(onClick = onSend),
-            contentAlignment = Alignment.Center,
+        FilledIconButton(
+            onClick = onSend,
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.Send,
                 contentDescription = stringResource(R.string.chat_recording_send),
-                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(20.dp),
             )
         }
