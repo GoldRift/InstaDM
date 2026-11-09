@@ -428,8 +428,8 @@ private fun ConversationRow(
 }
 
 /**
- * Profile picture in the top bar. Tapping it opens the account sheet, which
- * holds one card per account action.
+ * Profile picture in the top bar. Tapping it opens the account sheet: a
+ * signed-in header that identifies the account, then grouped action rows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -470,58 +470,111 @@ private fun AccountMenu(
     }
     if (!expanded) return
 
-    ModalBottomSheet(
-        onDismissRequest = { expanded = false },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        AccountAction(
-            icon = Icons.AutoMirrored.Rounded.Logout,
-            label = stringResource(R.string.account_logout),
-            onClick = {
+    ModalBottomSheet(onDismissRequest = { expanded = false }) {
+        AccountSheetContent(
+            viewerName = viewerName,
+            viewerAvatarUrl = viewerAvatarUrl,
+            onLogout = {
                 expanded = false
                 onLogout()
             },
         )
-        Spacer(Modifier.height(24.dp))
     }
 }
 
-/** One tappable card in the account sheet. */
+/** Sheet body: who is signed in, then the grouped account actions. */
+@Composable
+private fun AccountSheetContent(
+    viewerName: String,
+    viewerAvatarUrl: String,
+    onLogout: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 24.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Avatar(
+                initials = initialsOf(viewerName),
+                size = 48.dp,
+                imageUrl = viewerAvatarUrl,
+                colorSeed = viewerName,
+            )
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = viewerName.ifBlank {
+                        stringResource(R.string.account_default_name)
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    text = stringResource(R.string.account_signed_in),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        AccountAction(
+            icon = Icons.AutoMirrored.Rounded.Logout,
+            label = stringResource(R.string.account_logout),
+            supporting = stringResource(R.string.account_logout_supporting),
+            onClick = onLogout,
+        )
+    }
+}
+
+/** One grouped action row: start icon, title, and a consequence line. */
 @Composable
 private fun AccountAction(
     icon: ImageVector,
     label: String,
+    supporting: String,
     onClick: () -> Unit,
 ) {
     Surface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
-            modifier = Modifier
-                .clickable(onClick = onClick)
-                .padding(16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.errorContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.size(20.dp),
                 )
             }
             Spacer(Modifier.width(16.dp))
-            Text(text = label, style = MaterialTheme.typography.titleMedium)
+            Column(Modifier.weight(1f)) {
+                Text(text = label, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = supporting,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
