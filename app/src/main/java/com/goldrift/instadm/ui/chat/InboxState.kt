@@ -257,6 +257,9 @@ class InboxState(
 
     /** Applies the mailbox returned by login validation without another fetch. */
     fun applyMailbox(mailbox: JSONObject) {
+        // A mailbox means the session is live. Leaving the inbox on NoSession
+        // until the ingest finishes would bounce the reader back to login.
+        status = InboxStatus.Loading
         scope.launch {
             runCatching { chatStore.ingestMailbox(mailbox) }
                 .onSuccess {
