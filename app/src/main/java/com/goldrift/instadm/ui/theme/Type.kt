@@ -22,6 +22,13 @@ val Typography = Typography(
         lineHeight = 28.sp,
         letterSpacing = 0.sp,
     ),
+    titleLargeEmphasized = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp,
+    ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,

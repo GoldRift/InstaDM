@@ -658,11 +658,10 @@ private fun ChatTopSection(
                     Spacer(Modifier.width(12.dp))
                     Text(
                         text = contact.name,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Medium,
-                        ),
+                        style = MaterialTheme.typography.titleLargeEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
                     )
                 }
             },

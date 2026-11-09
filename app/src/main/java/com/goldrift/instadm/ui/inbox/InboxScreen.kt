@@ -114,9 +114,7 @@ fun InboxScreen(
                 title = {
                     Text(
                         text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Medium,
-                        ),
+                        style = MaterialTheme.typography.titleLargeEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
