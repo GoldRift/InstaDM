@@ -1,6 +1,5 @@
 package com.goldrift.instadm.ui.search
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -141,80 +141,85 @@ fun SearchScreen(
         }
     }
 
-    Column(
+    Surface(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.statusBars),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = stringResource(R.string.chat_back),
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = stringResource(R.string.chat_back),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    placeholder = { Text(stringResource(R.string.search_hint)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.search_clear),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = CircleShape,
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
                 )
             }
-            TextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Rounded.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.search_clear),
-                                modifier = Modifier.size(20.dp),
-                            )
+
+            when (val state = results) {
+                SearchResults.Idle -> SearchHint(text = stringResource(R.string.search_prompt))
+
+                SearchResults.Searching -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+
+                is SearchResults.Failed -> SearchHint(
+                    text = state.message.ifBlank { stringResource(R.string.search_error) },
+                    actionLabel = stringResource(R.string.inbox_retry),
+                    onAction = { retryToken++ },
+                )
+
+                is SearchResults.Found -> if (state.users.isEmpty()) {
+                    SearchHint(text = stringResource(R.string.search_no_results, query.trim()))
+                } else {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(state.users, key = { it.fbid }) { user ->
+                            UserRow(user = user, onClick = { onPick(user) })
                         }
-                    }
-                },
-                singleLine = true,
-                shape = CircleShape,
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-            )
-        }
-
-        when (val state = results) {
-            SearchResults.Idle -> SearchHint(text = stringResource(R.string.search_prompt))
-
-            SearchResults.Searching -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
-            }
-
-            is SearchResults.Failed -> SearchHint(
-                text = state.message.ifBlank { stringResource(R.string.search_error) },
-                actionLabel = stringResource(R.string.inbox_retry),
-                onAction = { retryToken++ },
-            )
-
-            is SearchResults.Found -> if (state.users.isEmpty()) {
-                SearchHint(text = stringResource(R.string.search_no_results, query.trim()))
-            } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.users, key = { it.fbid }) { user ->
-                        UserRow(user = user, onClick = { onPick(user) })
                     }
                 }
             }
