@@ -244,6 +244,7 @@ private fun UserRow(user: SearchUser, onClick: () -> Unit) {
                 Text(
                     text = user.displayName,
                     style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
