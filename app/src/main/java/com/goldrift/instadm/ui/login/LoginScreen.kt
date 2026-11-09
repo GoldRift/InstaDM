@@ -99,6 +99,7 @@ fun LoginScreen(
     val loginError = stringResource(R.string.login_error)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var sessionCleared by remember { mutableStateOf(false) }
     var pageLoading by remember { mutableStateOf(true) }
     var validating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -140,6 +141,11 @@ fun LoginScreen(
 
     BackHandler(enabled = webView?.canGoBack() == true) {
         webView?.goBack()
+    }
+
+    LaunchedEffect(Unit) {
+        clearWebViewSession()
+        sessionCleared = true
     }
 
     LaunchedEffect(webView) {
@@ -201,7 +207,9 @@ fun LoginScreen(
             }
 
             Box(Modifier.weight(1f)) {
-                AndroidView(
+                if (!sessionCleared) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                } else AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
                         WebView(viewContext).apply {
