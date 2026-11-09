@@ -283,7 +283,7 @@ class RealtimeService : Service() {
 
     private fun buildStatusNotification(text: String): Notification =
         NotificationCompat.Builder(this, NotificationChannels.STATUS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_stat_name)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(appPendingIntent(0))

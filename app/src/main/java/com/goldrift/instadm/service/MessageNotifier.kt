@@ -156,7 +156,7 @@ class MessageNotifier(
         }
 
         val builder = NotificationCompat.Builder(appContext, NotificationChannels.MESSAGES)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_stat_name)
             .setLargeIcon(avatar)
             .setShortcutId(conversationShortcutId(threadId))
             .setStyle(style)
