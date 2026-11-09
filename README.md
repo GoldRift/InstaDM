@@ -42,6 +42,11 @@ official app.
 - Inbox with cached previews, avatars, unread badges, group attribution, and
   pull-to-refresh. It loads 20 conversations and fetches older ones as you
   scroll past the bottom.
+- Account search from the inbox search button: type a username or name, then
+  pick a match to open its chat. An account you have not messaged yet opens a
+  chat with an empty transcript; it joins the inbox only once its first message
+  creates the thread, so backing out without sending leaves no trace. The first
+  message is text, because Instagram creates the thread with it.
 - Conversations page 30 messages at a time and scroll back to the start of the
   thread, keeping the viewport stable while older pages load.
 - Send text, photos, videos, files, and voice notes. Every send is an optimistic
@@ -119,7 +124,7 @@ Captured from the offline demo build on an API 37 emulator.
       <td align="center"><img src="docs/screenshots/light/09-link-and-voice-light.png" width="220" alt="Links and voice"><br><sub>Links and voice</sub></td>
       <td align="center"><img src="docs/screenshots/light/10-group-light.png" width="220" alt="Group chat"><br><sub>Group chat</sub></td>
       <td align="center"><img src="docs/screenshots/light/11-media-cards-light.png" width="220" alt="Video, reel, view-once"><br><sub>Video, reel, view-once</sub></td>
-      <td></td>
+      <td align="center"><img src="docs/screenshots/light/12-search-light.png" width="220" alt="Search"><br><sub>Search</sub></td>
     </tr>
 </table>
 

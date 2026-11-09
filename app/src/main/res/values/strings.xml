@@ -102,6 +102,12 @@
         <item quantity="other">%d unread messages</item>
     </plurals>
     <string name="inbox_search">Search</string>
+    <string name="search_hint">Search accounts</string>
+    <string name="search_clear">Clear search</string>
+    <string name="search_prompt">Search for an Instagram username or name.</string>
+    <string name="search_no_results">No accounts match "%1$s".</string>
+    <string name="search_error">Couldn\'t search. Check the network and retry.</string>
+    <string name="search_verified">Verified account</string>
     <string name="inbox_profile_photo">Your profile photo</string>
     <string name="inbox_no_session_title">No session</string>
     <string name="inbox_no_session_body">Log in to Instagram to load your direct messages.</string>

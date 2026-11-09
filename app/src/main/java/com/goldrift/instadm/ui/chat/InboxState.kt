@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
 
@@ -43,6 +44,12 @@ private const val READ_MIN_INTERVAL_MS = 3_000L
 
 /** Re-fetch the newest page when it is older than this. */
 private const val THREAD_STALE_MS = 30_000L
+
+/** How long a started conversation waits for its inbox row before opening. */
+private const val NEW_THREAD_WAIT_MS = 5_000L
+
+/** Thread ID prefix of a chat opened from search before its first message. */
+private const val DRAFT_THREAD_PREFIX = "draft:"
 
 /** Instagram stops showing a typing signal about this long after the last one. */
 private const val TYPING_TTL_MS = 6_000L
@@ -119,8 +126,15 @@ class InboxState(
     val conversations: List<Conversation>
         get() = items
 
+    /**
+     * A chat opened from search that has no thread yet. It is deliberately not
+     * part of [conversations]: the inbox only lists conversations that exist on
+     * Instagram, which is true only once the first message is sent.
+     */
+    private var draftThread: Conversation? by mutableStateOf(null)
+
     fun conversation(threadId: String): Conversation? =
-        items.firstOrNull { it.id == threadId }
+        items.firstOrNull { it.id == threadId } ?: draftThread?.takeIf { it.id == threadId }
 
     fun isLoading(threadId: String): Boolean = loadingThreads[threadId] == true
 
@@ -144,6 +158,40 @@ class InboxState(
     fun clearError() {
         errorMessage = null
     }
+
+    /**
+     * Opens a chat for a search result with no existing thread and returns its
+     * draft thread ID. Nothing is written until the first message is sent.
+     */
+    fun startDraft(
+        recipientFbid: String,
+        name: String,
+        username: String,
+        avatarUrl: String,
+    ): String {
+        val displayName = name.ifBlank { username }
+        val draft = Conversation(
+            id = "$DRAFT_THREAD_PREFIX$recipientFbid",
+            contact = Contact(
+                id = recipientFbid,
+                name = displayName,
+                initials = initialsOf(displayName),
+                avatarUrl = avatarUrl,
+            ),
+            draftRecipientFbid = recipientFbid,
+        )
+        draftThread = draft
+        return draft.id
+    }
+
+    /** The inbox conversation that already contains the account, if any. */
+    fun conversationForRecipient(recipientFbid: String, igId: String = ""): Conversation? =
+        items.firstOrNull { conversation ->
+            conversation.participants.any { participant ->
+                (recipientFbid.isNotBlank() && participant.fbid.toString() == recipientFbid) ||
+                    (igId.isNotBlank() && participant.igId == igId)
+            }
+        }
 
     private suspend fun loadViewer() {
         val profile = chatStore.viewerProfile()
@@ -351,6 +399,50 @@ class InboxState(
                 .onFailure { error -> errorMessage = describeError(error) }
         }
     }
+
+    /**
+     * Starts a conversation with a search result: Instagram creates the thread
+     * with the first message, so this cannot go through the outbox and needs a
+     * live connection. [onStarted] receives the thread once the inbox row is
+     * there and the chat route can open it.
+     */
+    fun startConversation(
+        recipientFbid: String,
+        rawText: String,
+        onStarted: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val text = rawText.trim()
+        if (text.isEmpty() || recipientFbid.isBlank()) return
+        scope.launch {
+            runCatching {
+                val result = repository.sendNewDm(recipientFbid, text)
+                mailboxSync.fetchAndStore()
+                // The Go core resolves the thread from the mailbox it queries
+                // after the send; a participant match covers a late reorder.
+                val threadId = result.optString("thread_id").trim()
+                    .ifEmpty { inboxThreadFor(recipientFbid) }
+                // shortcut: a delivered message whose thread Instagram does not
+                // report cannot be opened from here, revisit if that happens.
+                if (threadId.isEmpty()) {
+                    error("The message was sent, but Instagram did not report the conversation.")
+                }
+                // Shows the bubble before the thread page loads and creates the
+                // row, so the chat route finds a thread missing from the inbox.
+                chatStore.ingestSentText(threadId, result, text)
+                // The inbox list is fed by a Room flow, so wait for the row.
+                withTimeoutOrNull(NEW_THREAD_WAIT_MS) {
+                    while (conversation(threadId) == null) delay(50)
+                }
+                threadId
+            }
+                .onSuccess { threadId -> onStarted(threadId) }
+                .onFailure { error -> onError(describeError(error)) }
+        }
+    }
+
+    private fun inboxThreadFor(recipientFbid: String): String =
+        conversationForRecipient(recipientFbid)?.id.orEmpty()
 
     /**
      * Copies a picked attachment into the durable outbox and shows it as a

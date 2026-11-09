@@ -211,6 +211,9 @@ fun ChatScreen(
     onEdit: (messageId: String, text: String) -> Unit = { _, _ -> },
     onUnsend: (messageId: String) -> Unit = {},
     onSendVoice: (RecordedVoice) -> Unit = {},
+    // Off until the conversation exists on Instagram: a first message creates
+    // the thread, so it can only be text.
+    attachmentsEnabled: Boolean = true,
     viewerName: String = "",
     viewerAvatarUrl: String = "",
 ) {
@@ -434,6 +437,7 @@ fun ChatScreen(
                 onCancelReply = { replyTarget = null },
                 focusRequester = composerFocus,
                 onCamera = ::takePhoto,
+                attachmentsEnabled = attachmentsEnabled,
                 onPickMedia = ::pickMedia,
                 recorder = voiceRecorder,
                 locked = recordingLocked,
@@ -2003,9 +2007,10 @@ private fun MessageComposer(
     onMicRelease: (Boolean, Boolean) -> Unit,
     onRecordingSend: () -> Unit,
     onRecordingDelete: () -> Unit,
+    attachmentsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val showActions = draft.isBlank()
+    val showActions = draft.isBlank() && attachmentsEnabled
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
 

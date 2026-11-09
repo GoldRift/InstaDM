@@ -132,6 +132,9 @@ go run ./cmd/igcli unsend <thread-id> <message-id> --cookies ~/.config/instadm/c
 # Start a DM with a recipient FBID (from mailbox thread_key or participant fbid)
 go run ./cmd/igcli send-new <recipient-fbid> "hello" --cookies ~/.config/instadm/cookies.json
 
+# Find accounts by username or name (prints each result's fbid for send-new)
+go run ./cmd/igcli search "maya" --cookies ~/.config/instadm/cookies.json
+
 # Upload and send an image or file
 go run ./cmd/igcli send-media <thread-id> ./photo.png --cookies ~/.config/instadm/cookies.json
 
@@ -414,6 +417,7 @@ defer client.StopWatch()
 | `Version()` | Pinned protocol version |
 | `MailboxJSON(timeoutSeconds)` | Inbox and viewer JSON |
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
+| `SearchUsersJSON(query, timeoutSeconds)` | Account search result JSON (`fbid`, `username`, `name`, `avatar_url`) |
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
 | `SendNewDMJSON(recipientFBID, text, otid, timeoutSeconds)` | New-DM send result JSON |
 | `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
@@ -488,6 +492,10 @@ directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
   by local tests.
 - Typing is untested against a real account: both directions need the two extra sockets
   and a second account to watch.
+- `search` reached the real API and returned username, name, avatar, IG ID, and interop
+  messaging FBID for each match, including accounts outside the viewer's contact list.
+  Starting a conversation with one of those results (`send-new` to a recipient the
+  viewer has never messaged) remains untested.
 - Inbox pagination (`mailbox --after`) reached the real API and returned a well-formed
   empty page for a single-page inbox, but no account with more than one page was
   available, so a multi-page walk is unconfirmed. `--limit` caps the newest page only when

@@ -45,11 +45,14 @@ import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
+import com.goldrift.instadm.ui.search.SearchScreen
+import com.goldrift.instadm.ui.search.toSearchUsers
 
 private object Routes {
     const val Login = "login"
     const val Inbox = "inbox"
     const val Chat = "chat"
+    const val Search = "search"
     const val ThreadIdArg = "threadId"
     const val ChatRoute = "$Chat/{$ThreadIdArg}"
 
@@ -148,6 +151,29 @@ fun InstaDmApp(
                     inboxState.clearError()
                     navController.navigate(Routes.chat(threadId))
                 },
+                onSearch = { navController.navigate(Routes.Search) },
+            )
+        }
+
+        composable(Routes.Search) {
+            SearchScreen(
+                search = { query -> application.repository.searchUsers(query).toSearchUsers() },
+                onBack = { navController.popBackStack() },
+                onPick = { user ->
+                    // The first message creates the thread, so an account the
+                    // inbox does not have yet gets a draft chat instead.
+                    val existing = inboxState.conversationForRecipient(user.fbid, user.igId)
+                    val threadId = existing?.id ?: inboxState.startDraft(
+                        recipientFbid = user.fbid,
+                        name = user.name,
+                        username = user.username,
+                        avatarUrl = user.avatarUrl,
+                    )
+                    navController.navigate(Routes.chat(threadId)) {
+                        popUpTo(Routes.Inbox)
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -172,6 +198,12 @@ fun InstaDmApp(
                     onBack = {
                         inboxState.clearError()
                         navController.popBackStack()
+                    },
+                    onStarted = { startedThreadId ->
+                        navController.navigate(Routes.chat(startedThreadId)) {
+                            popUpTo(Routes.Inbox)
+                            launchSingleTop = true
+                        }
                     },
                 )
             }
@@ -219,6 +251,7 @@ private fun MainPane(
     onRefresh: () -> Unit,
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
+    onSearch: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth < TwoPaneMinWidth) {
@@ -236,6 +269,7 @@ private fun MainPane(
                 moreError = inboxState.moreConversationsError,
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
+                onSearch = onSearch,
             )
             return@BoxWithConstraints
         }
@@ -263,6 +297,7 @@ private fun MainPane(
                 moreError = inboxState.moreConversationsError,
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
+                onSearch = onSearch,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {
@@ -296,16 +331,39 @@ private fun ChatDestination(
     conversation: Conversation,
     inboxState: InboxState,
     onBack: () -> Unit,
+    onStarted: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val threadId = conversation.id
+    val draftRecipient = conversation.draftRecipientFbid
+    val isDraft = draftRecipient.isNotBlank()
+    var draftError by remember(threadId) { mutableStateOf<String?>(null) }
+    var sendingDraft by remember(threadId) { mutableStateOf(false) }
+
     LaunchedEffect(threadId) {
-        inboxState.loadThread(threadId)
+        if (!isDraft) inboxState.loadThread(threadId)
     }
     ChatScreen(
         conversation = conversation,
         onSend = { text, reply ->
-            inboxState.send(threadId, text, reply?.toReplySnapshot())
+            if (isDraft) {
+                sendingDraft = true
+                draftError = null
+                inboxState.startConversation(
+                    recipientFbid = draftRecipient,
+                    rawText = text,
+                    onStarted = { startedThreadId ->
+                        sendingDraft = false
+                        onStarted(startedThreadId)
+                    },
+                    onError = { message ->
+                        sendingDraft = false
+                        draftError = message
+                    },
+                )
+            } else {
+                inboxState.send(threadId, text, reply?.toReplySnapshot())
+            }
         },
         onBack = onBack,
         onSendMedia = { uri -> inboxState.sendMedia(threadId, uri) },
@@ -313,9 +371,9 @@ private fun ChatDestination(
         onRetryMedia = { messageId -> inboxState.retryMedia(threadId, messageId) },
         isTyping = inboxState.isTyping(threadId),
         typingSenders = inboxState.typingParticipants(threadId),
-        onTyping = { inboxState.notifyTyping(threadId) },
-        isLoading = inboxState.isLoading(threadId),
-        errorMessage = inboxState.errorMessage,
+        onTyping = { if (!isDraft) inboxState.notifyTyping(threadId) },
+        isLoading = sendingDraft || inboxState.isLoading(threadId),
+        errorMessage = draftError ?: inboxState.errorMessage,
         onLoadMedia = { mediaThreadId, messageId, media ->
             inboxState.downloadMedia(mediaThreadId, messageId, media)
         },
@@ -325,6 +383,7 @@ private fun ChatDestination(
         onReact = { messageId, emoji -> inboxState.react(threadId, messageId, emoji) },
         onEdit = { messageId, text -> inboxState.edit(threadId, messageId, text) },
         onUnsend = { messageId -> inboxState.unsend(threadId, messageId) },
+        attachmentsEnabled = !isDraft,
         viewerName = inboxState.viewerName,
         viewerAvatarUrl = inboxState.viewerAvatarUrl,
         modifier = modifier,

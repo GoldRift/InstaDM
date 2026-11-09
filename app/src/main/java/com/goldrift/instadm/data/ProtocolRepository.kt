@@ -81,6 +81,11 @@ class ProtocolRepository(private val sessionStore: SessionStore) : ProtocolApi {
         it.thread(threadId, THREAD_PAGE_SIZE)
     }
 
+    override suspend fun searchUsers(query: String): JSONObject = withClient { it.searchUsers(query) }
+
+    override suspend fun sendNewDm(recipientFbid: String, text: String, otid: String): JSONObject =
+        withClient { it.sendNewDM(recipientFbid, text, otid) }
+
     /** Fetches the page of messages older than [cursor] (an `oldest_cursor` value). */
     override suspend fun loadOlder(threadId: String, cursor: String): JSONObject = withClient {
         it.thread(threadId, THREAD_PAGE_SIZE, cursor)

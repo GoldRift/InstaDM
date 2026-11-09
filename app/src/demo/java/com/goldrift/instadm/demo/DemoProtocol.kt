@@ -78,6 +78,31 @@ internal class DemoProtocol(
 
     override suspend fun loadThread(threadId: String): JSONObject = seeder.thread(threadId)
 
+    override suspend fun searchUsers(query: String): JSONObject = JSONObject()
+        .put("query", query)
+        .put(
+            "users",
+            JSONArray().apply {
+                seeder.searchUsers(query).forEach { person ->
+                    put(
+                        JSONObject()
+                            .put("fbid", person.fbid)
+                            .put("username", person.username)
+                            .put("name", person.name),
+                    )
+                }
+            },
+        )
+
+    override suspend fun sendNewDm(recipientFbid: String, text: String, otid: String): JSONObject {
+        val fbid = recipientFbid.toLongOrNull() ?: 0
+        val person = seeder.personForFbid(fbid)
+            ?: throw IllegalArgumentException("unknown demo account $recipientFbid")
+        val threadId = seeder.threadForPerson(fbid) ?: seeder.createThread(person)
+        scheduleReply(threadId)
+        return sentMessage(threadId, text, otid).put("thread_id", threadId)
+    }
+
     override suspend fun loadOlder(threadId: String, cursor: String): JSONObject {
         val page = seeder.olderPage(threadId)
         if (page != null && olderPagesServed.add(threadId)) return page

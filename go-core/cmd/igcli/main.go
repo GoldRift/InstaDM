@@ -32,6 +32,7 @@ Usage:
   igcli send <thread-id> "<text>" --cookies <path> [flags]
   igcli send-media <thread-id> <file> --cookies <path> [flags]
   igcli send-new <recipient-fbid> "<text>" --cookies <path> [flags]
+  igcli search "<query>" --cookies <path> [flags]
   igcli edit <thread-id> <message-id> "<text>" --cookies <path> [flags]
   igcli unsend <thread-id> <message-id> --cookies <path> [flags]
   igcli mark-read <thread-id> --cookies <path> [flags]
@@ -52,6 +53,7 @@ Commands:
   send       Send a text message to an existing thread
   send-media Upload and send a file to an existing thread
   send-new   Start a DM with a recipient FBID
+  search     Find accounts by username or name
   edit       Edit one of your own text messages
   unsend     Remove one of your own messages for everyone
   mark-read  Mark a thread read up to the newest or a specific message
@@ -126,8 +128,8 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, send-new, edit, unsend, mark-read, react, media, mute,
-pin, and typing, put all flags before or after the positional arguments; do not split
+For thread, send, send-media, send-new, search, edit, unsend, mark-read, react, media,
+mute, pin, and typing, put all flags before or after the positional arguments; do not split
 them across both positions.
 `
 
@@ -155,6 +157,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runSendMedia(args[1:], stdout, stderr)
 	case "send-new":
 		return runSendNew(args[1:], stdout, stderr)
+	case "search":
+		return runSearch(args[1:], stdout, stderr)
 	case "edit":
 		return runEdit(args[1:], stdout, stderr)
 	case "unsend":
@@ -654,6 +658,59 @@ func runSendNew(args []string, stdout, stderr io.Writer) error {
 		return encodeJSON(stdout, result)
 	}
 	printNewDMResult(stdout, result)
+	return nil
+}
+
+func runSearch(args []string, stdout, stderr io.Writer) error {
+	// Accept "search <query> --flags" by moving the leading positional after
+	// the flags.
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		args = append(append([]string{}, args[1:]...), args[0])
+	}
+
+	flags := flag.NewFlagSet("search", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New(`usage: igcli search "<query>" --cookies <path>`)
+	}
+
+	query := strings.TrimSpace(flags.Arg(0))
+	if query == "" {
+		return errors.New("search query is empty")
+	}
+	if length := len([]rune(query)); length > igcore.MaxSearchQueryLength {
+		return fmt.Errorf("search query is %d characters; the maximum is %d", length, igcore.MaxSearchQueryLength)
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	result, err := client.SearchUsers(ctx, query)
+	if err != nil {
+		return describeError(err)
+	}
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printSearchResults(stdout, result)
 	return nil
 }
 
@@ -1517,6 +1574,18 @@ func printNewDMResult(w io.Writer, result *igcore.NewDMResult) {
 	fmt.Fprintf(w, "  text: %s\n", truncate(singleLine(result.Text), 100))
 	if result.ThreadID == "" {
 		fmt.Fprintln(w, "  note: thread ID was not resolved; run mailbox to refresh")
+	}
+}
+
+func printSearchResults(w io.Writer, result *igcore.SearchView) {
+	fmt.Fprintf(w, "Found %d account(s) for %q\n", len(result.Users), result.Query)
+	for _, user := range result.Users {
+		name := user.Name
+		if user.IsVerified {
+			name += " (verified)"
+		}
+		fmt.Fprintf(w, "  @%s  %s\n", valueOrDash(user.Username), truncate(name, 60))
+		fmt.Fprintf(w, "    fbid: %d  ig id: %s\n", user.FBID, valueOrDash(user.IGID))
 	}
 }
 

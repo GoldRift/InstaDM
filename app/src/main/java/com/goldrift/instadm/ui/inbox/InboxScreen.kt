@@ -94,6 +94,7 @@ fun InboxScreen(
     moreError: Boolean = false,
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
+    onSearch: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -113,8 +114,7 @@ fun InboxScreen(
                     )
                 },
                 actions = {
-                    // Placeholder until in-app search exists.
-                    IconButton(onClick = {}) {
+                    IconButton(onClick = onSearch) {
                         Icon(
                             imageVector = Icons.Rounded.Search,
                             contentDescription = stringResource(R.string.inbox_search),

@@ -58,6 +58,12 @@ data class Conversation(
     val unreadCount: Int = 0,
     /** Instagram's own mark-unread flag, shown as a dot when nothing is cached. */
     val markedUnread: Boolean = false,
+    /**
+     * Recipient FBID of a chat opened from search that has no thread yet. The
+     * thread is created by the first message, so this chat stays out of the
+     * inbox until then.
+     */
+    val draftRecipientFbid: String = "",
 ) {
     /** Whether the inbox row should stand out as having unseen messages. */
     val hasUnread: Boolean get() = unreadCount > 0 || markedUnread

@@ -45,7 +45,7 @@ private class ThreadSpec(
     val markedUnread: Boolean = false,
 ) {
     val other: DemoPerson get() = participants.first { !it.isViewer }
-    val lastActivityMs: Long get() = messages.last().getLong("timestamp_ms")
+    val lastActivityMs: Long get() = messages.lastOrNull()?.getLong("timestamp_ms") ?: 0L
 }
 
 /** Fictional conversations and generated media, with no real account data. */
@@ -60,6 +60,33 @@ internal object DemoData {
     private val marcus = DemoPerson(200_000_000_000_005L, "Marcus Lee", "marcus.lee")
     private val noah = DemoPerson(200_000_000_000_006L, "Noah Kim", "noah.kim")
     private val elena = DemoPerson(200_000_000_000_007L, "Elena Duarte", "elena.duarte")
+
+    /** Accounts the demo can find in search without having a conversation yet. */
+    val searchOnly = listOf(
+        DemoPerson(200_000_000_000_101L, "Jo Whitfield", "jo.whitfield"),
+        DemoPerson(200_000_000_000_102L, "Nadia Cruz", "nadia.cruz"),
+    )
+
+    /** A thread with no messages, created when the demo messages a new account. */
+    fun newThread(threadId: String, person: DemoPerson): JSONObject = JSONObject()
+        .put(
+            "thread",
+            meta(
+                ThreadSpec(
+                    id = threadId,
+                    longId = "17${person.fbid}",
+                    title = person.name,
+                    isGroup = false,
+                    participants = listOf(viewer, person),
+                    messages = emptyList(),
+                    viewerWatermarkMs = 0,
+                    otherWatermarkMs = 0,
+                ),
+            ),
+        )
+        .put("messages", JSONArray())
+        .put("has_more_older", false)
+        .put("oldest_cursor", "")
 
     fun build(now: Long): DemoSeed {
         val specs = listOf(

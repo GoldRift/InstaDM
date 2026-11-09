@@ -19,6 +19,15 @@ interface ProtocolApi {
 
     suspend fun loadThread(threadId: String): JSONObject
 
+    /** Finds Instagram accounts by username or name. */
+    suspend fun searchUsers(query: String): JSONObject
+
+    /**
+     * Sends the first message of a conversation with [recipientFbid] and
+     * returns the thread it landed in. Instagram creates the thread on send.
+     */
+    suspend fun sendNewDm(recipientFbid: String, text: String, otid: String = ""): JSONObject
+
     /** Fetches the page of messages older than [cursor] (an `oldest_cursor` value). */
     suspend fun loadOlder(threadId: String, cursor: String): JSONObject
 

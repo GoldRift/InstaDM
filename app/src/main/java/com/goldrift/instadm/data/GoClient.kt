@@ -36,6 +36,10 @@ class GoClient(cookiesJson: String) : Closeable {
         client.threadJSON(threadId, limit, afterCursor, timeoutSeconds),
     )
 
+    /** Finds accounts by username or name; each result carries a recipient FBID. */
+    fun searchUsers(query: String, timeoutSeconds: Int = 30): JSONObject =
+        JSONObject(client.searchUsersJSON(query, timeoutSeconds))
+
     fun sendText(
         threadId: String,
         text: String,

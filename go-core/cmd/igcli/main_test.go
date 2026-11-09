@@ -211,6 +211,45 @@ func TestPrintNewDMResult(t *testing.T) {
 	}
 }
 
+func TestPrintSearchResults(t *testing.T) {
+	result := &igcore.SearchView{
+		ProtocolVersion: "test",
+		Query:           "maya",
+		Users: []igcore.SearchUserView{
+			{FBID: 111, IGID: "42", Username: "maya.chen", Name: "Maya Chen", IsVerified: true},
+			{FBID: 222, Username: "maya.design", Name: "Maya Design"},
+		},
+	}
+	var output bytes.Buffer
+	printSearchResults(&output, result)
+	rendered := output.String()
+	for _, want := range []string{"Found 2 account(s)", "@maya.chen", "Maya Chen (verified)", "fbid: 111", "@maya.design"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output does not contain %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestRunSearchValidation(t *testing.T) {
+	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
+
+	t.Run("missing arguments", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runSearch(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli search") {
+			t.Errorf("error = %v", err)
+		}
+	})
+
+	t.Run("empty query", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runSearch([]string{"  ", "--cookie-header", fakeCookies}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "search query is empty") {
+			t.Errorf("error = %v", err)
+		}
+	})
+}
+
 func TestRunSendNewValidation(t *testing.T) {
 	const fakeCookies = "sessionid=fake; csrftoken=fake; ds_user_id=1"
 

@@ -65,6 +65,9 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.SendNewDMJSON("123", " ", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
 		t.Errorf("new DM text error = %v", err)
 	}
+	if _, err := client.SearchUsersJSON("  ", 1); err == nil || !strings.Contains(err.Error(), "search query is required") {
+		t.Errorf("search error = %v", err)
+	}
 	if _, err := client.EditJSON("thread-id", "message-id", " ", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
 		t.Errorf("edit error = %v", err)
 	}

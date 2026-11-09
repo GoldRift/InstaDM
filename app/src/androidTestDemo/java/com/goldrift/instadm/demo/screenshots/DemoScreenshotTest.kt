@@ -93,6 +93,17 @@ class DemoScreenshotTest {
         session.awaitText("more coming tonight")
         Thread.sleep(800)
         session.capture("11-media-cards-light")
+
+        session.tapBack()
+        session.awaitDescription("Search")
+        session.nodeWithDescription("Search").performClick()
+        compose.waitForIdle()
+        compose.onNode(hasSetTextAction()).performTextInput("ma")
+        session.awaitText("@maya.chen")
+        device.pressBack()
+        compose.waitForIdle()
+        Thread.sleep(600)
+        session.capture("12-search-light")
     }
 
     private fun hideKeyboardAndReturnToChat() {

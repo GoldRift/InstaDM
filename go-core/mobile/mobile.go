@@ -200,6 +200,21 @@ func (c *Client) MailboxPageJSON(cursor string, limit int32, timeoutSeconds int3
 	return encode(page)
 }
 
+func (c *Client) SearchUsersJSON(query string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	view, err := client.SearchUsers(ctx, query)
+	if err != nil {
+		return "", err
+	}
+	return encode(view)
+}
+
 func (c *Client) ThreadJSON(threadID string, limit int32, afterCursor string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
