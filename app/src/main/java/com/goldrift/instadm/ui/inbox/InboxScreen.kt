@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -56,9 +57,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,8 +83,6 @@ import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
-
-private val ListTopShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,12 +145,18 @@ fun InboxScreen(
             )
         },
     ) { innerPadding ->
+        val listTopShape = RoundedCornerShape(
+            topStart = MaterialTheme.shapes.extraLarge.topStart,
+            topEnd = MaterialTheme.shapes.extraLarge.topEnd,
+            bottomEnd = CornerSize(0.dp),
+            bottomStart = CornerSize(0.dp),
+        )
         Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            shape = ListTopShape,
-            color = MaterialTheme.colorScheme.surface,
+            shape = listTopShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
             PullToRefreshBox(
                 isRefreshing = status == InboxStatus.Loading && conversations.isNotEmpty(),
@@ -192,7 +201,12 @@ fun InboxScreen(
 
                     else -> Column(Modifier.fillMaxSize()) {
                         if (errorMessage != null) {
-                            Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                            Surface(
+                                modifier = Modifier.semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                },
+                                color = MaterialTheme.colorScheme.errorContainer,
+                            ) {
                                 Text(
                                     text = errorMessage,
                                     modifier = Modifier
@@ -315,6 +329,7 @@ private fun InboxMessage(
             text = title,
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -362,7 +377,8 @@ private fun ConversationRow(
                     Modifier
                 },
             )
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.selected = selected }
             .heightIn(min = 80.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
