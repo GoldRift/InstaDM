@@ -48,7 +48,7 @@ func (c *Client) SendNewDM(ctx context.Context, recipientFBID, text, otid string
 	}
 
 	result := newNewDMResult(request, recipientFBID, response.Message)
-	if mailbox, err := c.LoadMailbox(ctx); err == nil {
+	if mailbox, err := c.LoadMailbox(ctx, 0); err == nil {
 		recipientID, _ := strconv.ParseInt(strings.TrimSpace(recipientFBID), 10, 64)
 		for _, thread := range mailbox.Threads {
 			if thread.ThreadKey == recipientID || threadHasParticipant(thread, recipientID) {

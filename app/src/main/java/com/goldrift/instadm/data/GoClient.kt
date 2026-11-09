@@ -20,8 +20,12 @@ class GoClient(cookiesJson: String) : Closeable {
     /** Returns the cookie jar, including values Instagram rotated in responses. */
     fun exportCookiesJson(): String = client.exportCookiesJSON()
 
-    fun mailbox(timeoutSeconds: Int = 90): JSONObject =
-        JSONObject(client.mailboxJSON(timeoutSeconds))
+    fun mailbox(limit: Int = 0, timeoutSeconds: Int = 90): JSONObject =
+        JSONObject(client.mailboxJSON(limit, timeoutSeconds))
+
+    /** Fetches the older inbox page after [cursor] (a `end_cursor` value). */
+    fun mailboxPage(cursor: String, limit: Int = 20, timeoutSeconds: Int = 90): JSONObject =
+        JSONObject(client.mailboxPageJSON(cursor, limit, timeoutSeconds))
 
     fun thread(
         threadId: String,

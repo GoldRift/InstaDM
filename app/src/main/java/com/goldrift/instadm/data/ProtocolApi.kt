@@ -14,6 +14,9 @@ interface ProtocolApi {
 
     suspend fun loadMailbox(): JSONObject
 
+    /** Fetches the older inbox page after [cursor] (an `end_cursor` value). */
+    suspend fun loadOlderConversations(cursor: String): JSONObject
+
     suspend fun loadThread(threadId: String): JSONObject
 
     /** Fetches the page of messages older than [cursor] (an `oldest_cursor` value). */

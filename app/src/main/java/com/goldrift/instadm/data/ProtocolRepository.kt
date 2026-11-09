@@ -10,6 +10,9 @@ import java.io.File
 /** Messages per thread page, for both the newest page and older pages. */
 private const val THREAD_PAGE_SIZE = 30
 
+/** Conversations fetched for the first inbox render and for each older page. */
+internal const val INBOX_PAGE_SIZE = 20
+
 /** Downloaded attachments are pruned LRU so the cache stays bounded. */
 internal const val MEDIA_CACHE_MAX_BYTES = 250L * 1024 * 1024
 
@@ -35,7 +38,7 @@ class ProtocolRepository(private val sessionStore: SessionStore) : ProtocolApi {
         mutex.withLock {
             val candidate = GoClient(cookiesJson)
             try {
-                val mailbox = candidate.mailbox()
+                val mailbox = candidate.mailbox(INBOX_PAGE_SIZE)
                 val persisted = runCatching { candidate.exportCookiesJson() }
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
@@ -67,7 +70,12 @@ class ProtocolRepository(private val sessionStore: SessionStore) : ProtocolApi {
         clientCookies = null
     }
 
-    override suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(90) }
+    override suspend fun loadMailbox(): JSONObject = withClient { it.mailbox(INBOX_PAGE_SIZE) }
+
+    /** Fetches the older inbox page after [cursor] (an `end_cursor` value). */
+    override suspend fun loadOlderConversations(cursor: String): JSONObject = withClient {
+        it.mailboxPage(cursor, INBOX_PAGE_SIZE)
+    }
 
     override suspend fun loadThread(threadId: String): JSONObject = withClient {
         it.thread(threadId, THREAD_PAGE_SIZE)

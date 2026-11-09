@@ -111,6 +111,7 @@
     <string name="inbox_empty_title">No conversations</string>
     <string name="inbox_empty_body">Your inbox is empty.</string>
     <string name="inbox_retry">Retry</string>
+    <string name="inbox_loading_older">Loading older conversations</string>
     <string name="inbox_login">Log in</string>
     <string name="login_title">Log in to Instagram</string>
     <string name="login_validating">Signing in…</string>

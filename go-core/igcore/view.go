@@ -30,6 +30,15 @@ type MailboxView struct {
 	Threads         []ThreadView `json:"threads"`
 }
 
+// MailboxPageView is one older inbox page. It mirrors ThreadPageView: the app
+// appends it to the inbox it already has, so there is no viewer or seq ID.
+type MailboxPageView struct {
+	ProtocolVersion string       `json:"protocol_version"`
+	HasNextPage     bool         `json:"has_next_page"`
+	EndCursor       string       `json:"end_cursor,omitempty"`
+	Threads         []ThreadView `json:"threads"`
+}
+
 type ViewerView struct {
 	IGID     string `json:"ig_id"`
 	Username string `json:"username"`
@@ -90,7 +99,10 @@ type MessagePreviewView struct {
 	Snippet string `json:"snippet,omitempty"`
 }
 
-func newMailboxView(viewer *types.PolarisViewer, mailbox *slidetypes.Mailbox, ownFBID int64) *MailboxView {
+// newMailboxView normalizes the newest inbox page. A positive limit caps the
+// page, which only happens when the cursor of the last kept thread is known:
+// resuming from the page cursor would skip the dropped threads.
+func newMailboxView(viewer *types.PolarisViewer, mailbox *slidetypes.Mailbox, ownFBID int64, limit int) *MailboxView {
 	view := &MailboxView{
 		ProtocolVersion: ProtocolVersion,
 		SeqID:           mailbox.UQSeqID,
@@ -113,14 +125,47 @@ func newMailboxView(viewer *types.PolarisViewer, mailbox *slidetypes.Mailbox, ow
 		}
 	}
 
+	maxThreads := limit
+	keptCursor := ""
 	for _, edge := range mailbox.ThreadsByFolder.Edges {
+		thread := edge.Node.AsIGDirectThread
+		if thread == nil {
+			continue
+		}
+		if maxThreads > 0 && len(view.Threads) == maxThreads {
+			if keptCursor == "" {
+				// No edge cursor to resume from, so the page stays whole: the
+				// next page would not repeat the threads dropped here.
+				maxThreads = 0
+			} else {
+				view.EndCursor = keptCursor
+				view.HasNextPage = true
+				return view
+			}
+		}
+		view.Threads = append(view.Threads, newThreadView(thread, ownFBID))
+		keptCursor = edge.Cursor
+	}
+
+	return view
+}
+
+// newMailboxPageView normalizes one older inbox page from
+// IGDThreadListOffMsysPaginationQuery, which carries no viewer or seq ID.
+func newMailboxPageView(page *slidetypes.MailboxPage, ownFBID int64) *MailboxPageView {
+	view := &MailboxPageView{
+		ProtocolVersion: ProtocolVersion,
+		HasNextPage:     page.ThreadsByFolder.PageInfo.HasNextPage,
+		EndCursor:       page.ThreadsByFolder.PageInfo.EndCursor,
+		Threads:         make([]ThreadView, 0, len(page.ThreadsByFolder.Edges)),
+	}
+	for _, edge := range page.ThreadsByFolder.Edges {
 		thread := edge.Node.AsIGDirectThread
 		if thread == nil {
 			continue
 		}
 		view.Threads = append(view.Threads, newThreadView(thread, ownFBID))
 	}
-
 	return view
 }
 

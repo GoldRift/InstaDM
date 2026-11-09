@@ -90,7 +90,7 @@ func TestValidationBeforeNetwork(t *testing.T) {
 
 func TestNilClient(t *testing.T) {
 	var client *Client
-	if _, err := client.MailboxJSON(1); err == nil || !strings.Contains(err.Error(), "client is not initialized") {
+	if _, err := client.MailboxJSON(20, 1); err == nil || !strings.Contains(err.Error(), "client is not initialized") {
 		t.Errorf("error = %v", err)
 	}
 }

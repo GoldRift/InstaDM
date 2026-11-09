@@ -82,6 +82,10 @@ cd go-core
 # List DM threads
 go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json
 
+# Cap the newest page, then read the older page it reports a cursor for
+go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json --limit 20
+go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json --after <end-cursor>
+
 # Machine-readable output for a fixture
 go run ./cmd/igcli mailbox --cookies ~/.config/instadm/cookies.json --json > /tmp/mailbox.json
 
@@ -395,7 +399,8 @@ through a small callback interface.
 client, err := mobile.New(cookieJSON)
 defer client.Close()
 
-mailboxJSON, err := client.MailboxJSON(90)
+mailboxJSON, err := client.MailboxJSON(20, 90)
+pageJSON, err := client.MailboxPageJSON(cursor, 20, 90)
 threadJSON, err := client.ThreadJSON(threadID, 20, "", 90)
 
 client.StartWatch(callback) // callback.OnEvent(eventJSON) on a Go-owned thread
@@ -460,7 +465,8 @@ The generated Java package is `com.goldrift.instadm.core.mobile`:
 - `Mobile.new_(cookieJSON)` creates the client (`New` becomes `new_` because `new` is a
   Java keyword).
 - `Mobile.version()` returns the pinned protocol version.
-- `Client.mailboxJSON(timeout)`, `threadJSON(...)`, `sendTextJSON(...)`,
+- `Client.mailboxJSON(limit, timeout)`, `mailboxPageJSON(cursor, limit, timeout)`,
+  `threadJSON(...)`, `sendTextJSON(...)`,
   `sendMediaJSON(...)`, `sendNewDMJSON(...)`, `editJSON(...)`, `unsendJSON(...)`,
   `reactJSON(...)`, `markReadJSON(...)`, `muteJSON(...)`, `pinJSON(...)`,
   `setTypingJSON(...)`, and `downloadMediaJSON(...)` return JSON strings.
@@ -482,6 +488,11 @@ directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
   by local tests.
 - Typing is untested against a real account: both directions need the two extra sockets
   and a second account to watch.
+- Inbox pagination (`mailbox --after`) reached the real API and returned a well-formed
+  empty page for a single-page inbox, but no account with more than one page was
+  available, so a multi-page walk is unconfirmed. `--limit` caps the newest page only when
+  Instagram returns a per-thread cursor, and otherwise keeps the whole page rather than
+  skipping the threads it dropped.
 - Real-account acceptance passed:
   - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
     a DM thread;

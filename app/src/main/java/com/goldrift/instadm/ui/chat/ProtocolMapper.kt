@@ -168,3 +168,10 @@ fun formatInboxTime(milliseconds: Long): String {
     val pattern = if (sameDay) "h:mm a" else "MMM d"
     return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(milliseconds))
 }
+
+/**
+ * Whether another older inbox page can be fetched. A page without a cursor
+ * cannot be followed, so it never claims more: paging would loop on it.
+ */
+internal fun hasOlderConversations(cursor: String, hasNextPage: Boolean): Boolean =
+    hasNextPage && cursor.isNotBlank()

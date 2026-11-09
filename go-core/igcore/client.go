@@ -104,7 +104,9 @@ func (c *Client) ExportCookiesJSON() (string, error) {
 	return string(data), nil
 }
 
-func (c *Client) LoadMailbox(ctx context.Context) (*MailboxView, error) {
+// LoadMailbox fetches the newest inbox page. A positive limit caps it to that
+// many threads; zero keeps whatever the server returns.
+func (c *Client) LoadMailbox(ctx context.Context, limit int) (*MailboxView, error) {
 	if c == nil || c.inner == nil {
 		return nil, errors.New("client is not initialized")
 	}
@@ -121,7 +123,44 @@ func (c *Client) LoadMailbox(ctx context.Context) (*MailboxView, error) {
 	}
 
 	ownFBID := c.recordViewer(viewer)
-	return newMailboxView(viewer, mailbox, ownFBID), nil
+	return newMailboxView(viewer, mailbox, ownFBID, limit), nil
+}
+
+// LoadMailboxPage fetches the older inbox page after cursor using
+// IGDThreadListOffMsysPaginationQuery. The cursor is the end_cursor of a
+// previous mailbox page.
+func (c *Client) LoadMailboxPage(ctx context.Context, cursor string, limit int) (*MailboxPageView, error) {
+	if c == nil || c.inner == nil {
+		return nil, errors.New("client is not initialized")
+	}
+
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return nil, errors.New("cursor is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	ownFBID, err := c.bootstrap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	request := slidetypes.MakePaginateMailboxRequest(ownFBID, cursor, "INBOX", nil)
+	request.Count = limit
+	response, err := c.inner.PaginateMailbox(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Mailbox == nil {
+		return nil, errors.New("Instagram returned an empty inbox page")
+	}
+
+	return newMailboxPageView(response.Mailbox, ownFBID), nil
 }
 
 // LoadThread fetches the newest page of a thread and normalizes it. threadID is

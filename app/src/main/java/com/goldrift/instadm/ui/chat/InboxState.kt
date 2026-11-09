@@ -85,6 +85,17 @@ class InboxState(
     var viewerAvatarUrl by mutableStateOf("")
         private set
 
+    /** True while Instagram reports more conversations older than [inboxCursor]. */
+    var hasMoreConversations by mutableStateOf(false)
+        private set
+    var isLoadingMoreConversations by mutableStateOf(false)
+        private set
+    /** A failed older page; automatic paging pauses until the user retries. */
+    var moreConversationsError by mutableStateOf(false)
+        private set
+
+    private var inboxCursor = ""
+
     init {
         scope.launch { loadViewer() }
         scope.launch {
@@ -160,6 +171,8 @@ class InboxState(
                         repository.clearMediaCache()
                     }
                     items.clear()
+                    hasMoreConversations = false
+                    inboxCursor = ""
                     status = InboxStatus.NoSession
                     return@launch
                 }
@@ -167,7 +180,8 @@ class InboxState(
                 runCatching {
                     mailboxSync.fetchAndStore()
                 }
-                    .onSuccess {
+                    .onSuccess { mailbox ->
+                        applyInboxPage(mailbox)
                         loadViewer()
                         status = InboxStatus.Ready
                     }
@@ -186,6 +200,7 @@ class InboxState(
         scope.launch {
             runCatching { chatStore.ingestMailbox(mailbox) }
                 .onSuccess {
+                    applyInboxPage(mailbox)
                     loadViewer()
                     errorMessage = null
                     status = InboxStatus.Ready
@@ -292,6 +307,38 @@ class InboxState(
     fun retryOlder(threadId: String) {
         update(threadId) { it.copy(olderError = false) }
         loadOlder(threadId)
+    }
+
+    /**
+     * Fetches the next older inbox page. The Go core addresses pages by the
+     * `end_cursor` of the previous one and reports its own `has_next_page`.
+     */
+    fun loadMoreConversations() {
+        if (isLoadingMoreConversations || !hasMoreConversations) return
+        if (inboxCursor.isBlank()) return
+
+        isLoadingMoreConversations = true
+        moreConversationsError = false
+        scope.launch {
+            runCatching { mailboxSync.fetchOlder(inboxCursor) }
+                .onSuccess { page -> applyInboxPage(page) }
+                .onFailure { error ->
+                    errorMessage = describeError(error)
+                    moreConversationsError = true
+                }
+            isLoadingMoreConversations = false
+        }
+    }
+
+    /** Retries a failed older inbox page; automatic paging stays paused until then. */
+    fun retryMoreConversations() {
+        moreConversationsError = false
+        loadMoreConversations()
+    }
+
+    private fun applyInboxPage(page: JSONObject) {
+        inboxCursor = page.optString("end_cursor").trim()
+        hasMoreConversations = hasOlderConversations(inboxCursor, page.optBoolean("has_next_page"))
     }
 
     fun send(threadId: String, rawText: String, reply: ReplySnapshot? = null) {

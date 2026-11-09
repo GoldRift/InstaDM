@@ -29,6 +29,7 @@ internal class DemoProtocol(
     private val scope: CoroutineScope,
 ) : ProtocolApi {
     private val olderPagesServed = mutableSetOf<String>()
+    private val olderInboxServed = mutableSetOf<String>()
     private val echoCounter = AtomicInteger()
 
     init {
@@ -66,6 +67,14 @@ internal class DemoProtocol(
     override suspend fun signIn(cookiesJson: String): JSONObject = seeder.mailbox()
 
     override suspend fun loadMailbox(): JSONObject = seeder.mailbox()
+
+    override suspend fun loadOlderConversations(cursor: String): JSONObject {
+        if (olderInboxServed.add(cursor)) return seeder.olderConversations()
+        return JSONObject()
+            .put("threads", JSONArray())
+            .put("has_next_page", false)
+            .put("end_cursor", "")
+    }
 
     override suspend fun loadThread(threadId: String): JSONObject = seeder.thread(threadId)
 

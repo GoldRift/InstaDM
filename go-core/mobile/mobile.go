@@ -170,7 +170,7 @@ func emitWatchEvent(callback WatchCallback, event igcore.Event) {
 	callback.OnEvent(string(data))
 }
 
-func (c *Client) MailboxJSON(timeoutSeconds int32) (string, error) {
+func (c *Client) MailboxJSON(limit int32, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
 		return "", err
@@ -178,11 +178,26 @@ func (c *Client) MailboxJSON(timeoutSeconds int32) (string, error) {
 	ctx, cancel := timeoutContext(timeoutSeconds)
 	defer cancel()
 
-	view, err := client.LoadMailbox(ctx)
+	view, err := client.LoadMailbox(ctx, int(limit))
 	if err != nil {
 		return "", err
 	}
 	return encode(view)
+}
+
+func (c *Client) MailboxPageJSON(cursor string, limit int32, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	page, err := client.LoadMailboxPage(ctx, cursor, int(limit))
+	if err != nil {
+		return "", err
+	}
+	return encode(page)
 }
 
 func (c *Client) ThreadJSON(threadID string, limit int32, afterCursor string, timeoutSeconds int32) (string, error) {

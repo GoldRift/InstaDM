@@ -231,6 +231,11 @@ private fun MainPane(
                 onConversationClick = onOpenChat,
                 viewerName = inboxState.viewerName,
                 viewerAvatarUrl = inboxState.viewerAvatarUrl,
+                hasMoreConversations = inboxState.hasMoreConversations,
+                isLoadingMore = inboxState.isLoadingMoreConversations,
+                moreError = inboxState.moreConversationsError,
+                onLoadMore = inboxState::loadMoreConversations,
+                onRetryMore = inboxState::retryMoreConversations,
             )
             return@BoxWithConstraints
         }
@@ -253,6 +258,11 @@ private fun MainPane(
                 modifier = Modifier.width(InboxPaneWidth),
                 viewerName = inboxState.viewerName,
                 viewerAvatarUrl = inboxState.viewerAvatarUrl,
+                hasMoreConversations = inboxState.hasMoreConversations,
+                isLoadingMore = inboxState.isLoadingMoreConversations,
+                moreError = inboxState.moreConversationsError,
+                onLoadMore = inboxState::loadMoreConversations,
+                onRetryMore = inboxState::retryMoreConversations,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {

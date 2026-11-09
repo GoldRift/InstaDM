@@ -40,7 +40,8 @@ official app.
 - Sessions are encrypted with a non-exportable Android Keystore key and stored
   in `noBackupFilesDir`, never in backups or the repo.
 - Inbox with cached previews, avatars, unread badges, group attribution, and
-  pull-to-refresh.
+  pull-to-refresh. It loads 20 conversations and fetches older ones as you
+  scroll past the bottom.
 - Conversations page 30 messages at a time and scroll back to the start of the
   thread, keeping the viewport stable while older pages load.
 - Send text, photos, videos, files, and voice notes. Every send is an optimistic

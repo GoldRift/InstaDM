@@ -47,7 +47,7 @@ Usage:
   igcli help
 
 Commands:
-  mailbox    Validate the session and list DM threads
+  mailbox    Validate the session and list DM threads (--limit, --after)
   thread     Fetch a thread and print its most recent messages
   send       Send a text message to an existing thread
   send-media Upload and send a file to an existing thread
@@ -205,6 +205,8 @@ func runMailbox(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	var options commonOptions
 	addCommonFlags(flags, &options)
+	limit := flags.Int("limit", 0, "cap the newest page to this many threads (0 = server page size)")
+	after := flags.String("after", "", "load the older inbox page after this cursor")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, usage)
 	}
@@ -218,6 +220,9 @@ func runMailbox(args []string, stdout, stderr io.Writer) error {
 	if flags.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
+	if *limit < 0 || *limit > 50 {
+		return errors.New("--limit must be between 0 and 50")
+	}
 
 	client, err := newClient(options, stderr, nil)
 	if err != nil {
@@ -228,7 +233,19 @@ func runMailbox(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := commandContext(options.timeout)
 	defer cancel()
 
-	mailbox, err := client.LoadMailbox(ctx)
+	if strings.TrimSpace(*after) != "" {
+		page, err := client.LoadMailboxPage(ctx, *after, *limit)
+		if err != nil {
+			return describeError(err)
+		}
+		if options.jsonOutput {
+			return encodeJSON(stdout, page)
+		}
+		printMailboxPage(stdout, page)
+		return nil
+	}
+
+	mailbox, err := client.LoadMailbox(ctx, *limit)
 	if err != nil {
 		return describeError(err)
 	}
@@ -1340,21 +1357,7 @@ func printMailbox(w io.Writer, mailbox *igcore.MailboxView) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)
 
-	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "ID\tTHREAD FBID\tTITLE\tLAST ACTIVITY\tFOLDER\tFLAGS")
-	for _, thread := range mailbox.Threads {
-		fmt.Fprintf(
-			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
-			valueOrDash(thread.ID),
-			valueOrDash(thread.ThreadFBID),
-			truncate(thread.Title, 48),
-			formatTimestamp(thread.LastActivityMS),
-			valueOrDash(firstNonEmpty(thread.Folder, thread.SystemFolder)),
-			threadFlags(thread),
-		)
-	}
-	_ = table.Flush()
+	printThreadTable(w, mailbox.Threads)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Tip: use --json for full thread IDs and participant details.")
@@ -1409,6 +1412,42 @@ func printThread(w io.Writer, detail *igcore.ThreadDetailView) {
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Tip: use --json for message IDs and full metadata. Message text is sensitive.")
+}
+
+func printThreadTable(w io.Writer, threads []igcore.ThreadView) {
+	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(table, "ID\tTHREAD FBID\tTITLE\tLAST ACTIVITY\tFOLDER\tFLAGS")
+	for _, thread := range threads {
+		fmt.Fprintf(
+			table,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			valueOrDash(thread.ID),
+			valueOrDash(thread.ThreadFBID),
+			truncate(thread.Title, 48),
+			formatTimestamp(thread.LastActivityMS),
+			valueOrDash(firstNonEmpty(thread.Folder, thread.SystemFolder)),
+			threadFlags(thread),
+		)
+	}
+	_ = table.Flush()
+}
+
+// printMailboxPage prints one older inbox page: the same thread table as the
+// newest page, without the viewer header it does not carry.
+func printMailboxPage(w io.Writer, page *igcore.MailboxPageView) {
+	fmt.Fprintf(w, "Threads: %d", len(page.Threads))
+	if page.HasNextPage {
+		fmt.Fprint(w, " (more available)")
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w)
+
+	printThreadTable(w, page.Threads)
+
+	fmt.Fprintln(w)
+	if page.EndCursor != "" {
+		fmt.Fprintf(w, "Next cursor: %s\n", page.EndCursor)
+	}
 }
 
 func printThreadPage(w io.Writer, page *igcore.ThreadPageView) {

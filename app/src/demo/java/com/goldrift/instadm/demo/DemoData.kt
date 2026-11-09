@@ -9,6 +9,9 @@ private const val HOUR = 60 * MINUTE
 private const val DAY = 24 * HOUR
 private const val ASSET = "file:///android_asset/demo/"
 
+/** Cursor the demo inbox reports for its second page. */
+private const val OLDER_INBOX_CURSOR = "demo-inbox-older"
+
 /** A fictional person in the demo dataset. */
 internal data class DemoPerson(
     val fbid: Long,
@@ -20,6 +23,8 @@ internal data class DemoPerson(
 /** Everything the demo backend and seeder need for one process. */
 internal class DemoSeed(
     val mailbox: JSONObject,
+    /** Second inbox page, served once when the list scrolls past the first. */
+    val olderConversations: JSONObject,
     val fullThreads: Map<String, JSONObject>,
     val metaThreads: Map<String, JSONObject>,
     val olderPages: Map<String, JSONObject>,
@@ -54,6 +59,7 @@ internal object DemoData {
     private val priya = DemoPerson(200_000_000_000_004L, "Priya Raman", "priya.raman")
     private val marcus = DemoPerson(200_000_000_000_005L, "Marcus Lee", "marcus.lee")
     private val noah = DemoPerson(200_000_000_000_006L, "Noah Kim", "noah.kim")
+    private val elena = DemoPerson(200_000_000_000_007L, "Elena Duarte", "elena.duarte")
 
     fun build(now: Long): DemoSeed {
         val specs = listOf(
@@ -64,6 +70,9 @@ internal object DemoData {
             supperThread(now),
             noahThread(now),
         )
+        // Only reachable through the older inbox page, so the demo exercises
+        // the scroll-to-load path.
+        val paged = elenaThread(now)
 
         val mailbox = JSONObject()
             .put("viewer", viewerJson())
@@ -72,6 +81,18 @@ internal object DemoData {
                 array(specs.map { spec ->
                     meta(spec).put("last_message", lastMessage(spec.messages.last()))
                 }),
+            )
+            .put("has_next_page", true)
+            .put("end_cursor", OLDER_INBOX_CURSOR)
+
+        val olderConversations = JSONObject()
+            .put(
+                "threads",
+                array(
+                    listOf(
+                        meta(paged).put("last_message", lastMessage(paged.messages.last())),
+                    ),
+                ),
             )
             .put("has_next_page", false)
             .put("end_cursor", "")
@@ -90,7 +111,16 @@ internal object DemoData {
                 .put("messages", JSONArray())
                 .put("has_more_older", spec.olderMessages.isNotEmpty())
                 .put("oldest_cursor", olderCursor(spec))
-        }
+        } + mapOf(
+            // The paged-out thread is not in Room yet, so its detail carries
+            // the messages that would otherwise come from the seed.
+            paged.id to JSONObject()
+                .put("thread", meta(paged))
+                .put("messages", array(paged.messages))
+                .put("read_receipts", receipts(paged))
+                .put("has_more_older", false)
+                .put("oldest_cursor", ""),
+        )
         val older = specs
             .filter { it.olderMessages.isNotEmpty() }
             .associate { spec ->
@@ -100,9 +130,10 @@ internal object DemoData {
                     .put("has_more_older", false)
                     .put("oldest_cursor", "")
             }
-        val replies = specs.associate { it.id to it.other }
-        val others = specs.associate { it.id to it.participants.filterNot { person -> person.isViewer } }
-        return DemoSeed(mailbox, full, metaOnly, older, replies, others)
+        val replies = specs.associate { it.id to it.other } + (paged.id to paged.other)
+        val others = specs.associate { it.id to it.participants.filterNot { person -> person.isViewer } } +
+            (paged.id to paged.participants.filterNot { person -> person.isViewer })
+        return DemoSeed(mailbox, olderConversations, full, metaOnly, older, replies, others)
     }
 
     private fun mayaThread(now: Long): ThreadSpec {
@@ -382,6 +413,31 @@ internal object DemoData {
             isGroup = false,
             participants = listOf(viewer, noah),
             messages = listOf(files, thanks),
+            viewerWatermarkMs = now,
+            otherWatermarkMs = now,
+        )
+    }
+
+    private fun elenaThread(now: Long): ThreadSpec {
+        val address = message(
+            "demo_elena_1",
+            elena,
+            now - 12 * DAY,
+            "still at the same address?",
+        )
+        val sent = message(
+            "demo_elena_2",
+            viewer,
+            now - 12 * DAY + 20 * MINUTE,
+            "yes — sending it over tonight",
+        )
+        return ThreadSpec(
+            id = "demo_elena",
+            longId = "17800000000000007",
+            title = "Elena Duarte",
+            isGroup = false,
+            participants = listOf(viewer, elena),
+            messages = listOf(address, sent),
             viewerWatermarkMs = now,
             otherWatermarkMs = now,
         )

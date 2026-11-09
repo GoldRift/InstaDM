@@ -1,6 +1,7 @@
 package igcore
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func TestNewMailboxView(t *testing.T) {
 		},
 	}
 
-	view := newMailboxView(viewer, mailbox, 111)
+	view := newMailboxView(viewer, mailbox, 111, 0)
 
 	if view.Viewer.Username != "me" || view.Viewer.FBID != 999 {
 		t.Errorf("viewer = %+v, want username me and profile fbid 999", view.Viewer)
@@ -88,6 +89,96 @@ func TestNewMailboxView(t *testing.T) {
 	}
 	if thread.AvatarURL != "https://cdn.example.invalid/other.jpg" {
 		t.Errorf("avatar_url = %q, want the other participant's picture", thread.AvatarURL)
+	}
+}
+
+func TestNewMailboxViewLimit(t *testing.T) {
+	mailbox := func(cursors ...string) *slidetypes.Mailbox {
+		edges := make([]slidetypes.Node[slidetypes.WrappedThreadInfo], len(cursors))
+		for index, cursor := range cursors {
+			edges[index] = slidetypes.Node[slidetypes.WrappedThreadInfo]{
+				Cursor: cursor,
+				Node: slidetypes.WrappedThreadInfo{
+					AsIGDirectThread: &slidetypes.ThreadInfo{ID: string(rune('a' + index))},
+				},
+			}
+		}
+		return &slidetypes.Mailbox{
+			ThreadsByFolder: slidetypes.Edged[slidetypes.Node[slidetypes.WrappedThreadInfo]]{
+				PageInfo: slidetypes.PageInfo{HasNextPage: true, EndCursor: "page-cursor"},
+				Edges:    edges,
+			},
+		}
+	}
+
+	capped := newMailboxView(nil, mailbox("c1", "c2", "c3"), 111, 2)
+	if len(capped.Threads) != 2 {
+		t.Fatalf("threads = %d, want 2", len(capped.Threads))
+	}
+	if !capped.HasNextPage || capped.EndCursor != "c2" {
+		t.Errorf(
+			"page info = (%v, %q), want (true, c2) so the next page resumes after the last kept thread",
+			capped.HasNextPage,
+			capped.EndCursor,
+		)
+	}
+
+	// Without an edge cursor the page must stay whole: resuming from the page
+	// cursor would skip the dropped threads.
+	uncapped := newMailboxView(nil, mailbox("", "", ""), 111, 2)
+	if len(uncapped.Threads) != 3 {
+		t.Errorf("threads = %d, want 3 when the page cannot be resumed mid-way", len(uncapped.Threads))
+	}
+	if uncapped.EndCursor != "page-cursor" {
+		t.Errorf("end_cursor = %q, want the server cursor", uncapped.EndCursor)
+	}
+
+	whole := newMailboxView(nil, mailbox("c1", "c2"), 111, 5)
+	if len(whole.Threads) != 2 || whole.EndCursor != "page-cursor" {
+		t.Errorf("threads = %d, end_cursor = %q, want the whole page", len(whole.Threads), whole.EndCursor)
+	}
+}
+
+func TestNewMailboxPageView(t *testing.T) {
+	page := &slidetypes.MailboxPage{
+		ThreadsByFolder: slidetypes.Edged[slidetypes.Node[slidetypes.WrappedThreadInfo]]{
+			PageInfo: slidetypes.PageInfo{HasNextPage: false, EndCursor: "next-cursor"},
+			Edges: []slidetypes.Node[slidetypes.WrappedThreadInfo]{
+				{
+					Node: slidetypes.WrappedThreadInfo{
+						AsIGDirectThread: &slidetypes.ThreadInfo{ID: "older-thread"},
+					},
+				},
+				{Node: slidetypes.WrappedThreadInfo{}},
+			},
+		},
+	}
+
+	view := newMailboxPageView(page, 111)
+	if view.ProtocolVersion == "" {
+		t.Error("protocol_version is empty")
+	}
+	if view.HasNextPage || view.EndCursor != "next-cursor" {
+		t.Errorf("page info = (%v, %q), want (false, next-cursor)", view.HasNextPage, view.EndCursor)
+	}
+	if len(view.Threads) != 1 || view.Threads[0].ID != "older-thread" {
+		t.Fatalf("threads = %+v, want only the older thread", view.Threads)
+	}
+
+	// The app ingests this JSON exactly like a mailbox, so the field names are
+	// part of the contract.
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("marshal page: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal page: %v", err)
+	}
+	for _, key := range []string{"protocol_version", "has_next_page", "end_cursor", "threads"} {
+		if _, ok := decoded[key]; !ok {
+			t.Errorf("encoded page is missing %q", key)
+		}
 	}
 }
 

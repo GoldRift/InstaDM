@@ -17,4 +17,9 @@ class MailboxSync(
     suspend fun fetchAndStore(): JSONObject = mutex.withLock {
         repository.loadMailbox().also { chatStore.ingestMailbox(it) }
     }
+
+    /** Appends the older inbox page after [cursor] to Room. */
+    suspend fun fetchOlder(cursor: String): JSONObject = mutex.withLock {
+        repository.loadOlderConversations(cursor).also { chatStore.ingestMailbox(it) }
+    }
 }

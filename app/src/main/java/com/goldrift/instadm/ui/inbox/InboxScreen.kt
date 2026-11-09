@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,6 +41,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,6 +89,11 @@ fun InboxScreen(
     selectedConversationId: String? = null,
     viewerName: String = "",
     viewerAvatarUrl: String = "",
+    hasMoreConversations: Boolean = false,
+    isLoadingMore: Boolean = false,
+    moreError: Boolean = false,
+    onLoadMore: () -> Unit = {},
+    onRetryMore: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -211,7 +221,31 @@ fun InboxScreen(
                         val navBarBottom = WindowInsets.navigationBars
                             .asPaddingValues()
                             .calculateBottomPadding()
+                        val listState = rememberLazyListState()
+                        // Ask for the next page once the oldest rows are on
+                        // screen, so scrolling to the bottom keeps going.
+                        val loadMoreNow by remember(
+                            listState,
+                            hasMoreConversations,
+                            isLoadingMore,
+                            moreError,
+                        ) {
+                            derivedStateOf {
+                                if (!hasMoreConversations || isLoadingMore || moreError) {
+                                    false
+                                } else {
+                                    val info = listState.layoutInfo
+                                    val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                                    lastVisible != null &&
+                                        lastVisible >= info.totalItemsCount - 3
+                                }
+                            }
+                        }
+                        LaunchedEffect(loadMoreNow, conversations.size) {
+                            if (loadMoreNow) onLoadMore()
+                        }
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
@@ -228,9 +262,49 @@ fun InboxScreen(
                                     onClick = { onConversationClick(conversation.id) },
                                 )
                             }
+                            if (hasMoreConversations) {
+                                item(key = "older") {
+                                    OlderConversationsFooter(
+                                        isLoading = isLoadingMore,
+                                        hasError = moreError,
+                                        onRetry = onRetryMore,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OlderConversationsFooter(
+    isLoading: Boolean,
+    hasError: Boolean,
+    onRetry: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            hasError -> TextButton(onClick = onRetry) {
+                Text(stringResource(R.string.inbox_retry))
+            }
+
+            isLoading -> {
+                val description = stringResource(R.string.inbox_loading_older)
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .semantics { contentDescription = description },
+                    strokeWidth = 2.dp,
+                )
             }
         }
     }

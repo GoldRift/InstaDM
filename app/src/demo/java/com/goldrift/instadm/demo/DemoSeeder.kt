@@ -36,6 +36,11 @@ internal class DemoSeeder(private val chatStore: ChatStore) {
         return checkNotNull(seed).mailbox
     }
 
+    suspend fun olderConversations(): JSONObject {
+        ensureSeeded()
+        return checkNotNull(seed).olderConversations
+    }
+
     suspend fun thread(threadId: String): JSONObject {
         ensureSeeded()
         return checkNotNull(seed).metaThreads[threadId]
