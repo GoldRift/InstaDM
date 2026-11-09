@@ -126,6 +126,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -237,6 +238,7 @@ fun ChatScreen(
     // in the transcript they would repeat the reaction shown on the bubble.
     val transcript = remember(messages) { messages.filterNot { it.isReactionLog() } }
     val context = LocalContext.current
+    val resources = LocalResources.current
     // TalkBack gets one polite status line for arrivals and typing; the visible
     // transcript is not a live region because a LazyColumn would re-announce
     // recycled items.
@@ -248,7 +250,7 @@ fun ChatScreen(
         val previous = announcedIncomingId
         announcedIncomingId = message.id
         if (previous != null && previous != message.id) {
-            arrivalAnnouncement = context.getString(
+            arrivalAnnouncement = resources.getString(
                 R.string.chat_new_message_from,
                 message.senderName.ifBlank { conversation.contact.name },
             )
@@ -256,12 +258,12 @@ fun ChatScreen(
     }
     val typingAnnouncement = when {
         !isTyping -> ""
-        typingSenders.isEmpty() -> context.getString(R.string.chat_typing)
-        typingSenders.size == 1 -> context.getString(
+        typingSenders.isEmpty() -> stringResource(R.string.chat_typing)
+        typingSenders.size == 1 -> stringResource(
             R.string.chat_typing_named,
             typingSenders.first().name,
         )
-        else -> context.getString(
+        else -> stringResource(
             R.string.chat_typing_and_others,
             typingSenders.first().name,
         )
