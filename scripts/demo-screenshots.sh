@@ -153,7 +153,7 @@ capture_suite() {
   exit 1
 }
 
-capture_suite "$LIGHT_CLASS" no light 12
+capture_suite "$LIGHT_CLASS" no light 13
 capture_suite "$DARK_CLASS" yes dark 5
 capture_suite "$TWO_PANE_CLASS" no two-pane 2
 

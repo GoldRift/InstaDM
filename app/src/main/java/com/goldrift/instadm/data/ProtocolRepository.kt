@@ -55,6 +55,15 @@ class ProtocolRepository(private val sessionStore: SessionStore) : ProtocolApi {
         }
     }
 
+    override suspend fun signOut(): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            client?.close()
+            client = null
+            clientCookies = null
+            sessionStore.clearCookies()
+        }
+    }
+
     /** Drops the client even when the cookie file is unchanged. */
     suspend fun reloadSession() {
         mutex.withLock {

@@ -109,6 +109,7 @@
     <string name="search_error">Couldn\'t search. Check the network and retry.</string>
     <string name="search_verified">Verified account</string>
     <string name="inbox_profile_photo">Your profile photo</string>
+    <string name="account_logout">Log out</string>
     <string name="inbox_no_session_title">No session</string>
     <string name="inbox_no_session_body">Log in to Instagram to load your direct messages.</string>
     <string name="inbox_error_title">Couldn\'t load inbox</string>

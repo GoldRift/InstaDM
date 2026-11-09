@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
@@ -33,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,10 +46,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -95,6 +100,7 @@ fun InboxScreen(
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
     onSearch: () -> Unit = {},
+    onLogout: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -121,32 +127,11 @@ fun InboxScreen(
                         )
                     }
                     Spacer(Modifier.width(4.dp))
-                    if (viewerAvatarUrl.isBlank() && viewerName.isBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .padding(end = 16.dp)
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Person,
-                                contentDescription = stringResource(R.string.inbox_profile_photo),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    } else {
-                        Avatar(
-                            initials = initialsOf(viewerName),
-                            size = 32.dp,
-                            imageUrl = viewerAvatarUrl,
-                            contentDescription = stringResource(R.string.inbox_profile_photo),
-                            colorSeed = viewerName,
-                            modifier = Modifier.padding(end = 16.dp),
-                        )
-                    }
+                    AccountMenu(
+                        viewerName = viewerName,
+                        viewerAvatarUrl = viewerAvatarUrl,
+                        onLogout = onLogout,
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -438,6 +423,105 @@ private fun ConversationRow(
                     UnreadDot()
                 }
             }
+        }
+    }
+}
+
+/**
+ * Profile picture in the top bar. Tapping it opens the account sheet, which
+ * holds one card per account action.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountMenu(
+    viewerName: String,
+    viewerAvatarUrl: String,
+    onLogout: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = { expanded = true },
+        modifier = Modifier.padding(end = 8.dp),
+    ) {
+        if (viewerAvatarUrl.isBlank() && viewerName.isBlank()) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Person,
+                    contentDescription = stringResource(R.string.inbox_profile_photo),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        } else {
+            Avatar(
+                initials = initialsOf(viewerName),
+                size = 32.dp,
+                imageUrl = viewerAvatarUrl,
+                contentDescription = stringResource(R.string.inbox_profile_photo),
+                colorSeed = viewerName,
+            )
+        }
+    }
+    if (!expanded) return
+
+    ModalBottomSheet(
+        onDismissRequest = { expanded = false },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        AccountAction(
+            icon = Icons.AutoMirrored.Rounded.Logout,
+            label = stringResource(R.string.account_logout),
+            onClick = {
+                expanded = false
+                onLogout()
+            },
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** One tappable card in the account sheet. */
+@Composable
+private fun AccountAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(text = label, style = MaterialTheme.typography.titleMedium)
         }
     }
 }

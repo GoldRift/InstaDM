@@ -103,6 +103,16 @@ fun InstaDmApp(
     }
     val pendingConversation = pendingThreadId?.let(inboxState::conversation)
 
+    // Logging out discards the session and leaves the inbox without one.
+    LaunchedEffect(inboxState.status, currentRoute) {
+        if (inboxState.status == InboxStatus.NoSession && currentRoute == Routes.Inbox) {
+            navController.navigate(Routes.Login) {
+                popUpTo(Routes.Inbox) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = resolvedStart,
@@ -152,6 +162,10 @@ fun InstaDmApp(
                     navController.navigate(Routes.chat(threadId))
                 },
                 onSearch = { navController.navigate(Routes.Search) },
+                onLogout = {
+                    inboxState.logout()
+                    RealtimeService.stop(context)
+                },
             )
         }
 
@@ -252,6 +266,7 @@ private fun MainPane(
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
     onSearch: () -> Unit,
+    onLogout: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth < TwoPaneMinWidth) {
@@ -270,6 +285,7 @@ private fun MainPane(
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
                 onSearch = onSearch,
+                onLogout = onLogout,
             )
             return@BoxWithConstraints
         }
@@ -298,6 +314,7 @@ private fun MainPane(
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
                 onSearch = onSearch,
+                onLogout = onLogout,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {

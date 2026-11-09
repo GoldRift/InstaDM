@@ -104,6 +104,14 @@ class DemoScreenshotTest {
         compose.waitForIdle()
         Thread.sleep(600)
         session.capture("12-search-light")
+
+        device.pressBack()
+        compose.waitForIdle()
+        session.awaitText("Sofia Rossi")
+        session.nodeWithDescription("Your profile photo").performClick()
+        session.awaitText("Log out")
+        Thread.sleep(600)
+        session.capture("13-account-menu-light")
     }
 
     private fun hideKeyboardAndReturnToChat() {

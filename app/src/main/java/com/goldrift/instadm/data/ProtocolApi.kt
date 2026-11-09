@@ -12,6 +12,9 @@ interface ProtocolApi {
 
     suspend fun signIn(cookiesJson: String): JSONObject
 
+    /** Forgets the session; the next [hasCookies] returns false. */
+    suspend fun signOut()
+
     suspend fun loadMailbox(): JSONObject
 
     /** Fetches the older inbox page after [cursor] (an `end_cursor` value). */

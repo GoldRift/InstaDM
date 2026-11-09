@@ -66,6 +66,8 @@ internal class DemoProtocol(
 
     override suspend fun signIn(cookiesJson: String): JSONObject = seeder.mailbox()
 
+    override suspend fun signOut() = Unit
+
     override suspend fun loadMailbox(): JSONObject = seeder.mailbox()
 
     override suspend fun loadOlderConversations(cursor: String): JSONObject {

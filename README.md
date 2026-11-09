@@ -126,6 +126,12 @@ Captured from the offline demo build on an API 37 emulator.
       <td align="center"><img src="docs/screenshots/light/11-media-cards-light.png" width="220" alt="Video, reel, view-once"><br><sub>Video, reel, view-once</sub></td>
       <td align="center"><img src="docs/screenshots/light/12-search-light.png" width="220" alt="Search"><br><sub>Search</sub></td>
     </tr>
+    <tr>
+      <td align="center"><img src="docs/screenshots/light/13-account-menu-light.png" width="220" alt="Account menu"><br><sub>Account menu</sub></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
 </table>
 
 ### Dark
@@ -404,9 +410,10 @@ requests; `go-core/fixtures/` holds synthetic samples only.
 
 InstaDM works, but it is still early:
 
-- Single account only. There is no logout or session-expiry UI yet; an expired
-  session shows a manual "log in again" action. Account switching is out of
-  scope.
+- Single account only. The inbox profile picture opens an account sheet with a
+  log out action, which discards the session and clears the local cache; an
+  expired session still needs a manual "log in again" tap. Account switching is
+  out of scope.
 - View-once photos and videos are deliberately never fetched; their bubbles point
   to the official app.
 - Instagram can challenge or block an embedded browser. The login uses a desktop

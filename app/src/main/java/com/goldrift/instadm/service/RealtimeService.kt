@@ -353,6 +353,12 @@ class RealtimeService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
+        /** Drops the watch socket; used when the session is discarded. */
+        fun stop(context: Context) {
+            val intent = Intent(context, RealtimeService::class.java).setAction(ACTION_STOP)
+            context.startService(intent)
+        }
+
         /**
          * Sends a typing signal on the watch socket. The typing sockets belong to
          * the service's client, so a stopped service drops the signal; typing is

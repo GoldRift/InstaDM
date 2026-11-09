@@ -199,6 +199,18 @@ class InboxState(
         viewerAvatarUrl = profile.avatarUrl
     }
 
+    /** Forgets the session and empties every screen backed by it. */
+    fun logout() {
+        scope.launch {
+            runCatching { repository.signOut() }
+            viewerName = ""
+            viewerAvatarUrl = ""
+            draftThread = null
+            // refresh() wipes the cached inbox, outbox, and media of the old account.
+            refresh()
+        }
+    }
+
     /** Loads the inbox once per process; rotations reuse the retained state. */
     fun refreshIfNeeded() {
         if (status == InboxStatus.Loading && items.isEmpty()) refresh()
