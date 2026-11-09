@@ -10,6 +10,7 @@
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_message_hint">Message…</string>
     <string name="chat_new_message_from">New message from %1$s</string>
+    <string name="chat_new_message_from_text">New message from %1$s: %2$s</string>
     <string name="chat_typing">Typing…</string>
     <string name="chat_typing_named">%1$s is typing…</string>
     <string name="chat_typing_and_others">%1$s and others are typing…</string>

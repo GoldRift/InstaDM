@@ -250,10 +250,16 @@ fun ChatScreen(
         val previous = announcedIncomingId
         announcedIncomingId = message.id
         if (previous != null && previous != message.id) {
-            arrivalAnnouncement = resources.getString(
-                R.string.chat_new_message_from,
-                message.senderName.ifBlank { conversation.contact.name },
-            )
+            val sender = message.senderName.ifBlank { conversation.contact.name }
+            // The text distinguishes back-to-back messages from one sender,
+            // which would otherwise produce the same live-region string.
+            arrivalAnnouncement = message.text.trim().take(80).let { preview ->
+                if (preview.isEmpty()) {
+                    resources.getString(R.string.chat_new_message_from, sender)
+                } else {
+                    resources.getString(R.string.chat_new_message_from_text, sender, preview)
+                }
+            }
         }
     }
     val typingAnnouncement = when {
