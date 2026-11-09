@@ -76,8 +76,9 @@ official app.
   conversation: groups show the group name on top with each sender and profile
   picture on their messages, tapping a notification opens that chat, and the
   notification goes away once that conversation is read.
-- Material 3 with Material You colors, date headers, a two-pane inbox/chat layout
-  at 840 dp and wider, and TalkBack-friendly controls.
+- Material 3 Expressive with Material You colors and the expressive motion
+  scheme: date headers, animated loading indicators, a two-pane inbox/chat
+  layout at 840 dp and wider, and TalkBack-friendly controls.
 - Bounded storage: at most 1,000 messages per thread and a 250 MB media cache,
   with 8 MB image and 25 MB other-attachment upload caps.
 
@@ -410,10 +411,10 @@ requests; `go-core/fixtures/` holds synthetic samples only.
 
 InstaDM works, but it is still early:
 
-- Single account only. The inbox profile picture opens an account sheet with a
-  log out action, which discards the session and clears the local cache; an
-  expired session still needs a manual "log in again" tap. Account switching is
-  out of scope.
+- Single account only. The inbox profile picture opens an account sheet that
+  names the signed-in account and offers log out, which discards the session and
+  clears the local cache; an expired session still needs a manual "log in again"
+  tap. Account switching is out of scope.
 - View-once photos and videos are deliberately never fetched; their bubbles point
   to the official app.
 - Instagram can challenge or block an embedded browser. The login uses a desktop
