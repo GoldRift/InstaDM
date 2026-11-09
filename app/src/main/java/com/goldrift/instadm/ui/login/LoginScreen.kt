@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
@@ -101,6 +106,7 @@ fun LoginScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var sessionCleared by remember { mutableStateOf(false) }
     var pageLoading by remember { mutableStateOf(true) }
+    var pageProgress by remember { mutableIntStateOf(0) }
     var validating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var lastAttempt by remember { mutableStateOf("") }
@@ -200,10 +206,16 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .imePadding(),
         ) {
-            if (pageLoading || validating) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+            when {
+                pageLoading -> LinearProgressIndicator(
+                    progress = { pageProgress / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                validating -> LinearProgressIndicator(Modifier.fillMaxWidth())
             }
 
             Box(Modifier.weight(1f)) {
@@ -286,6 +298,7 @@ fun LoginScreen(
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    pageProgress = newProgress
                                     pageLoading = newProgress < 100
                                 }
                             }
@@ -300,7 +313,8 @@ fun LoginScreen(
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(16.dp),
+                            .padding(16.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         shape = MaterialTheme.shapes.medium,
                     ) {
@@ -323,7 +337,10 @@ fun LoginScreen(
             }
 
             errorMessage?.let { message ->
-                Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                Surface(
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
