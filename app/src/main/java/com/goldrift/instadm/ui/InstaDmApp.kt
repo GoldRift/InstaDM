@@ -2,8 +2,7 @@ package com.goldrift.instadm.ui
 
 import android.content.Context
 import android.net.Uri
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -27,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
@@ -59,10 +59,6 @@ private object Routes {
     fun chat(threadId: String): String = "$Chat/${Uri.encode(threadId)}"
 }
 
-/** Material 3 emphasized easing for screen transitions. */
-private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
-
 /** Expanded-width breakpoint for the side-by-side inbox and chat panes. */
 private val TwoPaneMinWidth = 840.dp
 private val InboxPaneWidth = 380.dp
@@ -94,6 +90,7 @@ fun InstaDmApp(
         return
     }
 
+    val motion = MaterialTheme.motionScheme
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val currentChatThreadId = if (currentRoute == Routes.ChatRoute) {
@@ -117,20 +114,20 @@ fun InstaDmApp(
         navController = navController,
         startDestination = resolvedStart,
         enterTransition = {
-            fadeIn(tween(400, easing = EmphasizedDecelerate)) +
-                slideInHorizontally(tween(400, easing = EmphasizedDecelerate)) { it / 10 }
+            fadeIn(motion.defaultEffectsSpec<Float>()) +
+                slideInHorizontally(motion.defaultSpatialSpec<IntOffset>()) { it / 10 }
         },
         exitTransition = {
-            fadeOut(tween(200, easing = EmphasizedAccelerate)) +
-                slideOutHorizontally(tween(200, easing = EmphasizedAccelerate)) { -it / 10 }
+            fadeOut(motion.fastEffectsSpec<Float>()) +
+                slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
         },
         popEnterTransition = {
-            fadeIn(tween(400, easing = EmphasizedDecelerate)) +
-                slideInHorizontally(tween(400, easing = EmphasizedDecelerate)) { -it / 10 }
+            fadeIn(motion.fastEffectsSpec<Float>()) +
+                slideInHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
         },
         popExitTransition = {
-            fadeOut(tween(200, easing = EmphasizedAccelerate)) +
-                slideOutHorizontally(tween(200, easing = EmphasizedAccelerate)) { it / 10 }
+            fadeOut(motion.fastEffectsSpec<Float>()) +
+                slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { it / 10 }
         },
     ) {
         composable(Routes.Login) {
@@ -291,6 +288,8 @@ private fun MainPane(
         }
 
         var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+        // Back closes the detail pane before it leaves the inbox.
+        BackHandler(enabled = selectedId != null) { selectedId = null }
         val selected = selectedId?.let { inboxState.conversation(it) }
 
         Row(Modifier.fillMaxSize()) {
