@@ -4,6 +4,8 @@ import android.content.Context
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.ProtocolApi
+import com.goldrift.instadm.data.RealtimeBus
+import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RealtimeMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +30,33 @@ internal class DemoProtocol(
 ) : ProtocolApi {
     private val olderPagesServed = mutableSetOf<String>()
     private val echoCounter = AtomicInteger()
+
+    init {
+        // There is no socket in the demo, so keep the other side typing in the
+        // chats the screenshots show. A group signal carries its sender so the
+        // bubble gets pictures, and two of them exercise the stacked case. The
+        // state expires after a few seconds, hence the refresh.
+        scope.launch {
+            val senders = listOf("demo_maya", "demo_design").associateWith { threadId ->
+                seeder.otherPeople(threadId).map { it.fbid }.take(2)
+            }
+            while (true) {
+                senders.forEach { (threadId, igIds) ->
+                    igIds.forEach { igId ->
+                        RealtimeBus.publish(
+                            RealtimeEvent(
+                                type = "typing",
+                                threadId = threadId,
+                                participantIgId = igId,
+                                activityStatus = 1,
+                            ),
+                        )
+                    }
+                }
+                delay(1_000)
+            }
+        }
+    }
 
     override suspend fun hasCookies(): Boolean {
         seeder.ensureSeeded()

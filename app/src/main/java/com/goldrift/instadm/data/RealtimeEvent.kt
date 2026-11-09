@@ -13,7 +13,13 @@ data class RealtimeEvent(
     val seqId: Long = 0,
     val rawType: String = "",
     val participantFbid: Long = 0,
+    /** IG user ID of the sender, which typing events use instead of an FBID. */
+    val participantIgId: Long = 0,
     val fromViewer: Boolean = false,
+    /** Non-zero while the sender is typing; 0 means they stopped. */
+    val activityStatus: Int = 0,
+    /** Typing events address the thread by its long ID instead of [threadId]. */
+    val longThreadId: String = "",
 ) {
     companion object {
         fun fromJson(raw: String): RealtimeEvent? = runCatching {
@@ -56,7 +62,10 @@ data class RealtimeEvent(
                 seqId = json.optLong("seq_id"),
                 rawType = json.optString("raw_type"),
                 participantFbid = json.optLong("participant_fbid"),
+                participantIgId = json.optLong("participant_ig_id"),
                 fromViewer = json.optBoolean("from_viewer"),
+                activityStatus = json.optInt("activity_status"),
+                longThreadId = json.optString("long_thread_id"),
             )
         }.getOrNull()
     }

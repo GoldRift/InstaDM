@@ -54,6 +54,7 @@ fun ThreadWithParticipants.toConversation(
                 name = participant.name.ifBlank { participant.username },
                 initials = initialsOf(participant.name.ifBlank { participant.username }),
                 avatarUrl = participant.avatarUrl,
+                igId = participant.igUserId,
             )
         },
         messagesLoaded = previous?.messagesLoaded ?: false,

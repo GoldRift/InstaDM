@@ -25,6 +25,8 @@ data class ConversationParticipant(
     val name: String,
     val initials: String,
     val avatarUrl: String = "",
+    /** Instagram user ID; realtime events name people by this, not by FBID. */
+    val igId: String = "",
 )
 
 /** A single DM thread shown in the inbox. */

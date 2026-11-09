@@ -52,6 +52,12 @@ internal class DemoSeeder(private val chatStore: ChatStore) {
         return checkNotNull(seed).replies[threadId]
     }
 
+    /** Other members of a thread, in participant order. */
+    suspend fun otherPeople(threadId: String): List<DemoPerson> {
+        ensureSeeded()
+        return checkNotNull(seed).others[threadId].orEmpty()
+    }
+
     private suspend fun seedLocked() {
         val built = DemoData.build(System.currentTimeMillis())
         chatStore.ingestMailbox(built.mailbox)

@@ -24,6 +24,7 @@ internal class DemoSeed(
     val metaThreads: Map<String, JSONObject>,
     val olderPages: Map<String, JSONObject>,
     val replies: Map<String, DemoPerson>,
+    val others: Map<String, List<DemoPerson>>,
 )
 
 private class ThreadSpec(
@@ -100,7 +101,8 @@ internal object DemoData {
                     .put("oldest_cursor", "")
             }
         val replies = specs.associate { it.id to it.other }
-        return DemoSeed(mailbox, full, metaOnly, older, replies)
+        val others = specs.associate { it.id to it.participants.filterNot { person -> person.isViewer } }
+        return DemoSeed(mailbox, full, metaOnly, older, replies, others)
     }
 
     private fun mayaThread(now: Long): ThreadSpec {

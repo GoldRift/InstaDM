@@ -15,8 +15,11 @@ type Event struct {
 	RawType         string       `json:"raw_type,omitempty"`
 	Reaction        string       `json:"reaction,omitempty"`
 	ParticipantFBID int64        `json:"participant_fbid,omitempty"`
+	ParticipantIGID int64        `json:"participant_ig_id,omitempty"`
 	FromViewer      bool         `json:"from_viewer,omitempty"`
 	TimestampMS     int64        `json:"timestamp_ms,omitempty"`
+	ActivityStatus  int          `json:"activity_status,omitempty"`
+	LongThreadID    string       `json:"long_thread_id,omitempty"`
 	Message         *MessageView `json:"message,omitempty"`
 }
 
@@ -61,9 +64,30 @@ func (c *Client) handleEvent(event slidetypes.ClientEvent) {
 			Type:  "auth.error",
 			Error: errorString(event.Error),
 		})
+	case *slidetypes.TypingNotification:
+		c.handleTyping(event)
 	case *slidetypes.Delta:
 		c.handleDelta(event)
 	}
+}
+
+// handleTyping reports a typing signal from the streamcontroller socket.
+// activity_status is 1 while the sender is typing and 0 when they stopped.
+//
+// The socket addresses the thread by its long thread ID and names the sender by
+// IG user ID, so neither field can be filled from ThreadID/ParticipantFBID.
+func (c *Client) handleTyping(typing *slidetypes.TypingNotification) {
+	event := Event{
+		Type:            "typing",
+		LongThreadID:    typing.ThreadID,
+		ParticipantIGID: typing.SenderID,
+		ActivityStatus:  typing.ActivityStatus,
+	}
+	if !typing.Timestamp.IsZero() {
+		event.TimestampMS = typing.Timestamp.Time.UnixMilli()
+	}
+
+	c.onEvent(event)
 }
 
 func (c *Client) handleDelta(delta *slidetypes.Delta) {

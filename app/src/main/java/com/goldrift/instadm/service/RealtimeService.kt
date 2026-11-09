@@ -65,6 +65,7 @@ class RealtimeService : Service() {
     override fun onCreate() {
         super.onCreate()
         destroyed = false
+        active = this
         NotificationChannels.ensure(this)
     }
 
@@ -98,6 +99,9 @@ class RealtimeService : Service() {
         destroyed = true
         serviceScope.cancel()
         stopWatch()
+        if (active === this) {
+            active = null
+        }
         if (!keepStatusOnDestroy) {
             RealtimeBus.setStatus(RealtimeStatus.Stopped)
         }
@@ -251,7 +255,7 @@ class RealtimeService : Service() {
                 }
 
                 "message.edit", "message.delete", "read.receipt",
-                "reaction.add", "reaction.remove",
+                "reaction.add", "reaction.remove", "typing",
                 -> {
                     RealtimeBus.publish(event)
                 }
@@ -348,5 +352,21 @@ class RealtimeService : Service() {
             val intent = Intent(context, RealtimeService::class.java).setAction(ACTION_RESTART)
             ContextCompat.startForegroundService(context, intent)
         }
+
+        /**
+         * Sends a typing signal on the watch socket. The typing sockets belong to
+         * the service's client, so a stopped service drops the signal; typing is
+         * transient and must never fail a send.
+         */
+        fun setTyping(threadId: String, typing: Boolean) {
+            val service = active ?: return
+            val goClient = service.client ?: return
+            service.serviceScope.launch {
+                runCatching { goClient.setTyping(threadId, typing) }
+            }
+        }
+
+        @Volatile
+        private var active: RealtimeService? = null
     }
 }

@@ -680,6 +680,24 @@ func TestRunMarkReadValidation(t *testing.T) {
 	})
 }
 
+func TestRunTypingValidation(t *testing.T) {
+	t.Run("missing thread ID", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runTyping(nil, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "usage: igcli typing") {
+			t.Errorf("error = %v, want usage error", err)
+		}
+	})
+
+	t.Run("blank thread ID", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := runTyping([]string{"", "--cookie-header", "sessionid=fake; csrftoken=fake; ds_user_id=1"}, &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "thread ID is empty") {
+			t.Errorf("error = %v, want empty thread ID error", err)
+		}
+	})
+}
+
 func TestFormatEvent(t *testing.T) {
 	message := &igcore.MessageView{
 		ID:          "message-1",
@@ -714,6 +732,16 @@ func TestFormatEvent(t *testing.T) {
 			name:  "reaction",
 			event: igcore.Event{Type: "reaction.add", ThreadID: "thread-1", Reaction: "❤", Message: &igcore.MessageView{ID: "message-1"}},
 			want:  []string{"reaction added ❤", "message-1"},
+		},
+		{
+			name:  "typing",
+			event: igcore.Event{Type: "typing", LongThreadID: "340282366841710301244259935533548984569", ParticipantIGID: 33979457068, ActivityStatus: 1},
+			want:  []string{"[340282366841710301244259935533548984569]", "typing participant=33979457068"},
+		},
+		{
+			name:  "stopped typing",
+			event: igcore.Event{Type: "typing", LongThreadID: "thread-long-1", ParticipantIGID: 222},
+			want:  []string{"stopped typing participant=222"},
 		},
 		{
 			name:  "unknown",

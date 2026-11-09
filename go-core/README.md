@@ -158,6 +158,10 @@ go run ./cmd/igcli mute <thread-id> --seconds 0 --cookies ~/.config/instadm/cook
 go run ./cmd/igcli pin <thread-id> --cookies ~/.config/instadm/cookies.json
 go run ./cmd/igcli pin <thread-id> --off --cookies ~/.config/instadm/cookies.json
 
+# Signal typing, then stopped typing
+go run ./cmd/igcli typing <thread-id> --cookies ~/.config/instadm/cookies.json
+go run ./cmd/igcli typing <thread-id> --off --cookies ~/.config/instadm/cookies.json
+
 # Watch DGW events until Ctrl-C
 go run ./cmd/igcli watch --cookies ~/.config/instadm/cookies.json
 
@@ -187,7 +191,7 @@ Flags:
 | `--message-id <id>` | `mark-read`: mark read up to this message, default newest |
 | `--remove` | `react`: remove the reaction instead of adding it |
 | `--seconds <n>` | `mute`: -1 forever, 0 unmute, or a positive duration, default `-1` |
-| `--off` | `pin`: unpin instead of pin |
+| `--off` | `pin`: unpin instead of pin; `typing`: send stopped typing |
 | `--save <path>` | `media`: download the selected attachment to this file |
 | `--part <n>` | `media`: attachment index to download, default `0` |
 | `--duration <duration>` | `watch`: stop after this duration, default `0` (until interrupted) |
@@ -350,6 +354,18 @@ unmutes, and a positive value mutes for that many seconds. `pin` pins the thread
 server. The mailbox output exposes the same state as `is_muted` and `is_pinned`, which
 is useful for verifying the mutation.
 
+`typing` sends one typing signal over the mqttbypass socket: `typing <thread-id>` marks
+you as typing and `--off` clears it. Instagram drops the state after a few seconds, so a
+client re-sends it while the viewer keeps typing and sends `--off` on send or after about
+six idle seconds. The command opens the DGW socket for the single signal; `watch` keeps
+the socket open and receives typing from other people through the streamcontroller
+subscription, printed as `typing participant=<ig user id>` (or `stopped typing`) and as
+`activity_status` in `--json` output. A received typing event addresses the thread by its
+long thread ID (`long_thread_id` in `--json`, the `thread_id` field of a thread view), not
+the short chat ID, and names the sender by IG user ID (`participant_ig_id`) rather than
+FBID. Both typing sockets belong to the same client as the watch connection, so
+`mobile.SetTypingJSON` requires a running `StartWatch`.
+
 `react` adds or removes one reaction on a message. Instagram allows one reaction per
 sender per message, so adding a different emoji replaces the previous one. The target
 message ID is the IG message ID from `thread --json`. Message JSON now also includes a
@@ -359,7 +375,7 @@ the same sender's previous emoji and ignore its own optimistic echo. Removal del
 omit the emoji; the CLI always sends the emoji you provide.
 
 The `watch` human output prints connection state, new messages, edits, deletes,
-reactions, and read receipts. Read receipts include the participant FBID in human
+reactions, read receipts, and typing signals. Read receipts include the participant FBID in human
 output, while `--json` adds `participant_fbid` and `from_viewer` (the viewer's own
 read state must not be rendered as a seen tick). `--json` emits one JSON object per
 line (NDJSON). Message text is included in both forms, so treat watch output as
@@ -399,6 +415,7 @@ defer client.StopWatch()
 | `UnsendJSON(threadID, messageID, timeoutSeconds)` | Unsend result JSON |
 | `MuteJSON(threadID, muteSeconds, timeoutSeconds)` | Mute/unmute result JSON |
 | `PinJSON(threadID, pin, timeoutSeconds)` | Pin/unpin result JSON |
+| `SetTypingJSON(threadID, typing, timeoutSeconds)` | Typing signal result JSON; needs a running `StartWatch` on the same client |
 | `SendMediaJSON(threadID, filename, mimeType, data, replyTo, otid, timeoutSeconds)` | Upload/send in-memory bytes |
 | `SendVoiceJSON(threadID, filename, mimeType, data, waveformJSON, replyTo, otid, timeoutSeconds)` | Upload/send in-memory audio as a voice note |
 | `ReactJSON(threadID, messageID, emoji, remove, timeoutSeconds)` | Reaction result JSON |
@@ -445,8 +462,8 @@ The generated Java package is `com.goldrift.instadm.core.mobile`:
 - `Mobile.version()` returns the pinned protocol version.
 - `Client.mailboxJSON(timeout)`, `threadJSON(...)`, `sendTextJSON(...)`,
   `sendMediaJSON(...)`, `sendNewDMJSON(...)`, `editJSON(...)`, `unsendJSON(...)`,
-  `reactJSON(...)`, `markReadJSON(...)`, `muteJSON(...)`, `pinJSON(...)`, and
-  `downloadMediaJSON(...)` return JSON strings.
+  `reactJSON(...)`, `markReadJSON(...)`, `muteJSON(...)`, `pinJSON(...)`,
+  `setTypingJSON(...)`, and `downloadMediaJSON(...)` return JSON strings.
 - `Client.startWatch(callback)` accepts a `WatchCallback` with
   `onEvent(String eventJSON)`; `stopWatch()` cancels it. The callback runs on a Go-owned
   thread, so Kotlin must keep it fast and must not call back into the same client.
@@ -460,8 +477,11 @@ directory. `GoBindingSmokeTest` now also waits for a `connected` watch event.
 ## Validation status
 
 - Build, cookie parsing, table rendering, thread normalization, read-receipt/seen
-  derivation, error paths, watch backoff and permanent-error classification, and the
-  one-shot refresh after a 403 media response are covered by local tests.
+  derivation, error paths, watch backoff and permanent-error classification, typing
+  event normalization, and the one-shot refresh after a 403 media response are covered
+  by local tests.
+- Typing is untested against a real account: both directions need the two extra sockets
+  and a second account to watch.
 - Real-account acceptance passed:
   - cookie login, inbox bootstrap, and mailbox query returned the viewer, `seq_id`, and
     a DM thread;

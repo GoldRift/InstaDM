@@ -58,9 +58,8 @@ func New(cs *cookies.Cookies, options Options) (*Client, error) {
 	}).Level(options.LogLevel).With().Timestamp().Logger()
 
 	inner := instameow.NewClient(instameow.ClientParams{
-		Cookies:       cs,
-		Log:           logger,
-		DisableTyping: true,
+		Cookies: cs,
+		Log:     logger,
 	})
 
 	client := &Client{

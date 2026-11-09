@@ -297,6 +297,27 @@ func (c *Client) PinJSON(threadID string, pin bool, timeoutSeconds int32) (strin
 	return encode(result)
 }
 
+// SetTypingJSON signals typing in a thread. It needs a running StartWatch
+// connection on this client, because the socket that carries the signal lives
+// there; the mqttbypass socket opens on the first call.
+func (c *Client) SetTypingJSON(threadID string, typing bool, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	if err := client.SetTyping(ctx, threadID, typing); err != nil {
+		return "", err
+	}
+	return encode(&igcore.TypingResult{
+		ProtocolVersion: igcore.ProtocolVersion,
+		ThreadID:        threadID,
+		Typing:          typing,
+	})
+}
+
 func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte, replyTo, otid string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {

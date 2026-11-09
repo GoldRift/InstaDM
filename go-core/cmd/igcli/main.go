@@ -42,6 +42,7 @@ Usage:
   igcli outbox remove --path <outbox.json> --id <otid> [flags]
   igcli mute <thread-id> --cookies <path> [flags]
   igcli pin <thread-id> --cookies <path> [flags]
+  igcli typing <thread-id> --cookies <path> [flags]
   igcli watch --cookies <path> [flags]
   igcli help
 
@@ -59,6 +60,7 @@ Commands:
   outbox     List, retry, or remove pending sends
   mute       Mute or unmute a thread
   pin        Pin or unpin a thread
+  typing     Signal typing in a thread over the socket
   watch      Connect to DGW and print realtime events until interrupted
 
 Common flags:
@@ -111,6 +113,9 @@ Mute flags:
 Pin flags:
   --off                   Unpin instead of pin
 
+Typing flags:
+  --off                   Send "stopped typing" instead of "typing"
+
 Watch flags:
   --duration <duration>   Stop after this duration (0 = until interrupted)
   --thread <thread-id>    Only print events for this thread
@@ -121,9 +126,9 @@ Required cookies: sessionid, csrftoken, ds_user_id
 Optional cookies: mid, ig_did, rur, shbid, shbts
 
 Use the short thread ID from "igcli mailbox --json" (the "id" field) as <thread-id>.
-For thread, send, send-media, send-new, edit, unsend, mark-read, react, media, mute, and
-pin, put all flags before or after the positional arguments; do not split them across
-both positions.
+For thread, send, send-media, send-new, edit, unsend, mark-read, react, media, mute,
+pin, and typing, put all flags before or after the positional arguments; do not split
+them across both positions.
 `
 
 func main() {
@@ -166,6 +171,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runMute(args[1:], stdout, stderr)
 	case "pin":
 		return runPin(args[1:], stdout, stderr)
+	case "typing":
+		return runTyping(args[1:], stdout, stderr)
 	case "watch":
 		return runWatch(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -1061,6 +1068,58 @@ func runPin(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+func runTyping(args []string, stdout, stderr io.Writer) error {
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		args = append(append([]string{}, args[1:]...), args[0])
+	}
+
+	flags := flag.NewFlagSet("typing", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var options commonOptions
+	addCommonFlags(flags, &options)
+	off := flags.Bool("off", false, "send stopped typing instead of typing")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, usage)
+	}
+
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("usage: igcli typing <thread-id> --cookies <path>")
+	}
+	threadID := strings.TrimSpace(flags.Arg(0))
+	if threadID == "" {
+		return errors.New("thread ID is empty")
+	}
+
+	client, err := newClient(options, stderr, nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ctx, cancel := commandContext(options.timeout)
+	defer cancel()
+
+	if err := client.SetTypingOnce(ctx, threadID, !*off); err != nil {
+		return describeError(err)
+	}
+	result := &igcore.TypingResult{
+		ProtocolVersion: igcore.ProtocolVersion,
+		ThreadID:        threadID,
+		Typing:          !*off,
+	}
+	if options.jsonOutput {
+		return encodeJSON(stdout, result)
+	}
+	printTypingResult(stdout, result)
+	return nil
+}
+
 func runWatch(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1446,6 +1505,12 @@ func printPinResult(w io.Writer, result *igcore.PinResult) {
 	fmt.Fprintf(w, "  pinned: %t\n", result.Pinned)
 }
 
+func printTypingResult(w io.Writer, result *igcore.TypingResult) {
+	fmt.Fprintln(w, "Typing signal sent")
+	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
+	fmt.Fprintf(w, "  typing: %t\n", result.Typing)
+}
+
 func printUnsendResult(w io.Writer, result *igcore.UnsendResult) {
 	fmt.Fprintln(w, "Unsent message")
 	fmt.Fprintf(w, "  thread: %s\n", valueOrDash(result.ThreadID))
@@ -1600,7 +1665,9 @@ type eventPrinter struct {
 }
 
 func (p *eventPrinter) print(event igcore.Event) {
-	if p.threadFilter != "" && event.ThreadID != "" && event.ThreadID != p.threadFilter {
+	if p.threadFilter != "" &&
+		event.ThreadID != "" && event.ThreadID != p.threadFilter &&
+		event.LongThreadID != p.threadFilter {
 		return
 	}
 
@@ -1627,8 +1694,8 @@ func (p *eventPrinter) print(event igcore.Event) {
 func formatEvent(event igcore.Event) string {
 	timestamp := formatMessageTimestamp(eventTimestamp(event))
 	thread := ""
-	if event.ThreadID != "" {
-		thread = "[" + event.ThreadID + "]"
+	if threadID := firstNonEmpty(event.ThreadID, event.LongThreadID); threadID != "" {
+		thread = "[" + threadID + "]"
 	}
 
 	switch event.Type {
@@ -1685,6 +1752,12 @@ func formatEvent(event igcore.Event) string {
 			)
 		}
 		return fmt.Sprintf("%s %s %s", timestamp, thread, event.Type)
+	case "typing":
+		state := "stopped typing"
+		if event.ActivityStatus != 0 {
+			state = "typing"
+		}
+		return fmt.Sprintf("%s %s %s participant=%d", timestamp, thread, state, event.ParticipantIGID)
 	case "unknown", "delta":
 		return fmt.Sprintf("%s %s %s", timestamp, thread, valueOrDash(firstNonEmpty(event.RawType, event.Type)))
 	default:

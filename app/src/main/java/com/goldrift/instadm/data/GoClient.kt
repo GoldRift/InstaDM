@@ -120,6 +120,15 @@ class GoClient(cookiesJson: String) : Closeable {
         timeoutSeconds: Int = 90,
     ): JSONObject = JSONObject(client.pinJSON(threadId, pin, timeoutSeconds))
 
+    /**
+     * Signals typing in [threadId]. Instagram drops the state after a few
+     * seconds, so callers re-send it while the viewer keeps typing. Needs a
+     * running watch on this client, because the socket lives there.
+     */
+    fun setTyping(threadId: String, typing: Boolean, timeoutSeconds: Int = 30) {
+        client.setTypingJSON(threadId, typing, timeoutSeconds)
+    }
+
     fun sendNewDM(
         recipientFbid: String,
         text: String,

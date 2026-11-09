@@ -13,11 +13,14 @@ import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolApi
+import com.goldrift.instadm.data.RealtimeBus
+import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
+import com.goldrift.instadm.service.RealtimeService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -41,6 +44,12 @@ private const val READ_MIN_INTERVAL_MS = 3_000L
 /** Re-fetch the newest page when it is older than this. */
 private const val THREAD_STALE_MS = 30_000L
 
+/** Instagram stops showing a typing signal about this long after the last one. */
+private const val TYPING_TTL_MS = 6_000L
+
+/** Send at most one typing signal per thread in this window. */
+private const val TYPING_PING_MS = 5_000L
+
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
  * [ProtocolRepository]; this class only applies JSON and realtime results to UI
@@ -60,6 +69,10 @@ class InboxState(
     private val markedRead = mutableMapOf<String, String>()
     private val readJobs = mutableMapOf<String, Job>()
     private val lastReadAt = mutableMapOf<String, Long>()
+    private val typingSenders = mutableStateMapOf<String, List<Long>>()
+    private val typingExpiry = mutableMapOf<String, Job>()
+    private val typingPingedAt = mutableMapOf<String, Long>()
+    private val typingIdleJobs = mutableMapOf<String, Job>()
     private val messageCollectors = mutableSetOf<String>()
     private var refreshInFlight = false
 
@@ -74,6 +87,11 @@ class InboxState(
 
     init {
         scope.launch { loadViewer() }
+        scope.launch {
+            RealtimeBus.events.collect { event ->
+                if (event.type == "typing") applyTyping(event)
+            }
+        }
         scope.launch {
             // Thread rows and unread counts come from two tables, so an
             // incoming message (or an accepted read receipt) re-emits one of
@@ -94,6 +112,23 @@ class InboxState(
         items.firstOrNull { it.id == threadId }
 
     fun isLoading(threadId: String): Boolean = loadingThreads[threadId] == true
+
+    /** True while another participant is typing in [threadId]. */
+    fun isTyping(threadId: String): Boolean = typingSenders.containsKey(threadId)
+
+    /**
+     * Members whose picture belongs beside the typing bubble. Direct chats have
+     * one other person and no picture, like the reaction bubbles.
+     */
+    fun typingParticipants(threadId: String): List<ConversationParticipant> {
+        val senders = typingSenders[threadId].orEmpty()
+        if (senders.isEmpty()) return emptyList()
+        val conversation = conversation(threadId) ?: return emptyList()
+        if (!conversation.isGroup) return emptyList()
+        return senders.mapNotNull { igId ->
+            conversation.participants.firstOrNull { it.igId == igId.toString() }
+        }
+    }
 
     fun clearError() {
         errorMessage = null
@@ -262,6 +297,7 @@ class InboxState(
     fun send(threadId: String, rawText: String, reply: ReplySnapshot? = null) {
         val text = rawText.trim()
         if (text.isEmpty() || conversation(threadId) == null) return
+        stopTyping(threadId)
         errorMessage = null
         scope.launch {
             runCatching { outbox.enqueueText(threadId, text, reply) }
@@ -484,6 +520,80 @@ class InboxState(
         readJobs[threadId] = job
     }
 
+    /**
+     * Applies an incoming typing signal. Instagram sends one while the other
+     * person types and a stop signal when they send, but either can be missed,
+     * so each sender expires on its own.
+     */
+    private fun applyTyping(event: RealtimeEvent) {
+        val threadId = items
+            .firstOrNull { conversation ->
+                (event.threadId.isNotBlank() && conversation.id == event.threadId) ||
+                    (event.longThreadId.isNotBlank() &&
+                        conversation.longThreadId == event.longThreadId)
+            }
+            ?.id
+            ?: return
+
+        val igId = event.participantIgId
+        // A group can have several people typing at once, so each sender keeps
+        // its own expiry instead of one timer per thread.
+        val key = "$threadId/$igId"
+        typingExpiry.remove(key)?.cancel()
+
+        if (event.activityStatus == 0) {
+            setTypingSenders(threadId, typingSenders[threadId].orEmpty().withoutTypingSender(igId))
+            return
+        }
+
+        setTypingSenders(threadId, typingSenders[threadId].orEmpty().withTypingSender(igId))
+        typingExpiry[key] = scope.launch {
+            delay(TYPING_TTL_MS)
+            typingExpiry.remove(key)
+            setTypingSenders(threadId, typingSenders[threadId].orEmpty().withoutTypingSender(igId))
+        }
+    }
+
+    private fun setTypingSenders(threadId: String, senders: List<Long>) {
+        if (senders.isEmpty()) {
+            typingSenders.remove(threadId)
+        } else {
+            typingSenders[threadId] = senders
+        }
+    }
+
+    /**
+     * Reports that the viewer is typing. The signal is rate limited to one ping
+     * per [TYPING_PING_MS] and cleared after [TYPING_TTL_MS] without a keystroke,
+     * which is roughly when Instagram forgets it anyway.
+     */
+    fun notifyTyping(threadId: String) {
+        if (conversation(threadId) == null) return
+
+        typingIdleJobs.remove(threadId)?.cancel()
+        typingIdleJobs[threadId] = scope.launch {
+            delay(TYPING_TTL_MS)
+            typingIdleJobs.remove(threadId)
+            clearTyping(threadId)
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - (typingPingedAt[threadId] ?: 0L) < TYPING_PING_MS) return
+        typingPingedAt[threadId] = now
+        RealtimeService.setTyping(threadId, true)
+    }
+
+    /** Clears a typing signal that was already sent, if any. */
+    private fun clearTyping(threadId: String) {
+        if (typingPingedAt.remove(threadId) == null) return
+        RealtimeService.setTyping(threadId, false)
+    }
+
+    private fun stopTyping(threadId: String) {
+        typingIdleJobs.remove(threadId)?.cancel()
+        clearTyping(threadId)
+    }
+
     /** Downloads an attachment through the Go client into the app cache. */
     suspend fun downloadMedia(
         threadId: String,
@@ -532,3 +642,9 @@ class InboxState(
     private fun describeError(error: Throwable): String =
         error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
 }
+
+/** Typing senders in arrival order, without duplicates. */
+internal fun List<Long>.withTypingSender(igId: Long): List<Long> =
+    if (igId in this) this else this + igId
+
+internal fun List<Long>.withoutTypingSender(igId: Long): List<Long> = filterNot { it == igId }

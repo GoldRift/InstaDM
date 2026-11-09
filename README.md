@@ -52,6 +52,9 @@ official app.
   cancel, then play inline with a waveform and tap-to-seek.
 - Replies (swipe or long-press), reactions (double-tap to like, long-press for
   the full set), edits, unsend, read receipts, and per-message seen ticks.
+- Typing indicators in the open chat, and in groups the senders' pictures stack
+  beside the dots (one bubble however many people are typing). The app also tells
+  Instagram while you type in the composer.
 - Instagram's like and reaction activity entries (`kind=reaction-log`, such as
   "Liked a message") are kept out of the transcript: the reaction itself already
   shows on the bubble, while the entry still appears in the inbox preview and
@@ -62,8 +65,8 @@ official app.
   tapping still opens the full URL. Tapping a reel cover plays it in the
   full-screen viewer.
 - Realtime delivery through a foreground `dataSync`/`remoteMessaging` service, so
-  new messages, edits, deletes, reactions, and receipts land even when the UI is
-  in the background. Background messages stack into one notification per
+  new messages, edits, deletes, reactions, receipts, and typing land even when the
+  UI is in the background. Background messages stack into one notification per
   conversation: groups show the group name on top with each sender and profile
   picture on their messages, tapping a notification opens that chat, and the
   notification goes away once that conversation is read.

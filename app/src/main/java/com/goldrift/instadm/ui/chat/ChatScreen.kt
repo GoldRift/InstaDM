@@ -27,6 +27,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -186,6 +187,9 @@ private val SenderAvatarGap = 8.dp
 /** Picture inside a group reaction bubble, scaled to the pill's text line. */
 private val ReactionAvatarSize = 18.dp
 
+/** How many typing pictures the group bubble stacks before it stops growing. */
+private const val MaxTypingAvatars = 3
+
 @Composable
 fun ChatScreen(
     conversation: Conversation,
@@ -195,6 +199,8 @@ fun ChatScreen(
     onSendMedia: (Uri) -> Unit = {},
     onRetryMedia: (String) -> Unit = {},
     isTyping: Boolean = false,
+    typingSenders: List<ConversationParticipant> = emptyList(),
+    onTyping: () -> Unit = {},
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onLoadMedia: MediaLoader? = null,
@@ -418,7 +424,10 @@ fun ChatScreen(
         bottomBar = {
             MessageComposer(
                 draft = draft,
-                onDraftChange = { draft = it },
+                onDraftChange = { value ->
+                    draft = value
+                    if (value.isNotBlank()) onTyping()
+                },
                 onSend = ::sendMessage,
                 replyingTo = replyTarget?.toReplySnapshot(),
                 replyingToLabel = replyLabel,
@@ -508,6 +517,7 @@ fun ChatScreen(
                             isGroup = conversation.isGroup,
                             participants = conversation.participants,
                             isTyping = isTyping,
+                            typingSenders = typingSenders,
                             listState = listState,
                             threadId = conversation.id,
                             hasMoreOlder = conversation.hasMoreOlder,
@@ -672,6 +682,7 @@ private fun MessageList(
     isGroup: Boolean,
     participants: List<ConversationParticipant>,
     isTyping: Boolean,
+    typingSenders: List<ConversationParticipant>,
     listState: LazyListState,
     threadId: String,
     hasMoreOlder: Boolean,
@@ -739,6 +750,7 @@ private fun MessageList(
         if (isTyping) {
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
+                    senders = typingSenders,
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -1815,13 +1827,19 @@ private fun copyToClipboard(context: Context, text: String) {
 
 @Composable
 private fun TypingBubble(
+    senders: List<ConversationParticipant>,
     modifier: Modifier = Modifier,
 ) {
     val bubbles = LocalMessageBubbleColors.current
     Row(
         modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (senders.isNotEmpty()) {
+            TypingAvatars(senders.take(MaxTypingAvatars))
+            Spacer(Modifier.width(SenderAvatarGap))
+        }
         Surface(
             shape = BubbleShape,
             color = bubbles.incoming,
@@ -1829,6 +1847,30 @@ private fun TypingBubble(
             TypingDots(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+        }
+    }
+}
+
+/** Pictures of everyone typing, overlapping so the group still gets one bubble. */
+@Composable
+private fun TypingAvatars(senders: List<ConversationParticipant>) {
+    val overlap = SenderAvatarSize / 4
+    val ring = MaterialTheme.colorScheme.surface
+    Box(
+        modifier = Modifier
+            .width(SenderAvatarSize + overlap * (senders.size - 1))
+            .height(SenderAvatarSize),
+    ) {
+        senders.forEachIndexed { index, sender ->
+            Avatar(
+                initials = sender.initials,
+                size = SenderAvatarSize,
+                modifier = Modifier
+                    .offset(x = overlap * index)
+                    .border(1.5.dp, ring, CircleShape),
+                imageUrl = sender.avatarUrl,
+                colorSeed = sender.fbid.toString(),
             )
         }
     }

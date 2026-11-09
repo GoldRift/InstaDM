@@ -216,6 +216,36 @@ class RealtimeEventTest {
     }
 
     @Test
+    fun parsesTyping() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "typing",
+              "long_thread_id": "340282366841710301244259935533548984569",
+              "timestamp_ms": 1700000002000,
+              "participant_ig_id": 33979457068,
+              "activity_status": 1
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        assertEquals("typing", event!!.type)
+        assertEquals("340282366841710301244259935533548984569", event.longThreadId)
+        assertEquals(33_979_457_068L, event.participantIgId)
+        assertEquals(1, event.activityStatus)
+    }
+
+    @Test
+    fun parsesStoppedTyping() {
+        val event = RealtimeEvent.fromJson(
+            """{"type":"typing","long_thread_id":"thread-long-1","participant_ig_id":222}""",
+        )
+
+        assertEquals(0, event!!.activityStatus)
+    }
+
+    @Test
     fun parsesViewerReadReceipt() {
         val event = RealtimeEvent.fromJson(
             """
