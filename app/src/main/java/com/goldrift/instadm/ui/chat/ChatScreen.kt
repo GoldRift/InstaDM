@@ -42,11 +42,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1274,7 +1276,7 @@ private fun SwipeReplyIcon(
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.Reply,
-            contentDescription = stringResource(R.string.chat_reply),
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(18.dp),
         )
@@ -1614,8 +1616,9 @@ private fun MessageActionsPopup(
     val density = LocalDensity.current
     val reactionBarHeight = with(density) { 60.dp.roundToPx() }
     val margin = with(density) { 8.dp.roundToPx() }
+    val topMargin = margin + WindowInsets.statusBars.getTop(density)
     val gap = with(density) { 6.dp.roundToPx() }
-    val positionProvider = remember(isMine, reactionBarHeight, margin, gap) {
+    val positionProvider = remember(isMine, reactionBarHeight, margin, topMargin, gap) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -1632,7 +1635,7 @@ private fun MessageActionsPopup(
                 }
                 val maxY = (windowSize.height - popupContentSize.height - margin)
                     .coerceAtLeast(margin)
-                val y = (anchorBounds.top - reactionBarHeight - gap).coerceIn(margin, maxY)
+                val y = (anchorBounds.top - reactionBarHeight - gap).coerceIn(topMargin, maxY)
                 return IntOffset(x, y)
             }
         }
