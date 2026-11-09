@@ -9,6 +9,10 @@
     <string name="chat_hide_status">Hide sent and read status</string>
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_message_hint">Message…</string>
+    <string name="chat_new_message_from">New message from %1$s</string>
+    <string name="chat_typing">Typing…</string>
+    <string name="chat_typing_named">%1$s is typing…</string>
+    <string name="chat_typing_and_others">%1$s and others are typing…</string>
     <string name="chat_send">Send message</string>
     <string name="chat_attach_camera">Take a photo</string>
     <string name="chat_attach_gallery">Choose a photo or video</string>

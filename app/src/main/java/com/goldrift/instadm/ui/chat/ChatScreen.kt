@@ -127,10 +127,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
@@ -230,6 +232,35 @@ fun ChatScreen(
     // in the transcript they would repeat the reaction shown on the bubble.
     val transcript = remember(messages) { messages.filterNot { it.isReactionLog() } }
     val context = LocalContext.current
+    // TalkBack gets one polite status line for arrivals and typing; the visible
+    // transcript is not a live region because a LazyColumn would re-announce
+    // recycled items.
+    var announcedIncomingId by remember(conversation.id) { mutableStateOf<String?>(null) }
+    var arrivalAnnouncement by remember(conversation.id) { mutableStateOf("") }
+    val newestIncoming = transcript.lastOrNull { it.sender != MessageSender.Me }
+    LaunchedEffect(newestIncoming?.id) {
+        val message = newestIncoming ?: return@LaunchedEffect
+        val previous = announcedIncomingId
+        announcedIncomingId = message.id
+        if (previous != null && previous != message.id) {
+            arrivalAnnouncement = context.getString(
+                R.string.chat_new_message_from,
+                message.senderName.ifBlank { conversation.contact.name },
+            )
+        }
+    }
+    val typingAnnouncement = when {
+        !isTyping -> ""
+        typingSenders.isEmpty() -> context.getString(R.string.chat_typing)
+        typingSenders.size == 1 -> context.getString(
+            R.string.chat_typing_named,
+            typingSenders.first().name,
+        )
+        else -> context.getString(
+            R.string.chat_typing_and_others,
+            typingSenders.first().name,
+        )
+    }
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var draft by remember { mutableStateOf("") }
@@ -492,8 +523,15 @@ fun ChatScreen(
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.fillMaxSize()) {
+                LiveAnnouncement(arrivalAnnouncement)
+                LiveAnnouncement(typingAnnouncement)
                 if (errorMessage != null) {
-                    Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                    Surface(
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        },
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
                         Text(
                             text = errorMessage,
                             modifier = Modifier
@@ -1861,6 +1899,22 @@ private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     clipboard.setPrimaryClip(ClipData.newPlainText("message", text))
     Toast.makeText(context, R.string.chat_copied, Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * Zero-height status text: it stays out of the layout but keeps its live
+ * region in the semantics tree, so screen readers announce the change.
+ */
+@Composable
+private fun LiveAnnouncement(text: String) {
+    if (text.isEmpty()) return
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier
+            .height(0.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    )
 }
 
 @Composable
