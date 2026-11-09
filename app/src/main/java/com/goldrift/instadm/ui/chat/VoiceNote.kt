@@ -326,7 +326,7 @@ fun VoiceNoteBubble(
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .clickable(role = Role.Button) { togglePlayback() }
                 .semantics { contentDescription = controlDescription },

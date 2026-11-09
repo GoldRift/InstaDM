@@ -284,11 +284,7 @@ private fun InlineGif(
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
             if (!failed) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
-                    color = Color.White,
-                )
+                CircularProgressIndicator(color = Color.White)
             }
         }
     }
@@ -332,10 +328,7 @@ private fun MediaPlaceholder(isLoading: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp,
-            )
+            CircularProgressIndicator()
         } else {
             Icon(
                 imageVector = Icons.Rounded.BrokenImage,
@@ -643,6 +636,9 @@ fun MediaViewerDialog(
                     } else {
                         ImageViewer(
                             file = current.file,
+                            contentDescription = target.media.altText.ifBlank {
+                                stringResource(R.string.chat_media_photo)
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -670,11 +666,12 @@ fun MediaViewerDialog(
 @Composable
 private fun ImageViewer(
     file: File,
+    contentDescription: String,
     modifier: Modifier = Modifier,
 ) {
     SubcomposeAsyncImage(
         model = file,
-        contentDescription = stringResource(R.string.chat_media_open),
+        contentDescription = contentDescription,
         contentScale = ContentScale.Fit,
         modifier = modifier.padding(horizontal = 8.dp, vertical = 48.dp),
         loading = {

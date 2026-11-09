@@ -176,6 +176,7 @@ private fun LinkPreview(
                 .clip(shareShape(hasLink))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .combinedClickable(
+                    onClickLabel = stringResource(R.string.chat_link_open),
                     onLongClickLabel = longClickLabel,
                     onLongClick = onLongClick,
                     onClick = onOpen,
@@ -300,6 +301,7 @@ private fun LinkTargetRow(
             .clip(linkShape(hasPreview))
             .background(contentColor.copy(alpha = 0.14f))
             .combinedClickable(
+                onClickLabel = if (openable) stringResource(R.string.chat_link_open) else null,
                 onLongClickLabel = longClickLabel,
                 onLongClick = onLongClick,
                 onClick = onOpen,
@@ -309,7 +311,7 @@ private fun LinkTargetRow(
     ) {
         Icon(
             imageVector = Icons.Rounded.Link,
-            contentDescription = stringResource(R.string.chat_link_open),
+            contentDescription = null,
             tint = contentColor.copy(alpha = 0.75f),
             modifier = Modifier.size(20.dp),
         )
