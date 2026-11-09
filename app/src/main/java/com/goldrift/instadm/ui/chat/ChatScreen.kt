@@ -1855,7 +1855,7 @@ private fun EditMessageDialog(
                 value = text,
                 onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) text = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.chat_edit_title)) },
+                label = { Text(stringResource(R.string.chat_edit_field)) },
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                 ),

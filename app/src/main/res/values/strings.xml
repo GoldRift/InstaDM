@@ -69,7 +69,6 @@
     <string name="chat_action_edit">Edit</string>
     <string name="chat_action_reply">Reply</string>
     <string name="chat_action_unsend">Unsend</string>
-    <string name="chat_reply">Reply</string>
     <string name="chat_reply_cancel">Cancel reply</string>
     <string name="chat_you">You</string>
     <string name="chat_someone">Someone</string>
@@ -86,6 +85,7 @@
     <string name="chat_copied">Copied</string>
     <string name="chat_cancel">Cancel</string>
     <string name="chat_edit_title">Edit message</string>
+    <string name="chat_edit_field">Message</string>
     <string name="chat_edit_save">Save</string>
     <string name="chat_unsend_title">Unsend message?</string>
     <string name="chat_unsend_body">This removes the message for everyone.</string>
