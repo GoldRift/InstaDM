@@ -57,10 +57,18 @@ official app.
 - Voice notes record with hold-to-send, slide-up to lock, and slide-left to
   cancel, then play inline with a waveform and tap-to-seek.
 - Replies (swipe or long-press), reactions (double-tap to like, long-press for
-  the full set), edits, unsend, read receipts, and per-message seen ticks.
+  the full set), edits, unsend, read receipts, and per-message seen ticks. The
+  double-tap emoji, read receipts, and typing signals are configurable.
 - Typing indicators in the open chat, and in groups the senders' pictures stack
   beside the dots (one bubble however many people are typing). The app also tells
-  Instagram while you type in the composer.
+  Instagram while you type in the composer, unless typing signals are turned off
+  in settings.
+- A settings screen in the account sheet covers appearance (system/light/dark,
+  wallpaper colors), chat behavior (double-tap reaction, typing signals, read
+  receipts), notification previews, and clearing the downloaded-media cache.
+  Settings are device-local and survive logout.
+- Read receipts can stay off when you open a chat; sending a message still marks
+  the thread read so the client and Instagram do not disagree about what you saw.
 - Instagram's like and reaction activity entries (`kind=reaction-log`, such as
   "Liked a message") are kept out of the transcript: the reaction itself already
   shows on the bubble, while the entry still appears in the inbox preview and
@@ -129,7 +137,7 @@ Captured from the offline demo build on an API 37 emulator.
     </tr>
     <tr>
       <td align="center"><img src="docs/screenshots/light/13-account-menu-light.png" width="220" alt="Account menu"><br><sub>Account menu</sub></td>
-      <td></td>
+      <td align="center"><img src="docs/screenshots/light/14-settings-light.png" width="220" alt="Settings"><br><sub>Settings</sub></td>
       <td></td>
       <td></td>
     </tr>
@@ -146,7 +154,7 @@ Captured from the offline demo build on an API 37 emulator.
     </tr>
     <tr>
       <td align="center"><img src="docs/screenshots/dark/05-group-dark.png" width="220" alt="Group chat (dark)"><br><sub>Group chat (dark)</sub></td>
-      <td></td>
+      <td align="center"><img src="docs/screenshots/dark/06-settings-dark.png" width="220" alt="Settings (dark)"><br><sub>Settings (dark)</sub></td>
       <td></td>
       <td></td>
     </tr>
