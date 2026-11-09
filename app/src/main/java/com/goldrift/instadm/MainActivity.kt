@@ -3,12 +3,16 @@ package com.goldrift.instadm
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,7 +34,30 @@ class MainActivity : ComponentActivity() {
         handleNotificationIntent(intent)
         enableEdgeToEdge()
         setContent {
-            InstaDMTheme {
+            val app = application as InstaDmApplication
+            val settings = app.settings.current
+            val darkTheme = settings.themeMode.isDark(isSystemInDarkTheme())
+            SideEffect {
+                // enableEdgeToEdge() at startup follows the system theme; a
+                // forced in-app theme needs matching bar scrims and icon tint.
+                val transparent = Color.TRANSPARENT
+                enableEdgeToEdge(
+                    statusBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(transparent)
+                    } else {
+                        SystemBarStyle.light(transparent, transparent)
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(transparent)
+                    } else {
+                        SystemBarStyle.light(transparent, transparent)
+                    },
+                )
+            }
+            InstaDMTheme(
+                darkTheme = darkTheme,
+                dynamicColor = settings.dynamicColor,
+            ) {
                 InstaDmApp(
                     pendingThreadId = pendingThreadId,
                     onPendingThreadHandled = { pendingThreadId = null },

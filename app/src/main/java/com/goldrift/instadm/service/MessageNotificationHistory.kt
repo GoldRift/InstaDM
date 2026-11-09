@@ -3,6 +3,14 @@ package com.goldrift.instadm.service
 internal const val MESSAGE_NOTIFICATION_BASE = 2000
 
 /**
+ * Body shown for one notification line. Preview text is the normal case; with
+ * previews off the caller substitutes a generic line, leaving sender metadata
+ * intact.
+ */
+internal fun notificationBodyText(previews: Boolean, text: String, fallback: String): String =
+    if (previews) text else fallback
+
+/**
  * A notification ID for a conversation. Message notifications start above the
  * service's foreground notification ID so the two can never replace each other.
  */
@@ -36,7 +44,7 @@ internal class ThreadNotificationHistory(private val limit: Int = 8) {
         threadId: String,
         message: NotifiedMessage,
         append: Boolean,
-    ): List<NotifiedMessage> {
+    ): List<NotifiedMessage> = synchronized(this) {
         val entries = if (append) {
             threads.getOrPut(threadId) { mutableListOf() }
         } else {
@@ -46,11 +54,16 @@ internal class ThreadNotificationHistory(private val limit: Int = 8) {
             entries += message
             while (entries.size > limit) entries.removeAt(0)
         }
-        return entries.toList()
+        entries.toList()
     }
 
     /** Clears a thread once its notification is dismissed, so the next message starts fresh. */
     fun forget(threadId: String) {
-        threads.remove(threadId)
+        synchronized(this) { threads.remove(threadId) }
+    }
+
+    /** Drops every stacked line, for example when preview text is turned off. */
+    fun clear() {
+        synchronized(this) { threads.clear() }
     }
 }

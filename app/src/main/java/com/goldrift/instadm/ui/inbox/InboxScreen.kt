@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -55,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -105,6 +107,7 @@ fun InboxScreen(
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
     onSearch: () -> Unit = {},
+    onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
     Scaffold(
@@ -133,6 +136,7 @@ fun InboxScreen(
                     AccountMenu(
                         viewerName = viewerName,
                         viewerAvatarUrl = viewerAvatarUrl,
+                        onSettings = onSettings,
                         onLogout = onLogout,
                     )
                 },
@@ -455,6 +459,7 @@ private fun ConversationRow(
 private fun AccountMenu(
     viewerName: String,
     viewerAvatarUrl: String,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -493,6 +498,10 @@ private fun AccountMenu(
         AccountSheetContent(
             viewerName = viewerName,
             viewerAvatarUrl = viewerAvatarUrl,
+            onSettings = {
+                expanded = false
+                onSettings()
+            },
             onLogout = {
                 expanded = false
                 onLogout()
@@ -506,6 +515,7 @@ private fun AccountMenu(
 private fun AccountSheetContent(
     viewerName: String,
     viewerAvatarUrl: String,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     Column(
@@ -540,12 +550,24 @@ private fun AccountSheetContent(
             }
         }
         Spacer(Modifier.height(24.dp))
-        AccountAction(
-            icon = Icons.AutoMirrored.Rounded.Logout,
-            label = stringResource(R.string.account_logout),
-            supporting = stringResource(R.string.account_logout_supporting),
-            onClick = onLogout,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AccountAction(
+                icon = Icons.Rounded.Settings,
+                label = stringResource(R.string.account_settings),
+                supporting = stringResource(R.string.account_settings_supporting),
+                iconContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                iconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onSettings,
+            )
+            AccountAction(
+                icon = Icons.AutoMirrored.Rounded.Logout,
+                label = stringResource(R.string.account_logout),
+                supporting = stringResource(R.string.account_logout_supporting),
+                iconContainerColor = MaterialTheme.colorScheme.errorContainer,
+                iconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+                onClick = onLogout,
+            )
+        }
     }
 }
 
@@ -555,6 +577,8 @@ private fun AccountAction(
     icon: ImageVector,
     label: String,
     supporting: String,
+    iconContainerColor: Color,
+    iconContentColor: Color,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -574,13 +598,13 @@ private fun AccountAction(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(MaterialTheme.shapes.small)
-                    .background(MaterialTheme.colorScheme.errorContainer),
+                    .background(iconContainerColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    tint = iconContentColor,
                     modifier = Modifier.size(20.dp),
                 )
             }

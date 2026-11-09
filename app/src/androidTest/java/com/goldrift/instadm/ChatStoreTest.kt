@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.RealtimeMessage
+import com.goldrift.instadm.data.db.AttachmentEntity
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
@@ -106,6 +107,35 @@ class ChatStoreTest {
         store.ingestThread(JSONObject(THREAD))
 
         assertEquals(2, store.observeThread("thread-1").first().size)
+    }
+
+    @Test
+    fun clearingDownloadedMediaResetsDeliveredAttachmentPaths() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        db.messages().setAttachmentFile(
+            messageId = "message-2",
+            partIndex = 0,
+            path = "/tmp/cached.jpg",
+            uri = "file:///tmp/cached.jpg",
+        )
+
+        val ready = store.observeThread("thread-1").first()
+            .first { it.message.id == "message-2" }
+        val readyAttachment = ready.attachments.single()
+        assertEquals("/tmp/cached.jpg", readyAttachment.localPath)
+        assertEquals("file:///tmp/cached.jpg", readyAttachment.url)
+        assertEquals(AttachmentEntity.DOWNLOAD_READY, readyAttachment.downloadState)
+
+        store.clearDownloadedMediaFiles()
+
+        val cleared = store.observeThread("thread-1").first()
+            .first { it.message.id == "message-2" }
+        val clearedAttachment = cleared.attachments.single()
+        assertEquals("", clearedAttachment.localPath)
+        assertEquals("", clearedAttachment.url)
+        assertEquals("", clearedAttachment.previewUrl)
+        assertEquals(AttachmentEntity.DOWNLOAD_NONE, clearedAttachment.downloadState)
     }
 
     @Test

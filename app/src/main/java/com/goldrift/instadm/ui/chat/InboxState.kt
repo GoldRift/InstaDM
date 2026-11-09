@@ -17,6 +17,7 @@ import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
+import com.goldrift.instadm.data.SettingsStore
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
@@ -68,6 +69,7 @@ class InboxState(
     private val chatStore: ChatStore,
     private val mailboxSync: MailboxSync,
     private val outbox: Outbox,
+    private val settings: SettingsStore,
     private val scope: CoroutineScope,
     private val mediaReader: MediaReader,
 ) {
@@ -411,6 +413,7 @@ class InboxState(
         errorMessage = null
         scope.launch {
             runCatching { outbox.enqueueText(threadId, text, reply) }
+                .onSuccess { markRead(threadId, fromSend = true) }
                 .onFailure { error -> errorMessage = describeError(error) }
         }
     }
@@ -469,7 +472,11 @@ class InboxState(
         scope.launch {
             runCatching {
                 outbox.enqueueMedia(threadId, mediaReader.prepare(uri))
-            }.onFailure { error -> errorMessage = describeError(error) }
+            }.onSuccess {
+                markRead(threadId, fromSend = true)
+            }.onFailure { error ->
+                errorMessage = describeError(error)
+            }
         }
     }
 
@@ -482,6 +489,7 @@ class InboxState(
         errorMessage = null
         scope.launch {
             runCatching { outbox.enqueueVoiceNote(threadId, recording) }
+                .onSuccess { markRead(threadId, fromSend = true) }
                 .onFailure { error -> errorMessage = describeError(error) }
         }
     }
@@ -492,6 +500,7 @@ class InboxState(
         errorMessage = null
         scope.launch {
             runCatching { outbox.retry(messageId) }
+                .onSuccess { markRead(threadId, fromSend = true) }
                 .onFailure { error -> errorMessage = describeError(error) }
         }
     }
@@ -606,17 +615,23 @@ class InboxState(
      * pending receipt, the receipt is sent after the burst settles, and one
      * thread is not read more than once per [READ_MIN_INTERVAL_MS].
      * Failures clear the marker so the next view or incoming message can retry.
+     *
+     * [fromSend] keeps the server's read state consistent with a reply: a
+     * thread the viewer replies to is marked read even when the viewer hides
+     * receipts, because replying would otherwise leave an unseen message with
+     * a sent message after it.
      */
-    fun markRead(threadId: String, messageId: String = "") {
+    fun markRead(threadId: String, messageId: String = "", fromSend: Boolean = false) {
         if (!AppVisibility.isForeground) return
         val conversation = conversation(threadId) ?: return
         if (conversation.systemFolder in READ_REQUEST_FOLDERS) {
             // Instagram rejects a viewer receipt until the request is accepted,
             // but the message has still been seen; clear the local badge.
-            val watermark = requestReadWatermark(conversation.messages)
-            if (watermark > 0) {
-                scope.launch { chatStore.markThreadRead(threadId, watermark) }
-            }
+            markLocallyRead(threadId, conversation)
+            return
+        }
+        if (!shouldPublishReadReceipt(settings.current.sendReadReceipts, fromSend)) {
+            markLocallyRead(threadId, conversation)
             return
         }
 
@@ -643,6 +658,9 @@ class InboxState(
                     delay(READ_MIN_INTERVAL_MS - sinceLast)
                 }
                 if (!AppVisibility.isForeground || markedRead[threadId] != target) return@launch
+                if (!shouldPublishReadReceipt(settings.current.sendReadReceipts, fromSend)) {
+                    return@launch
+                }
 
                 val current = conversation(threadId) ?: return@launch
                 val currentTarget = current.messages.firstOrNull { it.id == target }
@@ -672,6 +690,21 @@ class InboxState(
             }
         }
         readJobs[threadId] = job
+    }
+
+    /** Cancels a debounced receipt and lets the next view send it once receipts return. */
+    fun cancelPendingReadReceipts() {
+        readJobs.values.forEach { it.cancel() }
+        readJobs.clear()
+        markedRead.clear()
+    }
+
+    /** Clears the inbox badge without asking Instagram to publish a receipt. */
+    private fun markLocallyRead(threadId: String, conversation: Conversation) {
+        val watermark = requestReadWatermark(conversation.messages)
+        if (watermark > 0) {
+            scope.launch { chatStore.markThreadRead(threadId, watermark) }
+        }
     }
 
     /**
@@ -722,6 +755,7 @@ class InboxState(
      * which is roughly when Instagram forgets it anyway.
      */
     fun notifyTyping(threadId: String) {
+        if (!settings.current.sendTypingIndicators) return
         if (conversation(threadId) == null) return
 
         typingIdleJobs.remove(threadId)?.cancel()
@@ -735,6 +769,13 @@ class InboxState(
         if (now - (typingPingedAt[threadId] ?: 0L) < TYPING_PING_MS) return
         typingPingedAt[threadId] = now
         RealtimeService.setTyping(threadId, true)
+    }
+
+    /** Clears typing signals that were already sent when the viewer turns them off. */
+    fun stopSendingTypingIndicators() {
+        typingIdleJobs.values.forEach { it.cancel() }
+        typingIdleJobs.clear()
+        typingPingedAt.keys.toList().forEach { clearTyping(it) }
     }
 
     /** Clears a typing signal that was already sent, if any. */

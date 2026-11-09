@@ -31,6 +31,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.goldrift.instadm.MainActivity
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.AppSettings
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.RealtimeMessage
@@ -68,6 +69,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MessageNotifier(
     context: Context,
     private val chatStore: ChatStore,
+    private val settings: () -> AppSettings,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val appContext = context.applicationContext
@@ -108,6 +110,19 @@ class MessageNotifier(
         events.trySend(event)
     }
 
+    /**
+     * Drops every message notification and its stacked history. Turning preview
+     * text off must not leave an older notification showing the text it hid.
+     */
+    fun dropMessageNotifications() {
+        history.clear()
+        val active = runCatching { manager.activeNotifications }.getOrNull() ?: return
+        for (entry in active) {
+            val tag = entry.tag ?: continue
+            if (tag.startsWith(NOTIFICATION_TAG_PREFIX)) manager.cancel(tag, entry.id)
+        }
+    }
+
     private suspend fun post(event: RealtimeEvent) {
         val message = event.message ?: return
         val threadId = event.threadId
@@ -127,6 +142,8 @@ class MessageNotifier(
         val sender = senderFor(message, conversation, isGroup)
         val notificationId = messageNotificationId(threadId)
         val tag = notificationTag(threadId)
+        val previews = settings().showNotificationPreviews
+        val fallback = appContext.getString(R.string.notification_message)
         val entries = history.record(
             threadId = threadId,
             message = NotifiedMessage(
@@ -152,7 +169,11 @@ class MessageNotifier(
         for (entry in entries) {
             val key = personKey(entry)
             val person = persons[key] ?: personFor(entry).also { persons[key] = it }
-            style.addMessage(entry.text, entry.timestampMs, person)
+            style.addMessage(
+                notificationBodyText(previews, entry.text, fallback),
+                entry.timestampMs,
+                person,
+            )
         }
 
         val builder = NotificationCompat.Builder(appContext, NotificationChannels.MESSAGES)

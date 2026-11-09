@@ -77,6 +77,23 @@ interface MessageDao {
     )
     suspend fun markAttachmentReady(messageId: String, partIndex: Int, path: String)
 
+    /**
+     * Forgets downloaded copies after the media cache is cleared. Pending and
+     * failed sends keep their outbox copies for retry. Sent attachments also
+     * store a `file:` URL for their local copy, so that has to be dropped with
+     * the path while remote CDN URLs stay intact.
+     */
+    @Query(
+        "UPDATE attachments SET " +
+            "local_path = '', " +
+            "download_state = 'none', " +
+            "url = CASE WHEN url LIKE 'file:%' THEN '' ELSE url END, " +
+            "preview_url = CASE WHEN preview_url LIKE 'file:%' THEN '' ELSE preview_url END " +
+            "WHERE local_path != '' AND message_id IN " +
+            "(SELECT id FROM messages WHERE status = 'sent')",
+    )
+    suspend fun clearAttachmentFiles()
+
     @Query(
         "UPDATE attachments SET local_path = :path, url = :uri, preview_url = :uri, " +
             "download_state = 'ready' WHERE message_id = :messageId AND part_index = :partIndex",

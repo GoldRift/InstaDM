@@ -6,6 +6,7 @@ import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
 import com.goldrift.instadm.ui.chat.lastOutgoingMessageId
 import com.goldrift.instadm.ui.chat.requestReadWatermark
+import com.goldrift.instadm.ui.chat.shouldPublishReadReceipt
 import com.goldrift.instadm.ui.chat.showsStatusTicks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -101,6 +102,14 @@ class ReadStatusTest {
         assertEquals(3_000, requestReadWatermark(messages))
         assertEquals(0, requestReadWatermark(emptyList()))
         assertEquals(0, requestReadWatermark(listOf(message("mid.4", MessageSender.Me, 4_000))))
+    }
+
+    @Test
+    fun hiddenReceiptsStillPublishWhenTheViewerSends() {
+        assertFalse(shouldPublishReadReceipt(receiptsEnabled = false, fromSend = false))
+        assertTrue(shouldPublishReadReceipt(receiptsEnabled = false, fromSend = true))
+        assertTrue(shouldPublishReadReceipt(receiptsEnabled = true, fromSend = false))
+        assertTrue(shouldPublishReadReceipt(receiptsEnabled = true, fromSend = true))
     }
 
     @Test

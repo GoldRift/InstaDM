@@ -549,6 +549,11 @@ class ChatStore(
         messageDao.markAttachmentReady(messageId, partIndex, path)
     }
 
+    /** Drops delivered attachments' local paths after the media cache is cleared. */
+    suspend fun clearDownloadedMediaFiles() = withContext(Dispatchers.IO) {
+        messageDao.clearAttachmentFiles()
+    }
+
     /** Removes every cached thread, message, and queue entry. */
     suspend fun clear() = withContext(Dispatchers.IO) {
         cachedViewerFbid = null

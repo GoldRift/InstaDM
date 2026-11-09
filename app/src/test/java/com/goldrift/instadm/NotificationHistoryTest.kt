@@ -4,6 +4,7 @@ import com.goldrift.instadm.service.MESSAGE_NOTIFICATION_BASE
 import com.goldrift.instadm.service.NotifiedMessage
 import com.goldrift.instadm.service.ThreadNotificationHistory
 import com.goldrift.instadm.service.messageNotificationId
+import com.goldrift.instadm.service.notificationBodyText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -101,5 +102,17 @@ class NotificationHistoryTest {
         assertEquals(messageNotificationId("thread-1"), messageNotificationId("thread-1"))
         assertTrue(messageNotificationId("thread-1") >= MESSAGE_NOTIFICATION_BASE)
         assertTrue(messageNotificationId("thread-1") != messageNotificationId("thread-2"))
+    }
+
+    @Test
+    fun notificationBodyHidesTextWhenPreviewsAreOff() {
+        assertEquals(
+            "see you at 8",
+            notificationBodyText(previews = true, text = "see you at 8", fallback = "New message"),
+        )
+        assertEquals(
+            "New message",
+            notificationBodyText(previews = false, text = "see you at 8", fallback = "New message"),
+        )
     }
 }

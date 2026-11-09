@@ -156,17 +156,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.takeOrElse
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import androidx.emoji2.emojipicker.EmojiPickerView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.CameraCapture
+import com.goldrift.instadm.data.DEFAULT_DOUBLE_TAP_EMOJI
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
@@ -175,6 +172,7 @@ import com.goldrift.instadm.data.VoiceRecordingState
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
+import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
 import java.io.File
@@ -232,6 +230,8 @@ fun ChatScreen(
     attachmentsEnabled: Boolean = true,
     viewerName: String = "",
     viewerAvatarUrl: String = "",
+    likeEmoji: String = DEFAULT_DOUBLE_TAP_EMOJI,
+    readReceiptsEnabled: Boolean = true,
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -459,7 +459,9 @@ fun ChatScreen(
     // receipt may have been skipped while the chat was in the background).
     val readTarget = messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
     val isForeground = AppVisibility.isForeground
-    LaunchedEffect(readTarget, isForeground) {
+    // The setting is a key as well as a gate in InboxState: turning receipts
+    // back on while a chat is open must re-run the mark for the visible message.
+    LaunchedEffect(readTarget, isForeground, readReceiptsEnabled) {
         if (isForeground && readTarget.isNotBlank()) {
             onMarkRead(readTarget)
         }
@@ -622,6 +624,7 @@ fun ChatScreen(
                                 actionMessageId = null
                                 onReact(messageId, emoji)
                             },
+                            likeEmoji = likeEmoji,
                             onCopyAt = { messageId ->
                                 actionMessageId = null
                                 messages.firstOrNull { it.id == messageId }?.let {
@@ -770,6 +773,7 @@ private fun MessageList(
     actionMessageId: String?,
     onDismissActions: () -> Unit,
     onReactAt: (messageId: String, emoji: String) -> Unit,
+    likeEmoji: String,
     onCopyAt: (messageId: String) -> Unit,
     onReplyAt: (messageId: String) -> Unit,
     onMoreEmojiAt: (messageId: String) -> Unit,
@@ -923,7 +927,7 @@ private fun MessageList(
                     actionsExpanded = actionMessageId == message.id,
                     onDismissActions = onDismissActions,
                     onReact = { emoji -> onReactAt(message.id, emoji) },
-                    onLike = { onReactAt(message.id, DEFAULT_LIKE_EMOJI) },
+                    onLike = { onReactAt(message.id, likeEmoji) },
                     onCopy = { onCopyAt(message.id) },
                     onReplyAt = { onReplyAt(message.id) },
                     onMoreEmoji = { onMoreEmojiAt(message.id) },
@@ -1781,37 +1785,6 @@ private fun MessageMenu(
                     destructive = true,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun EmojiPickerDialog(
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val currentOnPick by rememberUpdatedState(onPick)
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 6.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .height(420.dp),
-        ) {
-            AndroidView(
-                factory = { context ->
-                    EmojiPickerView(context).apply {
-                        setOnEmojiPickedListener { item -> currentOnPick(item.emoji) }
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
         }
     }
 }

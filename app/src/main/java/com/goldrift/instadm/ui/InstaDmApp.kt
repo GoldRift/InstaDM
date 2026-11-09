@@ -38,6 +38,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.annotation.ExperimentalCoilApi
+import coil.imageLoader
 import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
 import com.goldrift.instadm.service.RealtimeService
@@ -50,12 +52,14 @@ import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
 import com.goldrift.instadm.ui.search.toSearchUsers
+import com.goldrift.instadm.ui.settings.SettingsScreen
 
 private object Routes {
     const val Login = "login"
     const val Inbox = "inbox"
     const val Chat = "chat"
     const val Search = "search"
+    const val Settings = "settings"
     const val ThreadIdArg = "threadId"
     const val ChatRoute = "$Chat/{$ThreadIdArg}"
 
@@ -66,7 +70,7 @@ private object Routes {
 private val TwoPaneMinWidth = 840.dp
 private val InboxPaneWidth = 380.dp
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalCoilApi::class)
 @Composable
 fun InstaDmApp(
     pendingThreadId: String? = null,
@@ -75,6 +79,8 @@ fun InstaDmApp(
     val context = LocalContext.current
     val application = context.applicationContext as InstaDmApplication
     val inboxState = application.inboxState
+    val settingsState = application.settings
+    val settings = settingsState.current
     val navController = rememberNavController()
     var startRoute by remember { mutableStateOf<String?>(null) }
 
@@ -156,6 +162,8 @@ fun InstaDmApp(
         composable(Routes.Inbox) {
             MainPane(
                 inboxState = inboxState,
+                likeEmoji = settings.doubleTapEmoji,
+                readReceiptsEnabled = settings.sendReadReceipts,
                 onRefresh = {
                     inboxState.refresh()
                     RealtimeService.restart(context)
@@ -166,10 +174,39 @@ fun InstaDmApp(
                     navController.navigate(Routes.chat(threadId))
                 },
                 onSearch = { navController.navigate(Routes.Search) },
+                onSettings = { navController.navigate(Routes.Settings) },
                 onLogout = {
                     inboxState.logout()
                     RealtimeService.stop(context)
                 },
+            )
+        }
+
+        composable(Routes.Settings) {
+            SettingsScreen(
+                settings = settings,
+                onThemeModeChange = settingsState::setThemeMode,
+                onDynamicColorChange = settingsState::setDynamicColor,
+                onDoubleTapEmojiChange = settingsState::setDoubleTapEmoji,
+                onSendTypingChange = { enabled ->
+                    settingsState.setSendTypingIndicators(enabled)
+                    if (!enabled) inboxState.stopSendingTypingIndicators()
+                },
+                onSendReadReceiptsChange = { enabled ->
+                    settingsState.setSendReadReceipts(enabled)
+                    if (!enabled) inboxState.cancelPendingReadReceipts()
+                },
+                onShowNotificationPreviewsChange = { enabled ->
+                    settingsState.setShowNotificationPreviews(enabled)
+                    if (!enabled) application.messageNotifier.dropMessageNotifications()
+                },
+                onClearMediaCache = {
+                    application.chatStore.clearDownloadedMediaFiles()
+                    application.repository.clearMediaCache()
+                    runCatching { context.imageLoader.memoryCache?.clear() }
+                    runCatching { context.imageLoader.diskCache?.clear() }
+                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -213,6 +250,8 @@ fun InstaDmApp(
                 ChatDestination(
                     conversation = conversation,
                     inboxState = inboxState,
+                    likeEmoji = settings.doubleTapEmoji,
+                    readReceiptsEnabled = settings.sendReadReceipts,
                     onBack = {
                         inboxState.clearError()
                         navController.popBackStack()
@@ -266,10 +305,13 @@ fun InstaDmApp(
 @Composable
 private fun MainPane(
     inboxState: InboxState,
+    likeEmoji: String,
+    readReceiptsEnabled: Boolean,
     onRefresh: () -> Unit,
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
     onSearch: () -> Unit,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -289,6 +331,7 @@ private fun MainPane(
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
                 onSearch = onSearch,
+                onSettings = onSettings,
                 onLogout = onLogout,
             )
             return@BoxWithConstraints
@@ -320,6 +363,7 @@ private fun MainPane(
                 onLoadMore = inboxState::loadMoreConversations,
                 onRetryMore = inboxState::retryMoreConversations,
                 onSearch = onSearch,
+                onSettings = onSettings,
                 onLogout = onLogout,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -340,6 +384,8 @@ private fun MainPane(
                 ChatDestination(
                     conversation = selected,
                     inboxState = inboxState,
+                    likeEmoji = likeEmoji,
+                    readReceiptsEnabled = readReceiptsEnabled,
                     onBack = { selectedId = null },
                     modifier = Modifier.weight(1f),
                 )
@@ -353,6 +399,8 @@ private fun MainPane(
 private fun ChatDestination(
     conversation: Conversation,
     inboxState: InboxState,
+    likeEmoji: String,
+    readReceiptsEnabled: Boolean,
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -409,6 +457,8 @@ private fun ChatDestination(
         attachmentsEnabled = !isDraft,
         viewerName = inboxState.viewerName,
         viewerAvatarUrl = inboxState.viewerAvatarUrl,
+        likeEmoji = likeEmoji,
+        readReceiptsEnabled = readReceiptsEnabled,
         modifier = modifier,
     )
 }

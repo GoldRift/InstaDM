@@ -15,6 +15,7 @@ import com.goldrift.instadm.data.ProtocolOutboxSender
 import com.goldrift.instadm.data.ProtocolRepository
 import com.goldrift.instadm.data.RealtimeRecorder
 import com.goldrift.instadm.data.SessionStore
+import com.goldrift.instadm.data.SettingsStore
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.service.MessageNotifier
 import com.goldrift.instadm.ui.chat.InboxState
@@ -35,6 +36,7 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val sessionStore by lazy { SessionStore(this) }
+    val settings by lazy { SettingsStore.create(this) }
     open val repository: ProtocolApi by lazy { ProtocolRepository(sessionStore) }
 
     /** The demo build has no notification permission prompt. */
@@ -43,7 +45,9 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }
     val mailboxSync by lazy { MailboxSync(repository, chatStore) }
-    val messageNotifier by lazy { MessageNotifier(this, chatStore) }
+    val messageNotifier by lazy {
+        MessageNotifier(this, chatStore, settings = { settings.current })
+    }
     val realtimeRecorder by lazy {
         RealtimeRecorder(
             chatStore = chatStore,
@@ -65,7 +69,9 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
             scope = appScope,
         )
     }
-    val inboxState by lazy { InboxState(repository, chatStore, mailboxSync, outbox, appScope, mediaReader) }
+    val inboxState by lazy {
+        InboxState(repository, chatStore, mailboxSync, outbox, settings, appScope, mediaReader)
+    }
 
     override fun onCreate() {
         super.onCreate()

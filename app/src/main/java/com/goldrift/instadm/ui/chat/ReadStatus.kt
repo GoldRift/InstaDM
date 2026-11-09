@@ -1,6 +1,14 @@
 package com.goldrift.instadm.ui.chat
 
 /**
+ * Whether the viewer's read should be sent to Instagram. Hiding receipts stops
+ * the receipt for merely opening a chat, but a reply still publishes it so the
+ * server never sees a sent message after an unseen one.
+ */
+fun shouldPublishReadReceipt(receiptsEnabled: Boolean, fromSend: Boolean): Boolean =
+    receiptsEnabled || fromSend
+
+/**
  * Applies another participant's read watermark to an open thread. A message the
  * viewer sent is "seen" once a participant's watermark reaches its timestamp.
  * Receipts from the viewer only mean the viewer has read the thread, so they
