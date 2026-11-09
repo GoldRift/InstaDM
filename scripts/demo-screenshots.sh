@@ -153,8 +153,8 @@ capture_suite() {
   exit 1
 }
 
-capture_suite "$LIGHT_CLASS" no light 13
-capture_suite "$DARK_CLASS" yes dark 5
+capture_suite "$LIGHT_CLASS" no light 14
+capture_suite "$DARK_CLASS" yes dark 6
 capture_suite "$TWO_PANE_CLASS" no two-pane 2
 
 python3 "$ROOT/scripts/update-readme-screenshots.py" "$OUT" "$ROOT/README.md"

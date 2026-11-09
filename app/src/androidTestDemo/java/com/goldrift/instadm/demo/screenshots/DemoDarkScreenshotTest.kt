@@ -53,5 +53,14 @@ class DemoDarkScreenshotTest {
         session.awaitText("the new palette is 🔥")
         Thread.sleep(800)
         session.capture("05-group-dark")
+
+        session.tapBack()
+        session.awaitText("Maya Chen")
+        session.nodeWithDescription("Your profile photo").performClick()
+        session.awaitText("Log out")
+        session.tap("Settings")
+        session.awaitText("Theme")
+        Thread.sleep(600)
+        session.capture("06-settings-dark")
     }
 }

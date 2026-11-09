@@ -30,9 +30,15 @@ class DemoApplication : InstaDmApplication() {
         }
     }
 
-    /** Wipes and reseeds the demo database; used by the screenshot suite. */
+    /** Wipes and reseeds the demo database on launch and before screenshot runs. */
     suspend fun resetDemoData() {
         outbox.clear()
         demoSeeder.reset()
+    }
+
+    /** Screenshot runs also start from default settings so captures stay stable. */
+    suspend fun resetForScreenshots() {
+        settings.reset()
+        resetDemoData()
     }
 }

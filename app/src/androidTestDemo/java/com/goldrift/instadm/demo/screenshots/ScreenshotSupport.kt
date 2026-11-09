@@ -43,7 +43,7 @@ internal class ScreenshotSession(
         val app = InstrumentationRegistry.getInstrumentation()
             .targetContext
             .applicationContext as DemoApplication
-        runBlocking { app.resetDemoData() }
+        runBlocking { app.resetForScreenshots() }
         awaitText("Maya Chen")
     }
 

@@ -112,6 +112,11 @@ class DemoScreenshotTest {
         session.awaitText("Log out")
         Thread.sleep(600)
         session.capture("13-account-menu-light")
+
+        session.tap("Settings")
+        session.awaitText("Theme")
+        Thread.sleep(600)
+        session.capture("14-settings-light")
     }
 
     private fun hideKeyboardAndReturnToChat() {
