@@ -443,7 +443,6 @@ InstaDM works, but it is still early:
   zero-height root in Android WebView.
 - The protocol is unofficial and can change at any time, so features may break
   without a release.
-- The inbox shows a search placeholder, but in-app search is not implemented.
 - The shared protocol library is AGPL-3.0, so this project is too.
 
 ## Disclaimer
