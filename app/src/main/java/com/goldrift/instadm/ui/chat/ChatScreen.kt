@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -114,6 +115,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -180,6 +182,8 @@ import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -197,6 +201,9 @@ private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
 /** Horizontal drag needed to start a reply, and the distance the bubble follows. */
 private val SWIPE_REPLY_THRESHOLD = 56.dp
 private val SWIPE_REPLY_MAX = 88.dp
+
+/** How long the bubble jumped to from a quote keeps its outline. */
+private const val QUOTE_JUMP_HIGHLIGHT_MS = 1_500L
 
 /** Picture column reserved beside incoming group bubbles. */
 private val SenderAvatarSize = 28.dp
@@ -321,6 +328,9 @@ fun ChatScreen(
     val voicePlayer = remember { VoicePlayer(context) }
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    var quotedMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
+    var pendingQuoteJumpId by remember(conversation.id) { mutableStateOf<String?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         TakePictureWithWritePermission(),
@@ -456,6 +466,63 @@ fun ChatScreen(
             else -> conversation.contact.name
         }
     }.orEmpty()
+
+    // The list is reversed, so an item index counts back from the newest bubble
+    // and the typing indicator owns the first slot while it is showing. A jump
+    // also pulls the item up from the newest end so it lands around the middle
+    // of the viewport instead of hugging the composer; a message near the newest
+    // end simply stops at the end of the list.
+    fun scrollToQuotedMessage(messageId: String) {
+        val originalIndex = transcript.indexOfFirst { it.id == messageId }
+        if (originalIndex < 0) return
+        quotedMessageId = messageId
+        scope.launch {
+            val itemIndex = (if (isTyping) 1 else 0) + transcript.lastIndex - originalIndex
+            val centerShift = (listState.layoutInfo.viewportSize.height * 0.4f).roundToInt()
+            listState.animateScrollToItem(itemIndex, scrollOffset = -centerShift)
+        }
+    }
+
+    fun jumpToQuotedMessage(messageId: String) {
+        if (transcript.any { it.id == messageId }) {
+            scrollToQuotedMessage(messageId)
+        } else if (conversation.hasMoreOlder &&
+            !conversation.isLoadingOlder &&
+            !conversation.olderError
+        ) {
+            // The quoted message can sit outside the loaded page, so page back
+            // until it lands rather than leaving the tap without a destination.
+            pendingQuoteJumpId = messageId
+            onLoadOlder()
+        }
+    }
+
+    LaunchedEffect(
+        pendingQuoteJumpId,
+        transcript,
+        conversation.isLoadingOlder,
+        conversation.hasMoreOlder,
+        conversation.olderError,
+    ) {
+        val target = pendingQuoteJumpId ?: return@LaunchedEffect
+        when {
+            transcript.any { it.id == target } -> {
+                pendingQuoteJumpId = null
+                scrollToQuotedMessage(target)
+            }
+            conversation.olderError -> pendingQuoteJumpId = null
+            conversation.isLoadingOlder -> Unit
+            conversation.hasMoreOlder -> onLoadOlder()
+            else -> pendingQuoteJumpId = null
+        }
+    }
+
+    LaunchedEffect(quotedMessageId) {
+        if (quotedMessageId != null) {
+            delay(QUOTE_JUMP_HIGHLIGHT_MS)
+            quotedMessageId = null
+        }
+    }
 
     fun sendMessage() {
         val text = draft.trim()
@@ -629,6 +696,8 @@ fun ChatScreen(
                             },
                             onLongPress = { actionMessageId = it.id },
                             onReply = { replyTarget = it },
+                            onJumpToQuoted = ::jumpToQuotedMessage,
+                            highlightedMessageId = quotedMessageId,
                             lastOutgoingId = lastOutgoingId,
                             revealedStatusMessageId = revealedStatusMessageId,
                             onToggleStatus = { messageId ->
@@ -792,6 +861,8 @@ private fun MessageList(
     onOpenMedia: (messageId: String, media: MessageMedia) -> Unit,
     onLongPress: (ChatMessage) -> Unit,
     onReply: (ChatMessage) -> Unit,
+    onJumpToQuoted: (messageId: String) -> Unit,
+    highlightedMessageId: String?,
     lastOutgoingId: String?,
     revealedStatusMessageId: String?,
     onToggleStatus: (messageId: String) -> Unit,
@@ -948,6 +1019,16 @@ private fun MessageList(
                         onLongPress = { if (message.isServerMessage()) onLongPress(message) },
                         reply = reply,
                         replyLabel = replyLabel,
+                        // A quote jumps to its message, paging back first when
+                        // the original is older than the loaded window.
+                        onQuoteClick = if (reply != null &&
+                            (messagesById.containsKey(reply.id) || hasMoreOlder)
+                        ) {
+                            { onJumpToQuoted(reply.id) }
+                        } else {
+                            null
+                        },
+                        highlighted = message.id == highlightedMessageId,
                         onReply = { onReply(message) },
                         showStatusTicks = showStatusTicks,
                         // The newest outgoing bubble's ticks are always on, so only
@@ -1082,6 +1163,8 @@ private fun MessageRow(
     onLongPress: () -> Unit,
     reply: ReplySnapshot?,
     replyLabel: String,
+    onQuoteClick: (() -> Unit)?,
+    highlighted: Boolean,
     onReply: () -> Unit,
     showStatusTicks: Boolean,
     onToggleStatus: (() -> Unit)?,
@@ -1115,6 +1198,18 @@ private fun MessageRow(
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    // Outlining the bubble a quote jumped to lets the eye find it after the
+    // scroll; the tint comes from the bubble's own content role so an outgoing
+    // accent bubble and a neutral incoming bubble both keep it visible.
+    val jumpOutline by animateColorAsState(
+        targetValue = if (highlighted) {
+            if (isMine) bubbles.onOutgoing else bubbles.accent
+        } else {
+            Color.Transparent
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "quoteJumpOutline",
+    )
     // A sticker is its own artwork: drawing the message bubble behind it turns
     // transparent stickers into a colored tile.
     val stickerOnly = message.media.isNotEmpty() &&
@@ -1286,6 +1381,7 @@ private fun MessageRow(
                         bubbles.incoming
                     },
                     contentColor = if (isMine) bubbles.onOutgoing else bubbles.onIncoming,
+                    border = BorderStroke(2.dp, jumpOutline),
                 ) {
                     MessageBubbleContent(
                         message = message,
@@ -1293,6 +1389,7 @@ private fun MessageRow(
                         isVisible = isVisible,
                         reply = reply,
                         replyLabel = replyLabel,
+                        onQuoteClick = onQuoteClick,
                         onOpenMedia = onOpenMedia,
                         onLongPress = onLongPress,
                         onLoadMedia = onLoadMedia,
@@ -1405,39 +1502,67 @@ private fun SwipeReplyIcon(
     }
 }
 
-/** The quoted message block rendered at the top of a reply bubble. */
+/**
+ * The quoted message block rendered at the top of a reply bubble. Its container
+ * is keyed by the quoted author, not by the bubble holding it, so a quote of
+ * your own message reads as the accent tint and a quote of theirs stays
+ * neutral. When the quoted message is on screen, the block is a button that
+ * scrolls the transcript back to it.
+ */
 @Composable
 private fun ReplyQuote(
     reply: ReplySnapshot,
     label: String,
-    isMine: Boolean,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val bubbles = LocalMessageBubbleColors.current
-    val quoteColor = if (isMine) bubbles.outgoingQuote else bubbles.incomingQuote
-    val contentColor = if (isMine) bubbles.onOutgoingQuote else bubbles.onIncomingQuote
-    Surface(
-        modifier = modifier.widthIn(min = 180.dp),
-        shape = MaterialTheme.shapes.small,
-        color = quoteColor,
-        contentColor = contentColor,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = replyContent(reply),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+    val fromViewer = reply.isFromViewer
+    val color = if (fromViewer) bubbles.quoteFromViewer else bubbles.quoteFromThem
+    val contentColor =
+        if (fromViewer) bubbles.onQuoteFromViewer else bubbles.onQuoteFromThem
+    val shape = MaterialTheme.shapes.medium
+    val quoteModifier = modifier.widthIn(min = 180.dp)
+
+    if (onClick == null) {
+        Surface(
+            modifier = quoteModifier,
+            shape = shape,
+            color = color,
+            contentColor = contentColor,
+        ) {
+            ReplyQuoteBody(reply = reply, label = label)
         }
+    } else {
+        Surface(
+            onClick = onClick,
+            modifier = quoteModifier,
+            shape = shape,
+            color = color,
+            contentColor = contentColor,
+        ) {
+            ReplyQuoteBody(reply = reply, label = label)
+        }
+    }
+}
+
+@Composable
+private fun ReplyQuoteBody(reply: ReplySnapshot, label: String) {
+    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = replyContent(reply),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1479,6 +1604,7 @@ private fun MessageBubbleContent(
     isVisible: Boolean,
     reply: ReplySnapshot?,
     replyLabel: String,
+    onQuoteClick: (() -> Unit)?,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
     onLoadMedia: MediaLoader?,
@@ -1504,7 +1630,7 @@ private fun MessageBubbleContent(
             ReplyQuote(
                 reply = reply,
                 label = replyLabel,
-                isMine = message.sender == MessageSender.Me,
+                onClick = onQuoteClick,
                 modifier = Modifier.padding(
                     start = if (hasAttachment) 6.dp else 0.dp,
                     end = if (hasAttachment) 6.dp else 0.dp,
@@ -2363,51 +2489,67 @@ private fun MessageComposer(
     }
 }
 
-/** Compact quote above the composer, with a cancel action. */
+/**
+ * Compact quote above the composer. It repeats the quoted author's cue from the
+ * transcript: the accent leading bar and label when the viewer wrote the quoted
+ * message, a neutral bar when the other person did.
+ */
 @Composable
 private fun ReplyComposerBar(
     reply: ReplySnapshot,
     label: String,
     onCancel: () -> Unit,
 ) {
-    Row(
+    val cue = if (reply.isFromViewer) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 8.dp, top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(34.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(MaterialTheme.colorScheme.primary),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(cue),
             )
-            Text(
-                text = replyContent(reply),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(onClick = onCancel) {
-            Icon(
-                imageVector = Icons.Rounded.Close,
-                contentDescription = stringResource(R.string.chat_reply_cancel),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cue,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = replyContent(reply),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onCancel) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.chat_reply_cancel),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }

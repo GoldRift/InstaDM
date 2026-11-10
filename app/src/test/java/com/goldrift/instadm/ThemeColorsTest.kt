@@ -59,7 +59,34 @@ class ThemeColorsTest {
             assertPairContrast(bubbles.outgoing, bubbles.onOutgoing, "$mode outgoing")
             assertPairContrast(bubbles.incoming, bubbles.onIncoming, "$mode incoming")
             assertPairContrast(bubbles.composerAccent, bubbles.onComposerAccent, "$mode composer")
+            assertPairContrast(
+                bubbles.quoteFromViewer,
+                bubbles.onQuoteFromViewer,
+                "$mode quote of the viewer",
+            )
+            assertPairContrast(
+                bubbles.quoteFromThem,
+                bubbles.onQuoteFromThem,
+                "$mode quote of the other sender",
+            )
         }
+    }
+
+    @Test
+    fun quoteTintFollowsTheQuotedAuthor() {
+        val light = messageBubbleColors(LightColorScheme, darkTheme = false)
+        assertEquals(LightColorScheme.primaryContainer, light.quoteFromViewer)
+        assertEquals(LightColorScheme.onPrimaryContainer, light.onQuoteFromViewer)
+        assertEquals(LightColorScheme.surfaceContainerLowest, light.quoteFromThem)
+        assertEquals(LightColorScheme.onSurface, light.onQuoteFromThem)
+
+        val dark = messageBubbleColors(DarkColorScheme, darkTheme = true)
+        // Dark outgoing bubbles already use primaryContainer, so the viewer's
+        // quote keeps the filled primary role to stay distinct inside them.
+        assertEquals(DarkColorScheme.primary, dark.quoteFromViewer)
+        assertEquals(DarkColorScheme.onPrimary, dark.onQuoteFromViewer)
+        assertEquals(DarkColorScheme.surfaceContainerLowest, dark.quoteFromThem)
+        assertEquals(DarkColorScheme.onSurface, dark.onQuoteFromThem)
     }
 
     @Test

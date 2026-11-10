@@ -210,7 +210,13 @@ internal object DemoData {
             kind = "image",
             media = listOf(image("terrace.jpg", 1200, 1500)),
         )
-        val eight = message("demo_maya_8", maya, now - 45 * MINUTE, "8pm?")
+        val eight = message(
+            "demo_maya_8",
+            maya,
+            now - 45 * MINUTE,
+            "8pm?",
+            reply = quote(perfect),
+        )
         val pinned = message(
             "demo_maya_admin_1",
             maya,

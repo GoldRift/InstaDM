@@ -56,9 +56,12 @@ official app.
   attachments and shared reels.
 - Voice notes record with hold-to-send, slide-up to lock, and slide-left to
   cancel, then play inline with a waveform and tap-to-seek.
-- Replies (swipe or long-press), reactions (double-tap to like, long-press for
-  the full set), edits, unsend, read receipts, and per-message seen ticks. The
-  double-tap emoji, read receipts, and typing signals are configurable.
+- Replies (swipe or long-press) with a quote tinted by the quoted author: your
+  own messages get the accent tint, the other person's stay neutral, and tapping
+  the quote scrolls back to the original. Reactions (double-tap to like,
+  long-press for the full set), edits, unsend, read receipts, and per-message
+  seen ticks round out the actions. The double-tap emoji, read receipts, and
+  typing signals are configurable.
 - Typing indicators in the open chat, and in groups the senders' pictures stack
   beside the dots (one bubble however many people are typing). The app also tells
   Instagram while you type in the composer, unless typing signals are turned off

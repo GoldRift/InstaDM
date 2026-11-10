@@ -118,11 +118,15 @@ data class MessageBubbleColors(
     val onOutgoing: Color,
     val incoming: Color,
     val onIncoming: Color,
-    /** Quote block inside a bubble, and its primary text color. */
-    val outgoingQuote: Color,
-    val onOutgoingQuote: Color,
-    val incomingQuote: Color,
-    val onIncomingQuote: Color,
+    /**
+     * Quote block inside a bubble, keyed by the author of the quoted message
+     * rather than by the bubble it sits in: the viewer's own messages get the
+     * accent tint, the other person's stay neutral.
+     */
+    val quoteFromViewer: Color,
+    val onQuoteFromViewer: Color,
+    val quoteFromThem: Color,
+    val onQuoteFromThem: Color,
     val accent: Color,
     val composerAccent: Color,
     val onComposerAccent: Color,
@@ -135,10 +139,13 @@ fun messageBubbleColors(scheme: ColorScheme, darkTheme: Boolean): MessageBubbleC
             onOutgoing = scheme.onPrimaryContainer,
             incoming = scheme.surfaceContainerHigh,
             onIncoming = scheme.onSurface,
-            outgoingQuote = scheme.surfaceContainerLowest,
-            onOutgoingQuote = scheme.onSurface,
-            incomingQuote = scheme.surfaceContainerLowest,
-            onIncomingQuote = scheme.onSurface,
+            // The outgoing bubble already sits on primaryContainer in the dark
+            // scheme, so the viewer's quote tint has to be the filled primary
+            // role instead to stay visible inside it.
+            quoteFromViewer = scheme.primary,
+            onQuoteFromViewer = scheme.onPrimary,
+            quoteFromThem = scheme.surfaceContainerLowest,
+            onQuoteFromThem = scheme.onSurface,
             accent = scheme.primary,
             composerAccent = scheme.primaryContainer,
             onComposerAccent = scheme.onPrimaryContainer,
@@ -149,10 +156,10 @@ fun messageBubbleColors(scheme: ColorScheme, darkTheme: Boolean): MessageBubbleC
             onOutgoing = scheme.onPrimary,
             incoming = scheme.surfaceContainerHigh,
             onIncoming = scheme.onSurface,
-            outgoingQuote = scheme.primaryContainer,
-            onOutgoingQuote = scheme.onPrimaryContainer,
-            incomingQuote = scheme.surfaceContainerLow,
-            onIncomingQuote = scheme.onSurface,
+            quoteFromViewer = scheme.primaryContainer,
+            onQuoteFromViewer = scheme.onPrimaryContainer,
+            quoteFromThem = scheme.surfaceContainerLowest,
+            onQuoteFromThem = scheme.onSurface,
             accent = scheme.primary,
             composerAccent = scheme.primary,
             onComposerAccent = scheme.onPrimary,
