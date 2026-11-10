@@ -658,14 +658,31 @@ func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, de
 		return nil, fmt.Errorf("media is %d bytes; the download limit is %d bytes", response.ContentLength, maxBytes)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	// Stream to a temp file next to the destination so a large reel is never
+	// buffered in memory and a failed download cannot leave a partial file.
+	// The .download suffix keeps the app's media cache from treating a stale
+	// partial file as a finished one.
+	temp, err := os.CreateTemp(filepath.Dir(destPath), ".instadm-media-*.download")
+	if err != nil {
+		return nil, fmt.Errorf("write media file: %w", err)
+	}
+	tempPath := temp.Name()
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = temp.Close()
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	size, err := io.Copy(temp, io.LimitReader(response.Body, maxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read media response: %w", err)
 	}
-	if int64(len(data)) > maxBytes {
+	if size > maxBytes {
 		return nil, fmt.Errorf("media exceeds the %d byte download limit", maxBytes)
 	}
-	if len(data) == 0 {
+	if size == 0 {
 		return nil, errors.New("media response is empty")
 	}
 
@@ -675,12 +692,18 @@ func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, de
 	}
 	mimeType = strings.TrimSpace(mimeType)
 	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
+		header := make([]byte, 512)
+		n, _ := temp.ReadAt(header, 0)
+		mimeType = http.DetectContentType(header[:n])
 	}
 
-	if err := os.WriteFile(destPath, data, 0o600); err != nil {
+	if err := temp.Close(); err != nil {
 		return nil, fmt.Errorf("write media file: %w", err)
 	}
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return nil, fmt.Errorf("write media file: %w", err)
+	}
+	renamed = true
 
 	return &DownloadResult{
 		ProtocolVersion: ProtocolVersion,
@@ -688,7 +711,7 @@ func downloadMediaURL(ctx context.Context, rawURL, mediaType, attachmentFBID, de
 		AttachmentFBID:  attachmentFBID,
 		MimeType:        mimeType,
 		Path:            destPath,
-		SizeBytes:       int64(len(data)),
+		SizeBytes:       size,
 		URL:             rawURL,
 	}, nil
 }

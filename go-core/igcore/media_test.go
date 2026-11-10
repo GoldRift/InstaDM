@@ -390,13 +390,25 @@ func TestDownloadMediaURLDetectMIME(t *testing.T) {
 
 func TestDownloadMediaURLLimit(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Flush before writing so the response has no Content-Length and the
+		// streaming limit is what rejects it.
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
 		_, _ = w.Write(make([]byte, 32))
 	}))
 	defer server.Close()
 
-	dest := filepath.Join(t.TempDir(), "too-large.bin")
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "too-large.bin")
 	if _, err := downloadMediaURL(context.Background(), server.URL, "image", "", dest, 16); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Errorf("error = %v, want size limit", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("failed download left files behind: %v", entries)
 	}
 }
 
