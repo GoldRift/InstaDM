@@ -199,6 +199,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+          git fetch -q --force origin "+refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
           notes=(--generate-notes)
           if [[ "$(git cat-file -t "refs/tags/${TAG}" 2>/dev/null || true)" == "tag" ]]; then
             notes=(--notes-from-tag)
