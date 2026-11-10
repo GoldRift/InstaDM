@@ -85,7 +85,8 @@ class InboxState(
     private val typingExpiry = mutableMapOf<String, Job>()
     private val typingPingedAt = mutableMapOf<String, Long>()
     private val typingIdleJobs = mutableMapOf<String, Job>()
-    private val messageCollectors = mutableSetOf<String>()
+    private var openThreadId: String? = null
+    private var messageCollector: Job? = null
     private var refreshInFlight = false
 
     var status by mutableStateOf(InboxStatus.Loading)
@@ -298,7 +299,7 @@ class InboxState(
 
     fun loadThread(threadId: String) {
         val conversation = conversation(threadId) ?: return
-        startMessageCollector(threadId)
+        openThread(threadId)
         if (isLoading(threadId)) return
 
         val now = System.currentTimeMillis()
@@ -321,14 +322,27 @@ class InboxState(
         }
     }
 
-    /** Starts the database collector for a thread once per process. */
-    private fun startMessageCollector(threadId: String) {
-        if (!messageCollectors.add(threadId)) return
-        scope.launch {
+    /**
+     * Makes [threadId] the one open chat fed by the database. Opening another
+     * thread releases the previous observer, so chats do not accumulate.
+     */
+    fun openThread(threadId: String) {
+        if (openThreadId == threadId && messageCollector?.isActive == true) return
+        messageCollector?.cancel()
+        openThreadId = threadId
+        messageCollector = scope.launch {
             chatStore.observeThread(threadId).collect { rows ->
                 applyThreadMessages(threadId, rows)
             }
         }
+    }
+
+    /** Stops the database observer, unless the reader already moved to another thread. */
+    fun closeThread(threadId: String) {
+        if (openThreadId != threadId) return
+        openThreadId = null
+        messageCollector?.cancel()
+        messageCollector = null
     }
 
     /**

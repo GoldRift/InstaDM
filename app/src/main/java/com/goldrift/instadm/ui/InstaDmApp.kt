@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -413,6 +414,12 @@ private fun ChatDestination(
 
     LaunchedEffect(threadId) {
         if (!isDraft) inboxState.loadThread(threadId)
+    }
+    // A late onDispose from the previous two-pane selection must not stop the
+    // observer for the thread now on screen.
+    DisposableEffect(threadId) {
+        if (!isDraft) inboxState.openThread(threadId)
+        onDispose { if (!isDraft) inboxState.closeThread(threadId) }
     }
     ChatScreen(
         conversation = conversation,
