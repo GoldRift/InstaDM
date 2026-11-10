@@ -1,5 +1,9 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.ADMIN_GROUP_KIND
+import com.goldrift.instadm.ui.chat.ADMIN_KIND
+import com.goldrift.instadm.ui.chat.ADMIN_RESTRICTED_KIND
+import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.EDIT_WINDOW_MS
 import com.goldrift.instadm.ui.chat.MessageReaction
@@ -10,6 +14,8 @@ import com.goldrift.instadm.ui.chat.canEdit
 import com.goldrift.instadm.ui.chat.canReact
 import com.goldrift.instadm.ui.chat.canReply
 import com.goldrift.instadm.ui.chat.canUnsend
+import com.goldrift.instadm.ui.chat.isAdminNotice
+import com.goldrift.instadm.ui.chat.isAdminNoticeKind
 import com.goldrift.instadm.ui.chat.isReactionLog
 import com.goldrift.instadm.ui.chat.reactionGroups
 import com.goldrift.instadm.ui.chat.restoreViewerReaction
@@ -229,6 +235,30 @@ class MessageActionsTest {
     fun onlyReactionLogsAreHeldBackFromTheTranscript() {
         assertTrue(message(id = "mid.like", kind = "reaction-log").isReactionLog())
         assertFalse(message(id = "mid.admin", kind = "admin").isReactionLog())
+        assertFalse(message(id = "mid.call", kind = CALL_KIND).isReactionLog())
         assertFalse(message(id = "mid.text").isReactionLog())
+    }
+
+    @Test
+    fun adminActivityKindsAreNotInteractive() {
+        val kinds = listOf(
+            ADMIN_KIND,
+            ADMIN_GROUP_KIND,
+            ADMIN_RESTRICTED_KIND,
+            CALL_KIND,
+        )
+
+        for (kind in kinds) {
+            val notice = message(id = "mid.$kind", kind = kind)
+            assertTrue(kind, notice.isAdminNotice())
+            assertFalse(kind, notice.canReply())
+            assertFalse(kind, notice.canReact())
+            assertFalse(kind, notice.canUnsend())
+            assertFalse(kind, notice.canEdit(nowMs = notice.timestampMs))
+        }
+
+        assertTrue(isAdminNoticeKind("admin-future"))
+        assertFalse(isAdminNoticeKind("text"))
+        assertFalse(isAdminNoticeKind("reaction-log"))
     }
 }

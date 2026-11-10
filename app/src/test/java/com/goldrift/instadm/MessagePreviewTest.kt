@@ -1,5 +1,8 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.ADMIN_GROUP_KIND
+import com.goldrift.instadm.ui.chat.ADMIN_RESTRICTED_KIND
+import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ConversationPreview
 import com.goldrift.instadm.ui.chat.PreviewPart
 import com.goldrift.instadm.ui.chat.label
@@ -112,6 +115,27 @@ class MessagePreviewTest {
     fun nothingToShowMeansNoLabel() {
         assertNull(ConversationPreview().label(isGroup = false))
         assertNull(ConversationPreview(kind = "text").label(isGroup = true))
+        assertNull(ConversationPreview(kind = ADMIN_RESTRICTED_KIND).label(isGroup = true))
+        assertNull(ConversationPreview(kind = "reaction-log").label(isGroup = false))
+    }
+
+    @Test
+    fun adminActivityKeepsItsTextWithoutAPrefix() {
+        val texts = mapOf(
+            ADMIN_RESTRICTED_KIND to "This account can't receive your message.",
+            ADMIN_GROUP_KIND to "Maya created the group chat.",
+            CALL_KIND to "Dev started a video call.",
+        )
+
+        for ((kind, text) in texts) {
+            val preview = ConversationPreview(
+                kind = kind,
+                text = text,
+                fromViewer = true,
+                senderName = "Maya",
+            )
+            assertEquals(PreviewPart.Text(text), preview.label(isGroup = true))
+        }
     }
 
     @Test

@@ -577,7 +577,10 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		id = message.ID
 	}
 
-	contentType := message.Content.TypeName
+	contentType := message.ContentType
+	if contentType == "" {
+		contentType = message.Content.TypeName
+	}
 	if contentType == "" {
 		contentType = message.Typename
 	}
@@ -1039,6 +1042,29 @@ func displayName(user *slidetypes.User) string {
 	return user.Username
 }
 
+// adminActivityKind labels admin text from Instagram's top-level content_type.
+// The content typename is always SlideMessageAdminText, so this is the only
+// machine-readable subtype; unknown values stay generic activity.
+func adminActivityKind(contentType string, reactionLog bool) string {
+	if reactionLog || contentType == "REACTION_LOG_XMAT" {
+		return "reaction-log"
+	}
+	switch {
+	case strings.HasSuffix(contentType, "CALL_XMAT"):
+		return "call"
+	case contentType == "GROUP_THREAD_CREATED_XMAT":
+		return "admin-group"
+	case contentType == "REACHABILITY_SETTINGS_ONE_WAY_SEND_XMAT":
+		return "admin-restricted"
+	default:
+		return "admin"
+	}
+}
+
+func isAdminTextKind(kind string) bool {
+	return kind == "call" || kind == "reaction-log" || strings.HasPrefix(kind, "admin")
+}
+
 func describeMessageContent(message *slidetypes.Message) (kind, text string, mediaCount int) {
 	kind = "unknown"
 	switch content := message.Content.Content.(type) {
@@ -1046,13 +1072,7 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		kind = "text"
 		text = content.TextBody
 	case *slidetypes.MessageContentAdminText:
-		kind = "admin"
-		if content.IsReactionActionLog {
-			// Likes and reactions arrive twice: as a reaction on the target
-			// message and as this activity entry, which the app keeps out of
-			// the transcript.
-			kind = "reaction-log"
-		}
+		kind = adminActivityKind(message.ContentType, content.IsReactionActionLog)
 		text = joinTextFragments(content.TextFragments)
 	case *slidetypes.MessageContentImage:
 		kind = "image"
@@ -1125,7 +1145,7 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		kind = "unknown"
 	}
 
-	if text == "" && (kind == "admin" || kind == "reaction-log") {
+	if text == "" && isAdminTextKind(kind) {
 		text = message.IGDSnippet
 	}
 	if text == "" && mediaCount == 0 && (kind == "link" || kind == "unknown") &&
@@ -1135,7 +1155,7 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		text = message.IGDSnippet
 	}
 	if text == "" && message.TextBody != "" &&
-		(kind == "text" || kind == "admin" || kind == "reaction-log" || kind == "unknown") {
+		(kind == "text" || kind == "unknown" || isAdminTextKind(kind)) {
 		text = message.TextBody
 	}
 	return kind, text, mediaCount

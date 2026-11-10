@@ -34,6 +34,7 @@ class DemoScreenshotTest {
 
         session.tap("Maya Chen")
         session.awaitText("8pm?")
+        session.awaitText("Maya pinned a message.")
         session.capture("02-chat-light")
 
         compose.onAllNodesWithContentDescription("Open media")[0].performClick()
@@ -84,6 +85,8 @@ class DemoScreenshotTest {
         session.awaitText("Design crew")
         session.tap("Design crew")
         session.awaitText("the new palette is 🔥")
+        session.awaitText("Maya added Sofia to the group.")
+        session.awaitText("Dev started a video call.")
         Thread.sleep(800)
         session.capture("10-group-light")
 

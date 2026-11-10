@@ -211,6 +211,13 @@ internal object DemoData {
             media = listOf(image("terrace.jpg", 1200, 1500)),
         )
         val eight = message("demo_maya_8", maya, now - 45 * MINUTE, "8pm?")
+        val pinned = message(
+            "demo_maya_admin_1",
+            maya,
+            now - 40 * MINUTE,
+            "Maya pinned a message.",
+            kind = "admin",
+        )
         val voice = message(
             "demo_maya_9",
             maya,
@@ -228,7 +235,7 @@ internal object DemoData {
             title = "Maya Chen",
             isGroup = false,
             participants = listOf(viewer, maya),
-            messages = listOf(yesterday, again, tonight, found, lights, perfect, terrace, eight, voice),
+            messages = listOf(yesterday, again, tonight, found, lights, perfect, terrace, eight, pinned, voice),
             viewerWatermarkMs = now - 50 * MINUTE,
             otherWatermarkMs = now,
             olderMessages = older,
@@ -273,13 +280,27 @@ internal object DemoData {
             kind = "gif",
             media = listOf(gif("confetti.mp4", "post_cover.jpg", 480, 480)),
         )
+        val added = message(
+            "demo_design_admin_1",
+            maya,
+            now - 145 * MINUTE,
+            "Maya added Sofia to the group.",
+            kind = "admin",
+        )
+        val call = message(
+            "demo_design_admin_2",
+            dev,
+            now - 140 * MINUTE,
+            "Dev started a video call.",
+            kind = "call",
+        )
         return ThreadSpec(
             id = "demo_design",
             longId = "17800000000000002",
             title = "Design crew",
             isGroup = true,
             participants = listOf(viewer, maya, dev, sofia),
-            messages = listOf(deck, skim, heart, palette, confetti),
+            messages = listOf(deck, skim, heart, palette, added, call, confetti),
             viewerWatermarkMs = now - 200 * MINUTE,
             otherWatermarkMs = now,
         )

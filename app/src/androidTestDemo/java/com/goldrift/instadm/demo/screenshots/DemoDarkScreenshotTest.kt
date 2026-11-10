@@ -32,6 +32,7 @@ class DemoDarkScreenshotTest {
 
         session.tap("Maya Chen")
         session.awaitText("8pm?")
+        session.awaitText("Maya pinned a message.")
         session.capture("02-chat-dark")
 
         compose.onAllNodesWithContentDescription("Open media")[0].performClick()
@@ -51,6 +52,8 @@ class DemoDarkScreenshotTest {
         session.awaitText("Design crew")
         session.tap("Design crew")
         session.awaitText("the new palette is 🔥")
+        session.awaitText("Maya added Sofia to the group.")
+        session.awaitText("Dev started a video call.")
         Thread.sleep(800)
         session.capture("05-group-dark")
 

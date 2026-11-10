@@ -234,6 +234,27 @@ fun calendarDaysBetween(
     return (startOfDay(toMs) - startOfDay(fromMs)) / DAY_MS
 }
 
+/**
+ * Whether a group incoming bubble starts a sender run (avatar and name). A
+ * notice between bubbles breaks the run even when the actor matches the
+ * previous sender, so the next bubble is attributed again.
+ */
+fun startsGroupSenderRun(
+    previous: ChatMessage?,
+    message: ChatMessage,
+    isGroup: Boolean,
+    showDayHeader: Boolean,
+): Boolean =
+    isGroup &&
+        message.sender == MessageSender.Them &&
+        (
+            showDayHeader ||
+                previous == null ||
+                previous.isAdminNotice() ||
+                previous.sender != MessageSender.Them ||
+                previous.senderFbid != message.senderFbid
+            )
+
 /** Two-letter initials used by avatars, or "?" for an empty name. */
 fun initialsOf(name: String): String {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }

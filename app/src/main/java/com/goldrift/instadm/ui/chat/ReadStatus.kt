@@ -39,10 +39,11 @@ fun applyReadReceiptToMessages(
 /**
  * The newest message the viewer sent. Its sent/seen ticks stay under the bubble
  * as a persistent receipt, while older outgoing bubbles only reveal theirs when
- * the viewer taps them.
+ * the viewer taps them. Activity notices are receipts for the thread, not
+ * messages the viewer sent, so they never own the ticks.
  */
 fun lastOutgoingMessageId(messages: List<ChatMessage>): String? =
-    messages.lastOrNull { it.sender == MessageSender.Me }?.id
+    messages.lastOrNull { it.sender == MessageSender.Me && !it.isAdminNotice() }?.id
 
 /**
  * Whether this bubble shows its sent/seen ticks: always for the newest outgoing
@@ -52,7 +53,10 @@ fun lastOutgoingMessageId(messages: List<ChatMessage>): String? =
 fun ChatMessage.showsStatusTicks(
     lastOutgoingId: String?,
     revealedId: String?,
-): Boolean = sender == MessageSender.Me && (id == lastOutgoingId || id == revealedId)
+): Boolean =
+    sender == MessageSender.Me &&
+        !isAdminNotice() &&
+        (id == lastOutgoingId || id == revealedId)
 
 /**
  * True when mark-read can target this message. Optimistic sends and mapped

@@ -8,6 +8,10 @@
     <string name="chat_show_status">Show sent and read status</string>
     <string name="chat_hide_status">Hide sent and read status</string>
     <string name="chat_no_messages">No messages yet</string>
+    <string name="chat_activity">Chat activity</string>
+    <string name="chat_call_activity">Call activity</string>
+    <string name="chat_activity_announcement">Chat activity: %1$s</string>
+    <string name="chat_call_announcement">Call activity: %1$s</string>
     <string name="chat_message_hint">Message…</string>
     <string name="chat_new_message_from">New message from %1$s</string>
     <string name="chat_new_message_from_text">New message from %1$s: %2$s</string>

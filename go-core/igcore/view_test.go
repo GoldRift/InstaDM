@@ -657,6 +657,103 @@ func TestDescribeMessageContent(t *testing.T) {
 			wantText: "Reacted ❤ to your message",
 		},
 		{
+			name: "reaction log by content type",
+			message: &slidetypes.Message{
+				ContentType: "REACTION_LOG_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "Liked a message"},
+						},
+					},
+				},
+			},
+			wantKind: "reaction-log",
+			wantText: "Liked a message",
+		},
+		{
+			name: "group created notice",
+			message: &slidetypes.Message{
+				ContentType: "GROUP_THREAD_CREATED_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "alice"},
+							{Plaintext: " created the group chat."},
+						},
+					},
+				},
+			},
+			wantKind: "admin-group",
+			wantText: "alice created the group chat.",
+		},
+		{
+			name: "one-way send notice",
+			message: &slidetypes.Message{
+				ContentType: "REACHABILITY_SETTINGS_ONE_WAY_SEND_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "This account can't receive your message."},
+						},
+					},
+				},
+			},
+			wantKind: "admin-restricted",
+			wantText: "This account can't receive your message.",
+		},
+		{
+			name: "video call notice",
+			message: &slidetypes.Message{
+				ContentType: "IG_VIDEO_CALL_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "Video call ended"},
+						},
+					},
+				},
+			},
+			wantKind: "call",
+			wantText: "Video call ended",
+		},
+		{
+			name: "unknown xmat stays generic",
+			message: &slidetypes.Message{
+				ContentType: "FUTURE_ACTIVITY_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "Something happened"},
+						},
+					},
+				},
+			},
+			wantKind: "admin",
+			wantText: "Something happened",
+		},
+		{
+			name: "unobserved group subtype stays generic",
+			message: &slidetypes.Message{
+				ContentType: "GROUP_THREAD_RENAMED_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content: &slidetypes.MessageContentAdminText{
+						TextFragments: []slidetypes.TextFragment{
+							{Plaintext: "alice changed the group name."},
+						},
+					},
+				},
+			},
+			wantKind: "admin",
+			wantText: "alice changed the group name.",
+		},
+		{
 			name: "admin snippet fallback",
 			message: &slidetypes.Message{
 				IGDSnippet: "snippet",
@@ -701,6 +798,45 @@ func TestDescribeMessageContent(t *testing.T) {
 			if kind != test.wantKind || text != test.wantText || media != test.wantMedia {
 				t.Errorf("describeMessageContent = (%q, %q, %d), want (%q, %q, %d)",
 					kind, text, media, test.wantKind, test.wantText, test.wantMedia)
+			}
+		})
+	}
+}
+
+func TestNewMessageViewKeepsContentType(t *testing.T) {
+	tests := []struct {
+		name    string
+		message *slidetypes.Message
+		want    string
+	}{
+		{
+			name: "top-level admin subtype",
+			message: &slidetypes.Message{
+				ContentType: "GROUP_THREAD_CREATED_XMAT",
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageAdminText",
+					Content:  &slidetypes.MessageContentAdminText{},
+				},
+			},
+			want: "GROUP_THREAD_CREATED_XMAT",
+		},
+		{
+			name: "content typename fallback",
+			message: &slidetypes.Message{
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageText",
+					Content:  &slidetypes.MessageContentText{TextBody: "hi"},
+				},
+			},
+			want: "SlideMessageText",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			view := newMessageView(test.message, 111, nil)
+			if view.ContentType != test.want {
+				t.Errorf("content_type = %q, want %q", view.ContentType, test.want)
 			}
 		})
 	}

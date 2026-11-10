@@ -249,9 +249,15 @@ normalized as `kind=post`, `kind=story`, or `kind=link` with a `link` media item
 placeholder) keeps its kind with an `-unavailable` suffix (`kind=story-unavailable`) and
 uses the XMA eyebrow/caption text (`"Shared X's story"`, `"Story unavailable"`) as the
 message body, so clients can render a notice instead of an empty bubble; `media_count`
-stays `0`. Admin activity entries are `kind=admin`, except like/reaction logs, which
-are `kind=reaction-log` and keep their text so clients can preview and notify on them
-without drawing a bubble. View-once and replayable ("raven") attachments instead carry
+stays `0`. Admin activity entries are `kind=admin`, except observed top-level
+`content_type` subtypes: `GROUP_THREAD_CREATED_XMAT` is `kind=admin-group`,
+`REACHABILITY_SETTINGS_ONE_WAY_SEND_XMAT` is `kind=admin-restricted`, and a
+`*CALL_XMAT` content type is `kind=call`. Like/reaction logs are
+`kind=reaction-log` and keep their text so clients can preview and notify on them
+without drawing a bubble. The message's top-level `content_type` is preserved in the
+output; unknown admin subtypes stay `kind=admin`, so clients should treat every admin
+kind as an activity notice and must not parse the text for the activity type.
+View-once and replayable ("raven") attachments instead carry
 `view_once: true` plus `view_mode` (`viewed` or `replayed`) and omit every CDN URL, because
 the allowed views belong to the official app; the item is still present when Instagram has
 not sent an attachment yet, so clients can show a notice. Replies carry

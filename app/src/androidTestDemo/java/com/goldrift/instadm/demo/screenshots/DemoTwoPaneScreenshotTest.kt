@@ -30,6 +30,7 @@ class DemoTwoPaneScreenshotTest {
 
         session.tap("Maya Chen")
         session.awaitText("8pm?")
+        session.awaitText("Maya pinned a message.")
         session.capture("02-two-pane-chat-light")
     }
 }

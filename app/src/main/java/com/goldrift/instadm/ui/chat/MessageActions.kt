@@ -25,13 +25,27 @@ const val EDIT_WINDOW_MS = 15 * 60_000L
 /** Maximum text length accepted by the Go core for sends, edits, and new DMs. */
 const val MAX_MESSAGE_LENGTH = 1000
 
-fun ChatMessage.canReact(): Boolean = isServerMessage()
+// Activity kinds from the Go core; `admin-*` is the family fallback for any
+// subtype the app does not know yet.
+const val ADMIN_KIND = "admin"
+const val ADMIN_GROUP_KIND = "admin-group"
+const val ADMIN_RESTRICTED_KIND = "admin-restricted"
+const val CALL_KIND = "call"
+
+fun isAdminNoticeKind(kind: String): Boolean =
+    kind == ADMIN_KIND || kind == CALL_KIND || kind.startsWith("$ADMIN_KIND-")
+
+/** Instagram activity entries are notices, not messages the viewer can act on. */
+fun ChatMessage.isAdminNotice(): Boolean = isAdminNoticeKind(kind)
+
+fun ChatMessage.canReact(): Boolean = isServerMessage() && !isAdminNotice()
 
 /**
  * Admin notices such as "Joined the chat" and the like/reaction activity logs
  * are entries Instagram does not let the viewer quote.
  */
-fun ChatMessage.canReply(): Boolean = isServerMessage() && kind != "admin" && !isReactionLog()
+fun ChatMessage.canReply(): Boolean =
+    isServerMessage() && !isAdminNotice() && !isReactionLog()
 
 /**
  * Likes and reactions arrive as a reaction on the target message plus an
@@ -40,11 +54,13 @@ fun ChatMessage.canReply(): Boolean = isServerMessage() && kind != "admin" && !i
  */
 fun ChatMessage.isReactionLog(): Boolean = kind == REACTION_LOG_KIND
 
-fun ChatMessage.canUnsend(): Boolean = sender == MessageSender.Me && isServerMessage()
+fun ChatMessage.canUnsend(): Boolean =
+    sender == MessageSender.Me && isServerMessage() && !isAdminNotice()
 
 fun ChatMessage.canEdit(nowMs: Long = System.currentTimeMillis()): Boolean =
     sender == MessageSender.Me &&
         isServerMessage() &&
+        !isAdminNotice() &&
         text.isNotBlank() &&
         (timestampMs <= 0 || nowMs - timestampMs <= EDIT_WINDOW_MS)
 

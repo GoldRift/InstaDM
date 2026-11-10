@@ -73,6 +73,11 @@ official app.
   "Liked a message") are kept out of the transcript: the reaction itself already
   shows on the bubble, while the entry still appears in the inbox preview and
   notifications.
+- Group and system activity entries (`kind=admin`, plus `admin-group`,
+  `admin-restricted`, and `call` for known subtypes) render as centered activity
+  notices instead of bubbles. They have no avatar, reply/reaction/edit/unsend/copy
+  actions, or sent/seen ticks; a one-way-send notice appears as a warning rather
+  than your own message, and unknown admin subtypes use the same generic notice.
 - Share cards for posts, stories, reels, and external pages: the preview (or reel
   cover) sits on top and a clean link strip underneath. Tracking parameters are
   stripped and Instagram shares read `/reel/…`, `/p/…`, or `/stories/…`, while

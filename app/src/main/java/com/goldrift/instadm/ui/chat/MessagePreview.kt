@@ -44,6 +44,11 @@ fun PreviewPart.render(resolve: (id: Int, args: List<String>) -> String): String
  */
 fun ConversationPreview.label(isGroup: Boolean): PreviewPart? {
     val body = text.trim()
+    // Activity notices are system copy, not a person speaking: keep the text
+    // verbatim instead of adding "You:" or a group sender prefix.
+    if (isAdminNoticeKind(kind)) {
+        return body.takeIf { it.isNotEmpty() }?.let(PreviewPart::Text)
+    }
     if (body.isNotEmpty()) {
         return when {
             fromViewer -> PreviewPart.Res(
@@ -83,8 +88,13 @@ internal fun mediaNoun(kind: String): Int? = when (kind.trim().lowercase()) {
     "story", "story-unavailable" -> R.string.inbox_noun_story
     "reel", "reel-unavailable" -> R.string.inbox_noun_reel
     "unavailable" -> R.string.inbox_noun_attachment
+    "admin", "call", "reaction-log" -> null
     "", "text" -> null
-    else -> R.string.inbox_noun_attachment
+    else -> if (kind.trim().lowercase().startsWith("$ADMIN_KIND-")) {
+        null
+    } else {
+        R.string.inbox_noun_attachment
+    }
 }
 
 /** Preview data for a loaded bubble. */

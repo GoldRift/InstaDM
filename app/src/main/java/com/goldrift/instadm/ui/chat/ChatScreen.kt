@@ -24,6 +24,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,15 +71,19 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -250,14 +255,34 @@ fun ChatScreen(
         val previous = announcedIncomingId
         announcedIncomingId = message.id
         if (previous != null && previous != message.id) {
-            val sender = message.senderName.ifBlank { conversation.contact.name }
-            // The text distinguishes back-to-back messages from one sender,
-            // which would otherwise produce the same live-region string.
-            arrivalAnnouncement = message.text.trim().take(80).let { preview ->
-                if (preview.isEmpty()) {
-                    resources.getString(R.string.chat_new_message_from, sender)
+            arrivalAnnouncement = if (message.isAdminNotice()) {
+                val call = message.kind == CALL_KIND
+                val fallback = resources.getString(
+                    if (call) R.string.chat_call_activity else R.string.chat_activity,
+                )
+                val body = message.text.trim().take(120)
+                if (body.isEmpty()) {
+                    fallback
                 } else {
-                    resources.getString(R.string.chat_new_message_from_text, sender, preview)
+                    resources.getString(
+                        if (call) {
+                            R.string.chat_call_announcement
+                        } else {
+                            R.string.chat_activity_announcement
+                        },
+                        body,
+                    )
+                }
+            } else {
+                val sender = message.senderName.ifBlank { conversation.contact.name }
+                // The text distinguishes back-to-back messages from one sender,
+                // which would otherwise produce the same live-region string.
+                message.text.trim().take(80).let { preview ->
+                    if (preview.isEmpty()) {
+                        resources.getString(R.string.chat_new_message_from, sender)
+                    } else {
+                        resources.getString(R.string.chat_new_message_from_text, sender, preview)
+                    }
                 }
             }
         }
@@ -837,8 +862,9 @@ private fun MessageList(
         itemsIndexed(
             items = reversed,
             key = { _, message -> message.id },
-            contentType = { _, message -> message.sender },
+            contentType = { _, message -> if (message.isAdminNotice()) "admin" else message.sender },
         ) { reverseIndex, message ->
+            val adminNotice = message.isAdminNotice()
             val originalIndex = messages.lastIndex - reverseIndex
             val previous = messages.getOrNull(originalIndex - 1)
             val member = if (isGroup) {
@@ -870,26 +896,27 @@ private fun MessageList(
             // Direct chats show no avatars beside bubbles.
             // Groups attribute the first bubble of each sender run with the
             // member's picture and name, like Instagram's own group threads.
-            val startsSenderRun = isGroup &&
-                message.sender == MessageSender.Them &&
-                (
-                    showDayHeader ||
-                        previous?.sender != MessageSender.Them ||
-                        previous.senderFbid != message.senderFbid
-                    )
+            val startsSenderRun = startsGroupSenderRun(
+                previous = previous,
+                message = message,
+                isGroup = isGroup,
+                showDayHeader = showDayHeader,
+            )
             // A run without any resolved identity still keeps the gutter so
             // every incoming bubble lines up with the ones around it.
             val senderKnown = senderName.isNotBlank() || senderAvatarUrl.isNotBlank()
-            val showAvatar = startsSenderRun && senderKnown
-            val showSenderName = startsSenderRun && senderName.isNotBlank()
-            val reserveAvatarGutter = isGroup && message.sender == MessageSender.Them
+            val showAvatar = !adminNotice && startsSenderRun && senderKnown
+            val showSenderName = !adminNotice && startsSenderRun && senderName.isNotBlank()
+            val reserveAvatarGutter =
+                isGroup && message.sender == MessageSender.Them && !adminNotice
             // Prefer the loaded original (it has the full text) and fall back to
             // the snapshot Instagram embeds when it is outside the page.
             val reply = message.reply?.let { stored ->
                 messagesById[stored.id]?.toReplySnapshot() ?: stored
             }
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
-            val showStatusTicks = message.showsStatusTicks(lastOutgoingId, revealedStatusMessageId)
+            val showStatusTicks = !adminNotice &&
+                message.showsStatusTicks(lastOutgoingId, revealedStatusMessageId)
 
             Column(
                 modifier = Modifier.animateItem(
@@ -900,47 +927,54 @@ private fun MessageList(
                 if (showDayHeader) {
                     DayHeader(timestampMs = message.timestampMs)
                 }
-                MessageRow(
-                    message = message,
-                    senderName = senderName,
-                    showSenderName = showSenderName,
-                    senderInitials = senderInitials,
-                    senderAvatarUrl = senderAvatarUrl,
-                    senderColorSeed = member?.fbid?.toString() ?: senderInitials,
-                    showAvatar = showAvatar,
-                    reserveAvatarGutter = reserveAvatarGutter,
-                    threadId = threadId,
-                    isVisible = message.id in visibleMessageIds,
-                    onOpenMedia = { media -> onOpenMedia(message.id, media) },
-                    onLongPress = { if (message.isServerMessage()) onLongPress(message) },
-                    reply = reply,
-                    replyLabel = replyLabel,
-                    onReply = { onReply(message) },
-                    showStatusTicks = showStatusTicks,
-                    // The newest outgoing bubble's ticks are always on, so only
-                    // older outgoing bubbles advertise a tap-to-reveal action.
-                    onToggleStatus = if (message.id == lastOutgoingId) {
-                        null
-                    } else {
-                        { onToggleStatus(message.id) }
-                    },
-                    actionsExpanded = actionMessageId == message.id,
-                    onDismissActions = onDismissActions,
-                    onReact = { emoji -> onReactAt(message.id, emoji) },
-                    onLike = { onReactAt(message.id, likeEmoji) },
-                    onCopy = { onCopyAt(message.id) },
-                    onReplyAt = { onReplyAt(message.id) },
-                    onMoreEmoji = { onMoreEmojiAt(message.id) },
-                    onEdit = { onEditAt(message.id) },
-                    onUnsend = { onUnsendAt(message.id) },
-                    onRetry = { onRetryMedia(message.id) },
-                    onLoadMedia = onLoadMedia,
-                    voicePlayer = voicePlayer,
-                    isGroup = isGroup,
-                    participants = participants,
-                    viewerName = viewerName,
-                    viewerAvatarUrl = viewerAvatarUrl,
-                )
+                if (adminNotice) {
+                    AdminNoticeRow(
+                        message = message,
+                        isGroup = isGroup,
+                    )
+                } else {
+                    MessageRow(
+                        message = message,
+                        senderName = senderName,
+                        showSenderName = showSenderName,
+                        senderInitials = senderInitials,
+                        senderAvatarUrl = senderAvatarUrl,
+                        senderColorSeed = member?.fbid?.toString() ?: senderInitials,
+                        showAvatar = showAvatar,
+                        reserveAvatarGutter = reserveAvatarGutter,
+                        threadId = threadId,
+                        isVisible = message.id in visibleMessageIds,
+                        onOpenMedia = { media -> onOpenMedia(message.id, media) },
+                        onLongPress = { if (message.isServerMessage()) onLongPress(message) },
+                        reply = reply,
+                        replyLabel = replyLabel,
+                        onReply = { onReply(message) },
+                        showStatusTicks = showStatusTicks,
+                        // The newest outgoing bubble's ticks are always on, so only
+                        // older outgoing bubbles advertise a tap-to-reveal action.
+                        onToggleStatus = if (message.id == lastOutgoingId) {
+                            null
+                        } else {
+                            { onToggleStatus(message.id) }
+                        },
+                        actionsExpanded = actionMessageId == message.id,
+                        onDismissActions = onDismissActions,
+                        onReact = { emoji -> onReactAt(message.id, emoji) },
+                        onLike = { onReactAt(message.id, likeEmoji) },
+                        onCopy = { onCopyAt(message.id) },
+                        onReplyAt = { onReplyAt(message.id) },
+                        onMoreEmoji = { onMoreEmojiAt(message.id) },
+                        onEdit = { onEditAt(message.id) },
+                        onUnsend = { onUnsendAt(message.id) },
+                        onRetry = { onRetryMedia(message.id) },
+                        onLoadMedia = onLoadMedia,
+                        voicePlayer = voicePlayer,
+                        isGroup = isGroup,
+                        participants = participants,
+                        viewerName = viewerName,
+                        viewerAvatarUrl = viewerAvatarUrl,
+                    )
+                }
             }
         }
 
@@ -950,6 +984,82 @@ private fun MessageList(
                     isLoading = isLoadingOlder,
                     hasError = olderError,
                     onRetry = onRetryOlder,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Centered activity notice for Instagram admin text. It is deliberately not a
+ * bubble: no sender avatar, swipe, long-press, reactions, ticks, or copy.
+ */
+@Composable
+private fun AdminNoticeRow(
+    message: ChatMessage,
+    isGroup: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val restricted = message.kind == ADMIN_RESTRICTED_KIND
+    val call = message.kind == CALL_KIND
+    val fallback = stringResource(
+        if (call) R.string.chat_call_activity else R.string.chat_activity,
+    )
+    val text = message.text.trim().ifBlank { fallback }
+    val icon = when {
+        call -> Icons.Rounded.Call
+        restricted -> Icons.Rounded.ReportProblem
+        message.kind == ADMIN_GROUP_KIND || isGroup -> Icons.Rounded.Groups
+        else -> Icons.Rounded.Info
+    }
+    val containerColor = if (restricted) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
+    }
+    val contentColor = if (restricted) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val iconTint = if (restricted) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 320.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = containerColor,
+            contentColor = contentColor,
+            border = if (restricted) {
+                null
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            },
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
         }

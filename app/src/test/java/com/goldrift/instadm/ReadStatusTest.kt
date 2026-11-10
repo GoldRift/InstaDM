@@ -1,5 +1,7 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.ADMIN_RESTRICTED_KIND
+import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
@@ -21,6 +23,7 @@ class ReadStatusTest {
         timestampMs: Long,
         seen: Boolean = false,
         pending: Boolean = false,
+        kind: String = "",
     ) = ChatMessage(
         id = id,
         text = id,
@@ -29,6 +32,7 @@ class ReadStatusTest {
         timestampMs = timestampMs,
         seen = seen,
         pending = pending,
+        kind = kind,
     )
 
     @Test
@@ -141,6 +145,25 @@ class ReadStatusTest {
             message("mid.incoming", MessageSender.Them, 3_000)
                 .showsStatusTicks(lastOutgoingId, revealedId = "mid.incoming"),
         )
+    }
+
+    @Test
+    fun adminNoticesDoNotOwnTheViewerTicks() {
+        val outgoing = message("mid.out", MessageSender.Me, 1_000)
+        val restricted = message(
+            "mid.restricted",
+            MessageSender.Me,
+            2_000,
+            kind = ADMIN_RESTRICTED_KIND,
+        )
+        val call = message("mid.call", MessageSender.Me, 3_000, kind = CALL_KIND)
+
+        val lastOutgoingId = lastOutgoingMessageId(listOf(outgoing, restricted, call))
+
+        assertEquals("mid.out", lastOutgoingId)
+        assertTrue(outgoing.showsStatusTicks(lastOutgoingId, revealedId = null))
+        assertFalse(restricted.showsStatusTicks(lastOutgoingId, revealedId = restricted.id))
+        assertFalse(call.showsStatusTicks(lastOutgoingId, revealedId = call.id))
     }
 
     @Test
