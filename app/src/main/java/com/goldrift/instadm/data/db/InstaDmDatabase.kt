@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReactionEntity::class,
         OutboxEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
@@ -93,6 +93,20 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 re-arms older-history paging for threads whose cursor a newest-page
+         * refresh had reset. The corrected paging advances the cursor instead of
+         * treating the next duplicate page as the start of the archive.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE threads SET has_more_older = 1 " +
+                        "WHERE oldest_cursor != '' AND has_more_older = 0",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
                 .addMigrations(
@@ -101,6 +115,7 @@ abstract class InstaDmDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
+                    MIGRATION_6_7,
                 )
                 .build()
     }

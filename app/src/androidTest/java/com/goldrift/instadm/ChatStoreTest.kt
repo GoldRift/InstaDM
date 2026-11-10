@@ -512,7 +512,7 @@ class ChatStoreTest {
     }
 
     @Test
-    fun olderPageThatAddsNothingStopsPaging() = runBlocking {
+    fun olderPageThatDoesNotAdvanceTheCursorStopsPaging() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))
         store.ingestThread(JSONObject(THREAD))
 
@@ -531,7 +531,7 @@ class ChatStoreTest {
                     }
                   ],
                   "has_more_older": true,
-                  "oldest_cursor": "same-cursor"
+                  "oldest_cursor": "older-cursor"
                 }
                 """.trimIndent(),
             ),
@@ -539,7 +539,127 @@ class ChatStoreTest {
 
         val thread = store.conversationThread("thread-1")
         assertFalse(thread.hasMoreOlder)
-        assertEquals("same-cursor", thread.oldestCursor)
+        assertEquals("older-cursor", thread.oldestCursor)
+    }
+
+    @Test
+    fun overlappingOlderPageThatAdvancesTheCursorKeepsPaging() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-0",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1699999999000,
+                      "kind": "text",
+                      "text": "hello there"
+                    }
+                  ],
+                  "has_more_older": true,
+                  "oldest_cursor": "page-2-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+        // The next page overlaps the cached one and adds nothing, but its new
+        // cursor proves the server walked further back.
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-0",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1699999999000,
+                      "kind": "text",
+                      "text": "hello there"
+                    }
+                  ],
+                  "has_more_older": true,
+                  "oldest_cursor": "page-3-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val thread = store.conversationThread("thread-1")
+        assertTrue(thread.hasMoreOlder)
+        assertEquals("page-3-cursor", thread.oldestCursor)
+    }
+
+    @Test
+    fun threadRefreshKeepsTheDeeperOlderCursor() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-0",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1699999999000,
+                      "kind": "text",
+                      "text": "hello there"
+                    }
+                  ],
+                  "has_more_older": true,
+                  "oldest_cursor": "page-2-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        store.ingestThread(JSONObject(THREAD))
+
+        val thread = store.conversationThread("thread-1")
+        assertTrue(thread.hasMoreOlder)
+        assertEquals("page-2-cursor", thread.oldestCursor)
+        assertEquals(now, thread.messagesSyncedAt)
+        assertEquals(3, store.observeThread("thread-1").first().size)
+    }
+
+    @Test
+    fun olderPageBeyondTheRetentionCapStopsPaging() = runBlocking {
+        val capped = ChatStore(db, retention = 2) { now }
+        capped.ingestMailbox(JSONObject(MAILBOX))
+        capped.ingestThread(JSONObject(THREAD))
+
+        capped.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-0",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1699999999000,
+                      "kind": "text",
+                      "text": "hello there"
+                    }
+                  ],
+                  "has_more_older": true,
+                  "oldest_cursor": "page-2-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val thread = capped.conversationThread("thread-1")
+        assertEquals(2, capped.observeThread("thread-1").first().size)
+        assertFalse(thread.hasMoreOlder)
+        assertEquals("page-2-cursor", thread.oldestCursor)
     }
 
     @Test

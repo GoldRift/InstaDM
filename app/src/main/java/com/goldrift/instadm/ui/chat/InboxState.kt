@@ -46,6 +46,9 @@ private const val READ_MIN_INTERVAL_MS = 3_000L
 /** Re-fetch the newest page when it is older than this. */
 private const val THREAD_STALE_MS = 30_000L
 
+/** Pause after an older page that added no rows, so overlap walks back gently. */
+private const val OVERLAP_PAGE_DELAY_MS = 400L
+
 /** How long a started conversation waits for its inbox row before opening. */
 private const val NEW_THREAD_WAIT_MS = 5_000L
 
@@ -338,8 +341,6 @@ class InboxState(
             current.copy(
                 messages = stored,
                 messagesLoaded = stored.isNotEmpty() || current.messagesLoaded,
-                isLoadingOlder = false,
-                olderError = false,
             )
         }
     }
@@ -357,14 +358,27 @@ class InboxState(
         val cursor = conversation.oldestCursor
         update(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
         scope.launch {
-            runCatching { repository.loadOlder(threadId, cursor) }
-                .onSuccess { json -> chatStore.ingestOlderPage(json) }
-                .onFailure { error ->
-                    errorMessage = describeError(error)
-                    update(threadId) { current ->
-                        current.copy(isLoadingOlder = false, olderError = true)
-                    }
+            runCatching {
+                val json = repository.loadOlder(threadId, cursor)
+                chatStore.ingestOlderPage(json)
+            }.onSuccess { page ->
+                // Apply the page's cursor before clearing the in-flight flag: the
+                // list re-arms as soon as it clears, and a stale cursor would
+                // request the same page again.
+                if (page != null && page.added == 0) delay(OVERLAP_PAGE_DELAY_MS)
+                update(threadId) { current ->
+                    current.copy(
+                        isLoadingOlder = false,
+                        oldestCursor = page?.oldestCursor ?: current.oldestCursor,
+                        hasMoreOlder = page?.hasMoreOlder ?: false,
+                    )
                 }
+            }.onFailure { error ->
+                errorMessage = describeError(error)
+                update(threadId) { current ->
+                    current.copy(isLoadingOlder = false, olderError = true)
+                }
+            }
         }
     }
 

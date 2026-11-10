@@ -206,8 +206,65 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun reArmsOlderHistoryPagingForResetCursors() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V6_THREADS)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            db.execSQL(
+                "INSERT INTO threads (id, oldest_cursor, has_more_older) " +
+                    "VALUES ('deep', 'deep-cursor', 0)",
+            )
+            db.execSQL(
+                "INSERT INTO threads (id, oldest_cursor, has_more_older) " +
+                    "VALUES ('fresh', '', 0)",
+            )
+            db.execSQL(
+                "INSERT INTO threads (id, oldest_cursor, has_more_older) " +
+                    "VALUES ('live', 'live-cursor', 1)",
+            )
+            InstaDmDatabase.MIGRATION_6_7.migrate(db)
+            db.query(
+                "SELECT id, has_more_older, oldest_cursor FROM threads ORDER BY id",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("deep", cursor.getString(0))
+                assertEquals(1, cursor.getInt(1))
+                assertEquals("deep-cursor", cursor.getString(2))
+                assertTrue(cursor.moveToNext())
+                assertEquals("fresh", cursor.getString(0))
+                assertEquals(0, cursor.getInt(1))
+                assertEquals("", cursor.getString(2))
+                assertTrue(cursor.moveToNext())
+                assertEquals("live", cursor.getString(0))
+                assertEquals(1, cursor.getInt(1))
+                assertEquals("live-cursor", cursor.getString(2))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
     private companion object {
         const val TEST_DB = "instadm-migration-test"
+        const val V6_THREADS =
+            "CREATE TABLE IF NOT EXISTS `threads` (" +
+                "`id` TEXT NOT NULL, `oldest_cursor` TEXT NOT NULL, " +
+                "`has_more_older` INTEGER NOT NULL, PRIMARY KEY(`id`))"
         const val V1_ATTACHMENTS =
             "CREATE TABLE IF NOT EXISTS `attachments` (" +
                 "`message_id` TEXT NOT NULL, `part_index` INTEGER NOT NULL, " +

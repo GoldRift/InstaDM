@@ -20,7 +20,7 @@ import org.json.JSONObject
 import java.io.File
 
 /** Messages kept per thread; older rows are pruned after each ingest. */
-private const val MESSAGE_RETENTION = 1000
+private const val MESSAGE_RETENTION = 10_000
 
 /** Kind the Go core assigns to like/reaction activity entries. */
 internal const val REACTION_LOG_KIND = "reaction-log"
@@ -38,6 +38,14 @@ data class ViewerProfile(
     val avatarUrl: String = "",
 )
 
+/** The persisted paging state after an older page, for the UI state to apply. */
+data class OlderPageResult(
+    /** Messages that survived the retention prune. */
+    val added: Int,
+    val oldestCursor: String,
+    val hasMoreOlder: Boolean,
+)
+
 /**
  * Owns the Room database and turns normalized Go JSON into entities. The UI
  * observes flows from here; nothing in this class talks to the network.
@@ -48,6 +56,8 @@ data class ViewerProfile(
  */
 class ChatStore(
     private val db: InstaDmDatabase,
+    /** Per-thread message cap; tests lower it to exercise the prune path. */
+    private val retention: Int = MESSAGE_RETENTION,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val threadDao = db.threads()
@@ -157,41 +167,64 @@ class ChatStore(
             }
 
             upsertServerMessages(threadId, json.optJSONArray("messages") ?: JSONArray(), now)
-            threadDao.updateNewestPage(
-                threadId = threadId,
-                cursor = json.optString("oldest_cursor"),
-                hasMore = json.optBoolean("has_more_older"),
-                syncedAt = now,
-                now = now,
-            )
+            if (previous == null || previous.oldestCursor.isBlank()) {
+                threadDao.updateNewestPage(
+                    threadId = threadId,
+                    cursor = json.optString("oldest_cursor"),
+                    hasMore = json.optBoolean("has_more_older"),
+                    syncedAt = now,
+                    now = now,
+                )
+            } else {
+                // Refreshing the newest page must not rewind a cursor that older
+                // pages have already advanced; only the sync time changes.
+                threadDao.markSynced(threadId = threadId, syncedAt = now, now = now)
+            }
             applyReadReceipts(threadId, json.optJSONArray("read_receipts"), now)
             updatePreviewFromNewest(threadId, now)
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            messageDao.prune(threadId, retention)
         }
     }
 
-    /** Applies an `IGDMessageListOffMsysQuery` page: older messages only. */
-    suspend fun ingestOlderPage(json: JSONObject) {
+    /**
+     * Applies an `IGDMessageListOffMsysQuery` page: older messages only.
+     * Returns null when the page does not name a thread. A page can overlap
+     * what is cached and add nothing while its cursor still moves.
+     */
+    suspend fun ingestOlderPage(json: JSONObject): OlderPageResult? {
         val threadId = json.optString("thread_id").trim()
-        if (threadId.isEmpty()) return
+        if (threadId.isEmpty()) return null
 
         val now = clock()
-        db.withTransaction {
-            if (threadDao.thread(threadId) == null) {
+        return db.withTransaction {
+            val previous = threadDao.thread(threadId)
+            if (previous == null) {
                 threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
             }
+            val requestedCursor = previous?.oldestCursor.orEmpty()
             val before = messageDao.count(threadId)
             upsertServerMessages(threadId, json.optJSONArray("messages") ?: JSONArray(), now)
             val added = messageDao.count(threadId) - before
-            // A page that adds nothing while still claiming more would make the
-            // scroll loader retry forever.
+            val cursor = json.optString("oldest_cursor").trim()
+            // A page can overlap what is cached and add nothing while the cursor
+            // still moves; only a cursor that fails to advance would make the
+            // scroll loader retry the same page forever.
+            val cursorAdvanced = cursor.isNotBlank() &&
+                (requestedCursor.isBlank() || cursor != requestedCursor)
+            messageDao.prune(threadId, retention)
+            val retained = (messageDao.count(threadId) - before).coerceAtLeast(0)
+            // At the retention cap a page can be stored and pruned in the same
+            // transaction. Stop rather than fetching history that cannot be shown.
+            val hasMore = json.optBoolean("has_more_older") &&
+                cursorAdvanced &&
+                (added == 0 || retained > 0)
             threadDao.updateOlderPage(
                 threadId = threadId,
-                cursor = json.optString("oldest_cursor"),
-                hasMore = json.optBoolean("has_more_older") && added > 0,
+                cursor = cursor,
+                hasMore = hasMore,
                 now = now,
             )
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            OlderPageResult(added = retained, oldestCursor = cursor, hasMoreOlder = hasMore)
         }
     }
 
@@ -288,7 +321,7 @@ class ChatStore(
                 senderFbid = entity.senderFbid,
                 now = now,
             )
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            messageDao.prune(threadId, retention)
         }
     }
 
@@ -326,7 +359,7 @@ class ChatStore(
                 senderFbid = viewerFbid(),
                 now = now,
             )
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            messageDao.prune(threadId, retention)
         }
     }
 
@@ -388,7 +421,7 @@ class ChatStore(
                 senderFbid = viewerFbid(),
                 now = now,
             )
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            messageDao.prune(threadId, retention)
         }
     }
 
@@ -459,7 +492,7 @@ class ChatStore(
                 senderFbid = viewerFbid(),
                 now = now,
             )
-            messageDao.prune(threadId, MESSAGE_RETENTION)
+            messageDao.prune(threadId, retention)
         }
     }
 

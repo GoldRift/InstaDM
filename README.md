@@ -95,7 +95,7 @@ official app.
 - Material 3 Expressive with Material You colors and the expressive motion
   scheme: date headers, animated loading indicators, a two-pane inbox/chat
   layout at 840 dp and wider, and TalkBack-friendly controls.
-- Bounded storage: at most 1,000 messages per thread and a 250 MB media cache,
+- Bounded storage: at most 10,000 messages per thread and a 250 MB media cache,
   with 8 MB image and 25 MB other-attachment upload caps.
 
 > **Note:** Android does not let a normal app keep a connection alive in the

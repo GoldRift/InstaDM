@@ -170,6 +170,11 @@ interface ThreadDao {
     )
 
     @Query(
+        "UPDATE threads SET messages_synced_at = :syncedAt, updated_at = :now WHERE id = :threadId",
+    )
+    suspend fun markSynced(threadId: String, syncedAt: Long, now: Long)
+
+    @Query(
         """
         UPDATE threads SET
             oldest_cursor = :cursor,
