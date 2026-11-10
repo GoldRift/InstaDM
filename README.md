@@ -250,9 +250,14 @@ edit the version fields in `app/build.gradle.kts` for a release; the workflow
 overrides them from the tag.
 
 ```bash
-git tag v1.2.3
+git tag -a v1.2.3 -m "What changed in 1.2.3"
 git push origin v1.2.3
 ```
+
+The tag annotation becomes the release body. A lightweight tag (`git tag
+v1.2.3`) falls back to GitHub's generated notes, which for a tag-only workflow
+is usually just a compare link. Re-running the workflow keeps notes you edited
+on the release page.
 
 Create the release keystore once and add it under Settings → Secrets and
 variables → Actions:

@@ -199,6 +199,10 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+          notes=(--generate-notes)
+          if [[ "$(git cat-file -t "refs/tags/${TAG}" 2>/dev/null || true)" == "tag" ]]; then
+            notes=(--notes-from-tag)
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" build/dist/* --clobber
             exit 0
@@ -207,10 +211,10 @@ jobs:
              gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
             gh release create "$TAG" build/dist/* \
               --title "InstaDM ${TAG}" \
-              --generate-notes
+              "${notes[@]}"
           else
             gh release create "$TAG" build/dist/* \
               --title "InstaDM ${TAG}" \
-              --generate-notes \
+              "${notes[@]}" \
               --target "$GITHUB_SHA"
           fi
