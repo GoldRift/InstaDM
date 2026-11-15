@@ -100,6 +100,8 @@ fun InstaDmApp(
     // The two-pane detail selection lives here so the player bar can tell which
     // chat is on screen and open the one it belongs to.
     var selectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
+    // The note the player bar opened, waiting for its chat to show it.
+    var focusMessage by remember { mutableStateOf<Pair<String, String>?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
     var shareTargetId by remember { mutableStateOf<String?>(null) }
     val awaitingShareTarget = pendingShare != null && shareTargetId == null
@@ -212,6 +214,8 @@ fun InstaDmApp(
                     readReceiptsEnabled = settings.sendReadReceipts,
                     voicePlayer = voicePlayer,
                     voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
+                    focusMessage = focusMessage,
+                    onFocusHandled = { focusMessage = null },
                     listBottomInset = listBottomInset,
                     selectedChatId = selectedChatId,
                     onSelectChat = { selectedChatId = it },
@@ -315,6 +319,9 @@ fun InstaDmApp(
                         readReceiptsEnabled = settings.sendReadReceipts,
                         voicePlayer = voicePlayer,
                         voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
+                        focusMessageId = focusMessage
+                            ?.takeIf { it.first == conversation.id }?.second,
+                        onFocusHandled = { focusMessage = null },
                         sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
                         hasPendingShare = awaitingShareTarget,
                         onClaimShare = { claimShare(conversation.id) },
@@ -346,6 +353,7 @@ fun InstaDmApp(
                 player = voicePlayer,
                 onOpen = {
                     val target = nowPlaying ?: return@MiniVoicePlayer
+                    focusMessage = target.threadId to target.messageId
                     if (wide && currentRoute == Routes.Inbox) {
                         selectedChatId = target.threadId
                     } else {
@@ -401,6 +409,8 @@ private fun MainPane(
     readReceiptsEnabled: Boolean,
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean,
+    focusMessage: Pair<String, String>? = null,
+    onFocusHandled: () -> Unit = {},
     listBottomInset: Dp = 0.dp,
     selectedChatId: String?,
     onSelectChat: (String?) -> Unit,
@@ -493,6 +503,8 @@ private fun MainPane(
                     readReceiptsEnabled = readReceiptsEnabled,
                     voicePlayer = voicePlayer,
                     voiceBackgroundPlayback = voiceBackgroundPlayback,
+                    focusMessageId = focusMessage?.takeIf { it.first == selected.id }?.second,
+                    onFocusHandled = onFocusHandled,
                     sharedContent = if (shareTargetId == selected.id) pendingShare else null,
                     hasPendingShare = pendingShare != null && shareTargetId == null,
                     onClaimShare = { onClaimShare(selected.id) },
@@ -514,6 +526,8 @@ private fun ChatDestination(
     readReceiptsEnabled: Boolean,
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean,
+    focusMessageId: String? = null,
+    onFocusHandled: () -> Unit = {},
     sharedContent: SharedContent?,
     hasPendingShare: Boolean,
     onClaimShare: () -> Unit,
@@ -590,6 +604,8 @@ private fun ChatDestination(
         readReceiptsEnabled = readReceiptsEnabled,
         voicePlayer = voicePlayer,
         voiceBackgroundPlayback = voiceBackgroundPlayback,
+        focusMessageId = focusMessageId,
+        onFocusHandled = onFocusHandled,
         modifier = modifier,
     )
 }

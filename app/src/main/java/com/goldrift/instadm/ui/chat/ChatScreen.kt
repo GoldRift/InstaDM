@@ -251,6 +251,9 @@ fun ChatScreen(
     // The inbox owns the player so a note can outlive this chat.
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean = true,
+    /** A note the player bar opened; scrolled to and outlined like a quote jump. */
+    focusMessageId: String? = null,
+    onFocusHandled: () -> Unit = {},
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -543,6 +546,15 @@ fun ChatScreen(
             delay(QUOTE_JUMP_HIGHLIGHT_MS)
             quotedMessageId = null
         }
+    }
+
+    // Opening the chat from the player bar lands on the note it is playing,
+    // with the same scroll and outline a tapped reply quote gets.
+    LaunchedEffect(focusMessageId, conversation.messagesLoaded) {
+        val target = focusMessageId ?: return@LaunchedEffect
+        if (!conversation.messagesLoaded) return@LaunchedEffect
+        jumpToQuotedMessage(target)
+        onFocusHandled()
     }
 
     fun sendMessage() {
