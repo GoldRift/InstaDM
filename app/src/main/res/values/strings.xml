@@ -65,6 +65,7 @@
     <string name="chat_voice_pause">Pause voice message</string>
     <string name="chat_voice_waveform">Voice message progress</string>
     <string name="chat_voice_error">Couldn\'t play voice message. Tap to retry.</string>
+    <string name="mini_player_subtitle">Voice message · %1$s</string>
     <string name="chat_loading_older">Loading older messages</string>
     <string name="chat_older_error">Couldn\'t load older messages</string>
     <string name="chat_older_retry">Retry</string>

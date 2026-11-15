@@ -73,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
 import com.goldrift.instadm.ui.chat.Conversation
@@ -110,6 +111,8 @@ fun InboxScreen(
     onSearch: () -> Unit = {},
     onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
+    /** Space for a player bar floating over the bottom of the list. */
+    listBottomInset: Dp = 0.dp,
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -273,7 +276,7 @@ fun InboxScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
-                                bottom = navBarBottom + 8.dp,
+                                bottom = navBarBottom + 8.dp + listBottomInset,
                             ),
                         ) {
                             items(

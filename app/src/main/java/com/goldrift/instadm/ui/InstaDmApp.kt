@@ -3,14 +3,18 @@ package com.goldrift.instadm.ui
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -28,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +56,9 @@ import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.chat.VoicePlayer
+import com.goldrift.instadm.ui.components.MiniVoicePlayer
+import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
+import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
@@ -89,6 +97,9 @@ fun InstaDmApp(
     val voicePlayer = application.voicePlayer
     val navController = rememberNavController()
     var startRoute by remember { mutableStateOf<String?>(null) }
+    // The two-pane detail selection lives here so the player bar can tell which
+    // chat is on screen and open the one it belongs to.
+    var selectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
     var shareTargetId by remember { mutableStateOf<String?>(null) }
     val awaitingShareTarget = pendingShare != null && shareTargetId == null
@@ -131,6 +142,7 @@ fun InstaDmApp(
         null
     }
     val pendingConversation = pendingThreadId?.let(inboxState::conversation)
+    val nowPlaying = voicePlayer.nowPlaying
 
     // Logging out discards the session and leaves the inbox without one.
     LaunchedEffect(inboxState.status, currentRoute) {
@@ -142,165 +154,208 @@ fun InstaDmApp(
         }
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = resolvedStart,
-        enterTransition = {
-            fadeIn(motion.defaultEffectsSpec<Float>()) +
-                slideInHorizontally(motion.defaultSpatialSpec<IntOffset>()) { it / 10 }
-        },
-        exitTransition = {
-            fadeOut(motion.fastEffectsSpec<Float>()) +
-                slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
-        },
-        popEnterTransition = {
-            fadeIn(motion.fastEffectsSpec<Float>()) +
-                slideInHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
-        },
-        popExitTransition = {
-            fadeOut(motion.fastEffectsSpec<Float>()) +
-                slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { it / 10 }
-        },
-    ) {
-        composable(Routes.Login) {
-            LoginScreen(
-                signIn = { cookies -> application.repository.signIn(cookies) },
-                onSignedIn = { mailbox ->
-                    inboxState.applyMailbox(mailbox)
-                    application.realtimeRecorder.start()
-                    application.outbox.start()
-                    RealtimeService.restart(context)
-                    navController.navigate(Routes.Inbox) {
-                        popUpTo(Routes.Login) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-            )
-        }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The bar floats over the screens so the surface shows around it: the
+        // inbox keeps its own colour and the note sits on top like a player.
+        val wide = maxWidth >= TwoPaneMinWidth
+        // Only the detail pane of a wide inbox counts as "reading" a chat.
+        val visibleThreadId = currentChatThreadId
+            ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide }
+        val showPlayerBar = showVoiceMiniPlayer(
+            nowPlaying = nowPlaying,
+            visibleThreadId = visibleThreadId,
+            enabled = settings.voiceBackgroundPlayback,
+            finished = voicePlayer.finished,
+        )
+        // The bar floats over the list, so the list keeps its last row clear.
+        val listBottomInset = if (showPlayerBar) MiniVoicePlayerInset else 0.dp
+        NavHost(
+            navController = navController,
+            startDestination = resolvedStart,
+            enterTransition = {
+                fadeIn(motion.defaultEffectsSpec<Float>()) +
+                    slideInHorizontally(motion.defaultSpatialSpec<IntOffset>()) { it / 10 }
+            },
+            exitTransition = {
+                fadeOut(motion.fastEffectsSpec<Float>()) +
+                    slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
+            },
+            popEnterTransition = {
+                fadeIn(motion.fastEffectsSpec<Float>()) +
+                    slideInHorizontally(motion.fastSpatialSpec<IntOffset>()) { -it / 10 }
+            },
+            popExitTransition = {
+                fadeOut(motion.fastEffectsSpec<Float>()) +
+                    slideOutHorizontally(motion.fastSpatialSpec<IntOffset>()) { it / 10 }
+            },
+        ) {
+            composable(Routes.Login) {
+                LoginScreen(
+                    signIn = { cookies -> application.repository.signIn(cookies) },
+                    onSignedIn = { mailbox ->
+                        inboxState.applyMailbox(mailbox)
+                        application.realtimeRecorder.start()
+                        application.outbox.start()
+                        RealtimeService.restart(context)
+                        navController.navigate(Routes.Inbox) {
+                            popUpTo(Routes.Login) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
 
-        composable(Routes.Inbox) {
-            MainPane(
-                inboxState = inboxState,
-                likeEmoji = settings.doubleTapEmoji,
-                readReceiptsEnabled = settings.sendReadReceipts,
-                pendingShare = pendingShare,
-                voicePlayer = voicePlayer,
-                voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
-                shareTargetId = shareTargetId,
-                shareHint = shareHint,
-                onClaimShare = claimShare,
-                onShareConsumed = consumeShare,
-                onRefresh = {
-                    inboxState.refresh()
-                    RealtimeService.restart(context)
-                },
-                onLogin = { navController.navigate(Routes.Login) },
-                onOpenChat = { threadId ->
-                    inboxState.clearError()
-                    navController.navigate(Routes.chat(threadId))
-                },
-                onSearch = { navController.navigate(Routes.Search) },
-                onSettings = { navController.navigate(Routes.Settings) },
-                onLogout = {
-                    inboxState.logout()
-                    voicePlayer.stop()
-                    RealtimeService.stop(context)
-                },
-            )
-        }
-
-        composable(Routes.Settings) {
-            SettingsScreen(
-                settings = settings,
-                onThemeModeChange = settingsState::setThemeMode,
-                onDynamicColorChange = settingsState::setDynamicColor,
-                onDoubleTapEmojiChange = settingsState::setDoubleTapEmoji,
-                onSendTypingChange = { enabled ->
-                    settingsState.setSendTypingIndicators(enabled)
-                    if (!enabled) inboxState.stopSendingTypingIndicators()
-                },
-                onSendReadReceiptsChange = { enabled ->
-                    settingsState.setSendReadReceipts(enabled)
-                    if (!enabled) inboxState.cancelPendingReadReceipts()
-                },
-                onShowNotificationPreviewsChange = { enabled ->
-                    settingsState.setShowNotificationPreviews(enabled)
-                    if (!enabled) application.messageNotifier.dropMessageNotifications()
-                },
-                onVoiceBackgroundPlaybackChange = { enabled ->
-                    settingsState.setVoiceBackgroundPlayback(enabled)
-                    if (!enabled) voicePlayer.stop()
-                },
-                onClearMediaCache = {
-                    application.chatStore.clearDownloadedMediaFiles()
-                    application.repository.clearMediaCache()
-                    runCatching { context.imageLoader.memoryCache?.clear() }
-                    runCatching { context.imageLoader.diskCache?.clear() }
-                },
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        composable(Routes.Search) {
-            SearchScreen(
-                search = { query -> application.repository.searchUsers(query).toSearchUsers() },
-                onBack = { navController.popBackStack() },
-                onPick = { user ->
-                    // The first message creates the thread, so an account the
-                    // inbox does not have yet gets a draft chat instead.
-                    val existing = inboxState.conversationForRecipient(user.fbid, user.igId)
-                    val threadId = existing?.id ?: inboxState.startDraft(
-                        recipientFbid = user.fbid,
-                        name = user.name,
-                        username = user.username,
-                        avatarUrl = user.avatarUrl,
-                    )
-                    navController.navigate(Routes.chat(threadId)) {
-                        popUpTo(Routes.Inbox)
-                        launchSingleTop = true
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = Routes.ChatRoute,
-            arguments = listOf(
-                navArgument(Routes.ThreadIdArg) { type = NavType.StringType },
-            ),
-        ) { backStackEntry ->
-            val threadId = backStackEntry.arguments
-                ?.getString(Routes.ThreadIdArg)
-                .orEmpty()
-            val conversation = inboxState.conversation(threadId)
-
-            if (conversation == null) {
-                // Unknown thread (for example after a process restart); return to the inbox.
-                LaunchedEffect(threadId) { navController.popBackStack() }
-            } else {
-                ChatDestination(
-                    conversation = conversation,
+            composable(Routes.Inbox) {
+                MainPane(
                     inboxState = inboxState,
                     likeEmoji = settings.doubleTapEmoji,
                     readReceiptsEnabled = settings.sendReadReceipts,
-                    sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
                     voicePlayer = voicePlayer,
                     voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
-                    hasPendingShare = awaitingShareTarget,
-                    onClaimShare = { claimShare(conversation.id) },
-                    onSharedContentConsumed = consumeShare,
-                    onBack = {
-                        inboxState.clearError()
-                        navController.popBackStack()
+                    listBottomInset = listBottomInset,
+                    selectedChatId = selectedChatId,
+                    onSelectChat = { selectedChatId = it },
+                    pendingShare = pendingShare,
+                    shareTargetId = shareTargetId,
+                    shareHint = shareHint,
+                    onClaimShare = claimShare,
+                    onShareConsumed = consumeShare,
+                    onRefresh = {
+                        inboxState.refresh()
+                        RealtimeService.restart(context)
                     },
-                    onStarted = { startedThreadId ->
-                        navController.navigate(Routes.chat(startedThreadId)) {
+                    onLogin = { navController.navigate(Routes.Login) },
+                    onOpenChat = { threadId ->
+                        inboxState.clearError()
+                        navController.navigate(Routes.chat(threadId))
+                    },
+                    onSearch = { navController.navigate(Routes.Search) },
+                    onSettings = { navController.navigate(Routes.Settings) },
+                    onLogout = {
+                        inboxState.logout()
+                        voicePlayer.stop()
+                        RealtimeService.stop(context)
+                    },
+                )
+            }
+
+            composable(Routes.Settings) {
+                SettingsScreen(
+                    settings = settings,
+                    onThemeModeChange = settingsState::setThemeMode,
+                    onDynamicColorChange = settingsState::setDynamicColor,
+                    onDoubleTapEmojiChange = settingsState::setDoubleTapEmoji,
+                    onSendTypingChange = { enabled ->
+                        settingsState.setSendTypingIndicators(enabled)
+                        if (!enabled) inboxState.stopSendingTypingIndicators()
+                    },
+                    onSendReadReceiptsChange = { enabled ->
+                        settingsState.setSendReadReceipts(enabled)
+                        if (!enabled) inboxState.cancelPendingReadReceipts()
+                    },
+                    onShowNotificationPreviewsChange = { enabled ->
+                        settingsState.setShowNotificationPreviews(enabled)
+                        if (!enabled) application.messageNotifier.dropMessageNotifications()
+                    },
+                    onVoiceBackgroundPlaybackChange = { enabled ->
+                        settingsState.setVoiceBackgroundPlayback(enabled)
+                        if (!enabled) voicePlayer.stop()
+                    },
+                    onClearMediaCache = {
+                        application.chatStore.clearDownloadedMediaFiles()
+                        application.repository.clearMediaCache()
+                        runCatching { context.imageLoader.memoryCache?.clear() }
+                        runCatching { context.imageLoader.diskCache?.clear() }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Routes.Search) {
+                SearchScreen(
+                    search = { query -> application.repository.searchUsers(query).toSearchUsers() },
+                    onBack = { navController.popBackStack() },
+                    onPick = { user ->
+                        // The first message creates the thread, so an account the
+                        // inbox does not have yet gets a draft chat instead.
+                        val existing = inboxState.conversationForRecipient(user.fbid, user.igId)
+                        val threadId = existing?.id ?: inboxState.startDraft(
+                            recipientFbid = user.fbid,
+                            name = user.name,
+                            username = user.username,
+                            avatarUrl = user.avatarUrl,
+                        )
+                        navController.navigate(Routes.chat(threadId)) {
                             popUpTo(Routes.Inbox)
                             launchSingleTop = true
                         }
                     },
                 )
             }
+
+            composable(
+                route = Routes.ChatRoute,
+                arguments = listOf(
+                    navArgument(Routes.ThreadIdArg) { type = NavType.StringType },
+                ),
+            ) { backStackEntry ->
+                val threadId = backStackEntry.arguments
+                    ?.getString(Routes.ThreadIdArg)
+                    .orEmpty()
+                val conversation = inboxState.conversation(threadId)
+
+                if (conversation == null) {
+                    // Unknown thread (for example after a process restart); return to the inbox.
+                    LaunchedEffect(threadId) { navController.popBackStack() }
+                } else {
+                    ChatDestination(
+                        conversation = conversation,
+                        inboxState = inboxState,
+                        likeEmoji = settings.doubleTapEmoji,
+                        readReceiptsEnabled = settings.sendReadReceipts,
+                        voicePlayer = voicePlayer,
+                        voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
+                        sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
+                        hasPendingShare = awaitingShareTarget,
+                        onClaimShare = { claimShare(conversation.id) },
+                        onSharedContentConsumed = consumeShare,
+                        onBack = {
+                            inboxState.clearError()
+                            navController.popBackStack()
+                        },
+                        onStarted = { startedThreadId ->
+                            navController.navigate(Routes.chat(startedThreadId)) {
+                                popUpTo(Routes.Inbox)
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showPlayerBar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+        ) {
+            MiniVoicePlayer(
+                player = voicePlayer,
+                onOpen = {
+                    val target = nowPlaying ?: return@MiniVoicePlayer
+                    if (wide && currentRoute == Routes.Inbox) {
+                        selectedChatId = target.threadId
+                    } else {
+                        navController.navigate(Routes.chat(target.threadId)) {
+                            popUpTo(Routes.Inbox)
+                            launchSingleTop = true
+                        }
+                    }
+                },
+            )
         }
     }
 
@@ -344,9 +399,12 @@ private fun MainPane(
     inboxState: InboxState,
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
-    pendingShare: SharedContent?,
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean,
+    listBottomInset: Dp = 0.dp,
+    selectedChatId: String?,
+    onSelectChat: (String?) -> Unit,
+    pendingShare: SharedContent?,
     shareTargetId: String?,
     shareHint: String?,
     onClaimShare: (String) -> Unit,
@@ -378,14 +436,14 @@ private fun MainPane(
                 onSearch = onSearch,
                 onSettings = onSettings,
                 onLogout = onLogout,
+                listBottomInset = listBottomInset,
             )
             return@BoxWithConstraints
         }
 
-        var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
         // Back closes the detail pane before it leaves the inbox.
-        BackHandler(enabled = selectedId != null) { selectedId = null }
-        val selected = selectedId?.let { inboxState.conversation(it) }
+        BackHandler(enabled = selectedChatId != null) { onSelectChat(null) }
+        val selected = selectedChatId?.let { inboxState.conversation(it) }
 
         Row(Modifier.fillMaxSize()) {
             InboxScreen(
@@ -394,11 +452,11 @@ private fun MainPane(
                 errorMessage = inboxState.errorMessage,
                 onRefresh = onRefresh,
                 onLogin = onLogin,
-                selectedConversationId = selectedId,
+                selectedConversationId = selectedChatId,
                 shareHint = shareHint,
                 onConversationClick = { threadId ->
                     inboxState.clearError()
-                    selectedId = threadId
+                    onSelectChat(threadId)
                 },
                 modifier = Modifier.width(InboxPaneWidth),
                 viewerName = inboxState.viewerName,
@@ -411,6 +469,7 @@ private fun MainPane(
                 onSearch = onSearch,
                 onSettings = onSettings,
                 onLogout = onLogout,
+                listBottomInset = listBottomInset,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {
@@ -432,13 +491,13 @@ private fun MainPane(
                     inboxState = inboxState,
                     likeEmoji = likeEmoji,
                     readReceiptsEnabled = readReceiptsEnabled,
-                    sharedContent = if (shareTargetId == selected.id) pendingShare else null,
                     voicePlayer = voicePlayer,
                     voiceBackgroundPlayback = voiceBackgroundPlayback,
+                    sharedContent = if (shareTargetId == selected.id) pendingShare else null,
                     hasPendingShare = pendingShare != null && shareTargetId == null,
                     onClaimShare = { onClaimShare(selected.id) },
                     onSharedContentConsumed = onShareConsumed,
-                    onBack = { selectedId = null },
+                    onBack = { onSelectChat(null) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -453,9 +512,9 @@ private fun ChatDestination(
     inboxState: InboxState,
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
-    sharedContent: SharedContent?,
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean,
+    sharedContent: SharedContent?,
     hasPendingShare: Boolean,
     onClaimShare: () -> Unit,
     onSharedContentConsumed: () -> Unit,
@@ -529,8 +588,8 @@ private fun ChatDestination(
         viewerAvatarUrl = inboxState.viewerAvatarUrl,
         likeEmoji = likeEmoji,
         readReceiptsEnabled = readReceiptsEnabled,
-        modifier = modifier,
         voicePlayer = voicePlayer,
         voiceBackgroundPlayback = voiceBackgroundPlayback,
+        modifier = modifier,
     )
 }
