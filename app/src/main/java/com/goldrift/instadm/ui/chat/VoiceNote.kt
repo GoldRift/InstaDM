@@ -274,6 +274,12 @@ fun VoiceNoteBubble(
     val isPlaying = player.isPlaying(messageId)
     val progress = player.progressFor(messageId)
     val durationMs = if (isActive && player.durationMs > 0) player.durationMs else media.durationMs
+    // Only the note being played counts down; an untouched one shows its length.
+    val remainingMs = if (isActive) {
+        (durationMs - player.positionMs).coerceAtLeast(0)
+    } else {
+        durationMs
+    }
 
     fun togglePlayback() {
         if (player.isPlaying(messageId)) {
@@ -387,7 +393,7 @@ fun VoiceNoteBubble(
         Spacer(Modifier.width(8.dp))
 
         Text(
-            text = formatMediaDuration(durationMs),
+            text = formatMediaDuration(remainingMs),
             style = MaterialTheme.typography.labelSmall,
             color = contentColor.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
