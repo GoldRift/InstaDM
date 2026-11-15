@@ -127,7 +127,15 @@ class MessageNotifier(
         val message = event.message ?: return
         val threadId = event.threadId
         if (threadId.isBlank() || message.id.isBlank() || message.isFromViewer) return
-        if (AppVisibility.isForeground) return
+        if (
+            suppressesNotification(
+                isForeground = AppVisibility.isForeground,
+                openThreadId = AppVisibility.openThreadId,
+                threadId = threadId,
+            )
+        ) {
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -543,3 +551,14 @@ class MessageNotifier(
         private val ON_AVATAR_COLOR = 0xFF202124.toInt()
     }
 }
+
+/**
+ * A notification is only redundant when the reader is looking at that exact
+ * chat: a message in another conversation still has to buzz while the app is
+ * open, or the sender looks ignored.
+ */
+internal fun suppressesNotification(
+    isForeground: Boolean,
+    openThreadId: String?,
+    threadId: String,
+): Boolean = isForeground && threadId.isNotBlank() && threadId == openThreadId

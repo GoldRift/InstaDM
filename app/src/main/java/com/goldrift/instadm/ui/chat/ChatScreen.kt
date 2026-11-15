@@ -600,6 +600,13 @@ fun ChatScreen(
         }
     }
 
+    // Notification suppression is scoped to this chat: any other conversation
+    // still notifies while the app is open.
+    DisposableEffect(conversation.id) {
+        AppVisibility.openChat(conversation.id)
+        onDispose { AppVisibility.closeChat(conversation.id) }
+    }
+
     // Another chat's note keeps playing on the app's bar, which floats just
     // above this composer; the transcript keeps its last bubble clear of it.
     val playerBarShown = showVoiceMiniPlayer(

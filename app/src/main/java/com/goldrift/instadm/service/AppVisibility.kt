@@ -11,4 +11,17 @@ import androidx.compose.runtime.setValue
  */
 object AppVisibility {
     var isForeground: Boolean by mutableStateOf(false)
+
+    /** Chat the reader has on screen; a notification there would be redundant. */
+    var openThreadId: String? by mutableStateOf(null)
+        private set
+
+    fun openChat(threadId: String) {
+        openThreadId = threadId
+    }
+
+    /** Only the chat that registered may release it; two-pane disposal can be late. */
+    fun closeChat(threadId: String) {
+        if (openThreadId == threadId) openThreadId = null
+    }
 }
