@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.MessageNotifier
+import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.InstaDmApp
 import com.goldrift.instadm.ui.theme.InstaDMTheme
@@ -102,6 +103,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisibility.isForeground = true
+        VoicePlaybackNotifier.hide(this)
         val app = application as InstaDmApplication
         if (app.sessionStore.hasStoredSession()) {
             RealtimeService.start(this)
@@ -110,6 +112,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         AppVisibility.isForeground = false
+        // A note still going after the app leaves the screen names itself in
+        // the shade; a rotation is not leaving.
+        val player = (application as InstaDmApplication).voicePlayer
+        val note = player.nowPlaying
+        if (!isChangingConfigurations && player.playing && note != null) {
+            VoicePlaybackNotifier.show(this, note)
+        }
         super.onStop()
     }
 

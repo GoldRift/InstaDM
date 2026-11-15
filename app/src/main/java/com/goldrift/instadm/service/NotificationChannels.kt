@@ -10,6 +10,7 @@ import com.goldrift.instadm.R
 internal object NotificationChannels {
     const val STATUS = "realtime_status"
     const val MESSAGES = "messages"
+    const val PLAYBACK = "voice_playback"
 
     fun ensure(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -21,6 +22,16 @@ internal object NotificationChannels {
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = context.getString(R.string.notification_channel_status_description)
+                setShowBadge(false)
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                PLAYBACK,
+                context.getString(R.string.notification_channel_playback),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.notification_channel_playback_description)
                 setShowBadge(false)
             },
         )

@@ -198,5 +198,8 @@
     <string name="notification_channel_messages">Messages</string>
     <string name="notification_channel_messages_description">New Instagram direct messages.</string>
     <string name="notification_message">New message</string>
+    <string name="notification_channel_playback">Voice playback</string>
+    <string name="notification_channel_playback_description">Shows the voice note that keeps playing while InstaDM is out of sight.</string>
+    <string name="voice_playback_notification">Playing voice message</string>
     <string name="notification_group_chat">Group chat</string>
 </resources>

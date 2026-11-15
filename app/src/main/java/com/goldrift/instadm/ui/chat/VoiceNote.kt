@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.goldrift.instadm.R
+import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.data.MessageMedia
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +145,7 @@ class VoicePlayer(context: Context) {
             mediaPlayer.setOnCompletionListener {
                 playing = false
                 positionMs = durationMs
+                VoicePlaybackNotifier.hide(appContext)
             }
             mediaPlayer.start()
         } catch (error: Exception) {
@@ -168,6 +170,7 @@ class VoicePlayer(context: Context) {
         playing = false
         ticker?.cancel()
         ticker = null
+        VoicePlaybackNotifier.hide(appContext)
     }
 
     /** Play/pause for the bar, which has no bubble to supply the file again. */
@@ -218,6 +221,7 @@ class VoicePlayer(context: Context) {
         activeId = null
         nowPlaying = null
         playing = false
+        VoicePlaybackNotifier.hide(appContext)
         positionMs = 0
         durationMs = 0
         abandonFocus()
