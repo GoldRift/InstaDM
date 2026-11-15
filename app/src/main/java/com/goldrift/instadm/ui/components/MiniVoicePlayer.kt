@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -14,16 +16,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
@@ -31,6 +42,8 @@ import com.goldrift.instadm.ui.chat.NowPlaying
 import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.chat.WaveformBars
 import com.goldrift.instadm.ui.chat.formatMediaDuration
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Where the bar belongs: a note is on the player, the feature is on, the note
@@ -52,6 +65,7 @@ internal val MiniVoicePlayerInset = 76.dp
  * surface the way Material 3 expressive treats a player, but carries the note
  * itself: its waveform and the time still to go rather than a music seekbar.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MiniVoicePlayer(
     player: VoicePlayer,
@@ -70,24 +84,47 @@ fun MiniVoicePlayer(
     val controlLabel = stringResource(
         if (playing) R.string.chat_voice_pause else R.string.chat_voice_play,
     )
+    val motion = MaterialTheme.motionScheme
+    val scope = rememberCoroutineScope()
+    // The bar rides the finger down and then leaves, rather than blinking out.
+    val pull = remember { Animatable(0f) }
+    var heightPx by remember { mutableIntStateOf(0) }
     Surface(
         onClick = onOpen,
         modifier = modifier
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                var dragged = 0f
+            .offset { IntOffset(0, pull.value.roundToInt()) }
+            .graphicsLayer {
+                // Gone exactly when it has travelled its own height, so the
+                // exit animation ends without a pop.
+                alpha = 1f - (pull.value / (heightPx * 1.05f).coerceAtLeast(1f)).coerceIn(0f, 1f)
+            }
+            .onSizeChanged { heightPx = it.height }
+            .pointerInput(player) {
+                // Pulling down closes the player; pulling up does nothing.
+                fun release() = scope.launch { pull.animateTo(0f, motion.defaultSpatialSpec()) }
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, delta ->
                         change.consume()
-                        dragged += delta
+                        scope.launch {
+                            pull.snapTo((pull.value + delta).coerceAtLeast(0f))
+                        }
                     },
                     onDragEnd = {
-                        // A deliberate pull down closes the player.
-                        if (dragged > size.height / 2f) player.stop()
-                        dragged = 0f
+                        if (pull.value > heightPx * 0.4f) {
+                            scope.launch {
+                                pull.animateTo(
+                                    targetValue = heightPx * 1.05f,
+                                    animationSpec = motion.defaultSpatialSpec(),
+                                )
+                                player.stop()
+                            }
+                        } else {
+                            release()
+                        }
                     },
-                    onDragCancel = { dragged = 0f },
+                    onDragCancel = { release() },
                 )
             },
         shape = RoundedCornerShape(percent = 50),
