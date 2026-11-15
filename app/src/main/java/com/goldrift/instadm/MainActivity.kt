@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.MessageNotifier
 import com.goldrift.instadm.service.RealtimeService
@@ -28,10 +30,13 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private var pendingThreadId by mutableStateOf<String?>(null)
+    private var pendingShare by mutableStateOf<SharedContent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingShare = restoreShare(savedInstanceState)
         handleNotificationIntent(intent)
+        handleShareIntent(intent)
         enableEdgeToEdge()
         setContent {
             val app = application as InstaDmApplication
@@ -61,6 +66,8 @@ class MainActivity : ComponentActivity() {
                 InstaDmApp(
                     pendingThreadId = pendingThreadId,
                     onPendingThreadHandled = { pendingThreadId = null },
+                    pendingShare = pendingShare,
+                    onShareHandled = { pendingShare = null },
                 )
             }
         }
@@ -79,6 +86,17 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNotificationIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val share = pendingShare ?: return
+        outState.putString(KEY_SHARE_TEXT, share.text)
+        outState.putStringArrayList(
+            KEY_SHARE_URIS,
+            ArrayList(share.uris.map(Uri::toString)),
+        )
     }
 
     override fun onStart() {
@@ -101,5 +119,27 @@ class MainActivity : ComponentActivity() {
             ?: return
         intent.removeExtra(MessageNotifier.EXTRA_THREAD_ID)
         pendingThreadId = threadId
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        val share = SharedContent.from(intent) ?: return
+        pendingShare = share
+        // A rotation or relaunch replays the intent; clear it once read so the
+        // share is not applied twice.
+        if (intent != null) intent.action = null
+    }
+
+    private fun restoreShare(state: Bundle?): SharedContent? {
+        if (state == null) return null
+        val text = state.getString(KEY_SHARE_TEXT).orEmpty()
+        // shortcut: a content URI restored after process death may have lost its
+        // read grant, so sending it then fails with the media error.
+        val uris = state.getStringArrayList(KEY_SHARE_URIS).orEmpty().map(Uri::parse)
+        return SharedContent(text, uris).takeUnless { it.isEmpty }
+    }
+
+    private companion object {
+        const val KEY_SHARE_TEXT = "share_text"
+        const val KEY_SHARE_URIS = "share_uris"
     }
 }

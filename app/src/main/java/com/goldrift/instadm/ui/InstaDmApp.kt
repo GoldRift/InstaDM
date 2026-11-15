@@ -43,6 +43,7 @@ import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
@@ -76,6 +77,8 @@ private val InboxPaneWidth = 380.dp
 fun InstaDmApp(
     pendingThreadId: String? = null,
     onPendingThreadHandled: () -> Unit = {},
+    pendingShare: SharedContent? = null,
+    onShareHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as InstaDmApplication
@@ -84,6 +87,19 @@ fun InstaDmApp(
     val settings = settingsState.current
     val navController = rememberNavController()
     var startRoute by remember { mutableStateOf<String?>(null) }
+    // The chat the pending share was handed to; chosen by opening a chat.
+    var shareTargetId by remember { mutableStateOf<String?>(null) }
+    val awaitingShareTarget = pendingShare != null && shareTargetId == null
+    val shareHint = if (awaitingShareTarget) {
+        stringResource(R.string.inbox_share_hint)
+    } else {
+        null
+    }
+    val claimShare: (String) -> Unit = { shareTargetId = it }
+    val consumeShare: () -> Unit = {
+        shareTargetId = null
+        onShareHandled()
+    }
 
     LaunchedEffect(application.repository) {
         startRoute = if (application.repository.hasCookies()) Routes.Inbox else Routes.Login
@@ -165,6 +181,11 @@ fun InstaDmApp(
                 inboxState = inboxState,
                 likeEmoji = settings.doubleTapEmoji,
                 readReceiptsEnabled = settings.sendReadReceipts,
+                pendingShare = pendingShare,
+                shareTargetId = shareTargetId,
+                shareHint = shareHint,
+                onClaimShare = claimShare,
+                onShareConsumed = consumeShare,
                 onRefresh = {
                     inboxState.refresh()
                     RealtimeService.restart(context)
@@ -253,6 +274,10 @@ fun InstaDmApp(
                     inboxState = inboxState,
                     likeEmoji = settings.doubleTapEmoji,
                     readReceiptsEnabled = settings.sendReadReceipts,
+                    sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
+                    hasPendingShare = awaitingShareTarget,
+                    onClaimShare = { claimShare(conversation.id) },
+                    onSharedContentConsumed = consumeShare,
                     onBack = {
                         inboxState.clearError()
                         navController.popBackStack()
@@ -308,6 +333,11 @@ private fun MainPane(
     inboxState: InboxState,
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
+    pendingShare: SharedContent?,
+    shareTargetId: String?,
+    shareHint: String?,
+    onClaimShare: (String) -> Unit,
+    onShareConsumed: () -> Unit,
     onRefresh: () -> Unit,
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
@@ -321,6 +351,7 @@ private fun MainPane(
                 conversations = inboxState.conversations,
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
+                shareHint = shareHint,
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 onConversationClick = onOpenChat,
@@ -351,6 +382,7 @@ private fun MainPane(
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 selectedConversationId = selectedId,
+                shareHint = shareHint,
                 onConversationClick = { threadId ->
                     inboxState.clearError()
                     selectedId = threadId
@@ -387,6 +419,10 @@ private fun MainPane(
                     inboxState = inboxState,
                     likeEmoji = likeEmoji,
                     readReceiptsEnabled = readReceiptsEnabled,
+                    sharedContent = if (shareTargetId == selected.id) pendingShare else null,
+                    hasPendingShare = pendingShare != null && shareTargetId == null,
+                    onClaimShare = { onClaimShare(selected.id) },
+                    onSharedContentConsumed = onShareConsumed,
                     onBack = { selectedId = null },
                     modifier = Modifier.weight(1f),
                 )
@@ -402,6 +438,10 @@ private fun ChatDestination(
     inboxState: InboxState,
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
+    sharedContent: SharedContent?,
+    hasPendingShare: Boolean,
+    onClaimShare: () -> Unit,
+    onSharedContentConsumed: () -> Unit,
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -412,6 +452,10 @@ private fun ChatDestination(
     var draftError by remember(threadId) { mutableStateOf<String?>(null) }
     var sendingDraft by remember(threadId) { mutableStateOf(false) }
 
+    // The first existing chat opened while a share is waiting receives it.
+    LaunchedEffect(threadId, hasPendingShare) {
+        if (hasPendingShare && !isDraft) onClaimShare()
+    }
     LaunchedEffect(threadId) {
         if (!isDraft) inboxState.loadThread(threadId)
     }
@@ -423,6 +467,8 @@ private fun ChatDestination(
     }
     ChatScreen(
         conversation = conversation,
+        sharedContent = sharedContent,
+        onSharedContentConsumed = onSharedContentConsumed,
         onSend = { text, reply ->
             if (isDraft) {
                 sendingDraft = true

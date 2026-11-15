@@ -72,6 +72,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -174,6 +175,7 @@ import com.goldrift.instadm.data.DEFAULT_DOUBLE_TAP_EMOJI
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
+import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.data.VoiceRecorder
 import com.goldrift.instadm.data.VoiceRecordingState
 import com.goldrift.instadm.service.AppVisibility
@@ -244,6 +246,8 @@ fun ChatScreen(
     viewerAvatarUrl: String = "",
     likeEmoji: String = DEFAULT_DOUBLE_TAP_EMOJI,
     readReceiptsEnabled: Boolean = true,
+    sharedContent: SharedContent? = null,
+    onSharedContentConsumed: () -> Unit = {},
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -309,6 +313,19 @@ fun ChatScreen(
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var draft by remember { mutableStateOf("") }
+    // Attachments handed over by another app wait here until the viewer sends.
+    var stagedMedia by remember(conversation.id) { mutableStateOf<List<Uri>>(emptyList()) }
+
+    // Content shared from another app lands in this chat's composer once the
+    // viewer picks the conversation.
+    LaunchedEffect(sharedContent) {
+        val share = sharedContent ?: return@LaunchedEffect
+        if (share.text.isNotBlank()) {
+            draft = if (draft.isBlank()) share.text else draft.trimEnd() + "\n" + share.text
+        }
+        stagedMedia = (stagedMedia + share.uris).distinct()
+        onSharedContentConsumed()
+    }
     var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
@@ -526,9 +543,11 @@ fun ChatScreen(
 
     fun sendMessage() {
         val text = draft.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() && stagedMedia.isEmpty()) return
 
-        onSend(text, replyTarget)
+        if (text.isNotEmpty()) onSend(text, replyTarget)
+        stagedMedia.forEach(onSendMedia)
+        stagedMedia = emptyList()
         draft = ""
         replyTarget = null
     }
@@ -585,6 +604,8 @@ fun ChatScreen(
                 onCamera = ::takePhoto,
                 attachmentsEnabled = attachmentsEnabled,
                 onPickMedia = ::pickMedia,
+                stagedMediaCount = stagedMedia.size,
+                onClearStagedMedia = { stagedMedia = emptyList() },
                 recorder = voiceRecorder,
                 locked = recordingLocked,
                 cancelCandidate = recordingCancel,
@@ -2313,6 +2334,8 @@ private fun MessageComposer(
     focusRequester: FocusRequester,
     onCamera: () -> Unit,
     onPickMedia: () -> Unit,
+    stagedMediaCount: Int,
+    onClearStagedMedia: () -> Unit,
     recorder: VoiceRecorder,
     locked: Boolean,
     cancelCandidate: Boolean,
@@ -2324,7 +2347,8 @@ private fun MessageComposer(
     attachmentsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val showActions = draft.isBlank() && attachmentsEnabled
+    val showSend = draft.isNotBlank() || stagedMediaCount > 0
+    val showActions = !showSend && attachmentsEnabled
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
 
@@ -2349,6 +2373,12 @@ private fun MessageComposer(
                         reply = replyingTo,
                         label = replyingToLabel,
                         onCancel = onCancelReply,
+                    )
+                }
+                if (stagedMediaCount > 0) {
+                    StagedMediaBar(
+                        count = stagedMediaCount,
+                        onClear = onClearStagedMedia,
                     )
                 }
                 Row(
@@ -2459,15 +2489,7 @@ private fun MessageComposer(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    if (showActions) {
-                        MicButton(
-                            recording = recording,
-                            onStart = onMicStart,
-                            onToggle = { if (recording) onRecordingSend() else onMicStart() },
-                            onMove = onMicMove,
-                            onRelease = onMicRelease,
-                        )
-                    } else {
+                    if (showSend || !attachmentsEnabled) {
                         FilledIconButton(
                             onClick = onSend,
                             modifier = Modifier.size(48.dp),
@@ -2482,8 +2504,54 @@ private fun MessageComposer(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
+                    } else {
+                        MicButton(
+                            recording = recording,
+                            onStart = onMicStart,
+                            onToggle = { if (recording) onRecordingSend() else onMicStart() },
+                            onMove = onMicMove,
+                            onRelease = onMicRelease,
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Attachments shared from another app, waiting in the composer for Send. */
+@Composable
+private fun StagedMediaBar(count: Int, onClear: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.AttachFile,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = pluralStringResource(R.plurals.chat_share_attachments, count, count),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onClear) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.chat_share_clear),
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

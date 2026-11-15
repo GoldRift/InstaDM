@@ -106,6 +106,7 @@ fun InboxScreen(
     moreError: Boolean = false,
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
+    shareHint: String? = null,
     onSearch: () -> Unit = {},
     onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
@@ -207,6 +208,23 @@ fun InboxScreen(
                     }
 
                     else -> Column(Modifier.fillMaxSize()) {
+                        if (shareHint != null) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                            ) {
+                                Text(
+                                    text = shareHint,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
                         if (errorMessage != null) {
                             Surface(
                                 modifier = Modifier.semantics {
