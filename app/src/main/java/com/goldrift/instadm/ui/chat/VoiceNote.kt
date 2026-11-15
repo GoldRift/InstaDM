@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -372,7 +373,9 @@ fun VoiceNoteBubble(
                 .weight(1f)
                 .height(28.dp),
             onSeek = { fraction ->
-                if (isActive) {
+                // Read the live id: a drag's first event starts the note and the
+                // following ones scrub it, without restarting playback.
+                if (player.activeId == messageId) {
                     player.seek(fraction)
                 } else {
                     togglePlayback()
@@ -404,6 +407,8 @@ fun WaveformBars(
     val contentColor = LocalContentColor.current
     val waveformLabel = stringResource(R.string.chat_voice_waveform)
     val seek = onSeek
+    // Follows the finger so the bars don't trail MediaPlayer while it seeks.
+    var dragProgress by remember { mutableStateOf<Float?>(null) }
     val gestureModifier = if (seek != null) {
         Modifier
             .semantics {
@@ -422,7 +427,26 @@ fun WaveformBars(
                     onTap = { offset ->
                         if (size.width > 0) seek(offset.x / size.width)
                     },
-                    onLongPress = { onLongClick?.invoke() },
+                    // A slow drag must scrub, not open the message actions.
+                    onLongPress = { if (dragProgress == null) onLongClick?.invoke() },
+                )
+            }
+            .pointerInput(seek) {
+                var fraction = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        fraction = scrubFraction(offset.x / size.width, 0f, size.width.toFloat())
+                        dragProgress = fraction
+                        seek(fraction)
+                    },
+                    onHorizontalDrag = { change, delta ->
+                        change.consume()
+                        fraction = scrubFraction(fraction, delta, size.width.toFloat())
+                        dragProgress = fraction
+                        seek(fraction)
+                    },
+                    onDragEnd = { dragProgress = null },
+                    onDragCancel = { dragProgress = null },
                 )
             }
     } else {
@@ -433,7 +457,7 @@ fun WaveformBars(
         val gap = 2.dp.toPx()
         val count = ((size.width + gap) / (barWidth + gap)).toInt().coerceIn(1, 64)
         val step = if (amplitudes.isEmpty()) 0f else amplitudes.size.toFloat() / count
-        val played = progress.coerceIn(0f, 1f)
+        val played = (dragProgress ?: progress).coerceIn(0f, 1f)
         for (index in 0 until count) {
             val amplitude = if (amplitudes.isEmpty()) {
                 0.4f
@@ -496,4 +520,13 @@ private fun localVoiceFile(media: MessageMedia): File? {
         return File(path).takeIf { it.isFile }
     }
     return null
+}
+
+/**
+ * Fraction of the waveform under a drag: [startFraction] shifted by [deltaPx]
+ * over [widthPx], kept inside 0..1 so a drag past either end stops there.
+ */
+internal fun scrubFraction(startFraction: Float, deltaPx: Float, widthPx: Float): Float {
+    if (widthPx <= 0f) return startFraction.coerceIn(0f, 1f)
+    return (startFraction + deltaPx / widthPx).coerceIn(0f, 1f)
 }
