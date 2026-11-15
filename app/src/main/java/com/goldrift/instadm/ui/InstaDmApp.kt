@@ -160,17 +160,33 @@ fun InstaDmApp(
         // The bar floats over the screens so the surface shows around it: the
         // inbox keeps its own colour and the note sits on top like a player.
         val wide = maxWidth >= TwoPaneMinWidth
-        // Only the detail pane of a wide inbox counts as "reading" a chat.
-        val visibleThreadId = currentChatThreadId
-            ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide }
-        val showPlayerBar = showVoiceMiniPlayer(
+        // A chat shows the bar above its composer, so the floating one only
+        // covers the screens that are not reading a chat.
+        val readingChat = currentChatThreadId != null ||
+            (currentRoute == Routes.Inbox && wide && selectedChatId != null)
+        val showPlayerBar = !readingChat && showVoiceMiniPlayer(
             nowPlaying = nowPlaying,
-            visibleThreadId = visibleThreadId,
+            visibleThreadId = null,
             enabled = settings.voiceBackgroundPlayback,
             finished = voicePlayer.finished,
         )
         // The bar floats over the list, so the list keeps its last row clear.
         val listBottomInset = if (showPlayerBar) MiniVoicePlayerInset else 0.dp
+        // Opening the bar lands on the note it plays, from wherever it shows.
+        val openPlayingNote: () -> Unit = {
+            val target = nowPlaying
+            if (target != null) {
+                focusMessage = target.threadId to target.messageId
+                if (wide && currentRoute == Routes.Inbox) {
+                    selectedChatId = target.threadId
+                } else {
+                    navController.navigate(Routes.chat(target.threadId)) {
+                        popUpTo(Routes.Inbox)
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
         NavHost(
             navController = navController,
             startDestination = resolvedStart,
@@ -216,6 +232,7 @@ fun InstaDmApp(
                     voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
                     focusMessage = focusMessage,
                     onFocusHandled = { focusMessage = null },
+                    onOpenPlayingNote = openPlayingNote,
                     listBottomInset = listBottomInset,
                     selectedChatId = selectedChatId,
                     onSelectChat = { selectedChatId = it },
@@ -322,6 +339,7 @@ fun InstaDmApp(
                         focusMessageId = focusMessage
                             ?.takeIf { it.first == conversation.id }?.second,
                         onFocusHandled = { focusMessage = null },
+                        onOpenPlayingNote = openPlayingNote,
                         sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
                         hasPendingShare = awaitingShareTarget,
                         onClaimShare = { claimShare(conversation.id) },
@@ -349,21 +367,7 @@ fun InstaDmApp(
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
         ) {
-            MiniVoicePlayer(
-                player = voicePlayer,
-                onOpen = {
-                    val target = nowPlaying ?: return@MiniVoicePlayer
-                    focusMessage = target.threadId to target.messageId
-                    if (wide && currentRoute == Routes.Inbox) {
-                        selectedChatId = target.threadId
-                    } else {
-                        navController.navigate(Routes.chat(target.threadId)) {
-                            popUpTo(Routes.Inbox)
-                            launchSingleTop = true
-                        }
-                    }
-                },
-            )
+            MiniVoicePlayer(player = voicePlayer, onOpen = openPlayingNote)
         }
     }
 
@@ -411,6 +415,7 @@ private fun MainPane(
     voiceBackgroundPlayback: Boolean,
     focusMessage: Pair<String, String>? = null,
     onFocusHandled: () -> Unit = {},
+    onOpenPlayingNote: () -> Unit = {},
     listBottomInset: Dp = 0.dp,
     selectedChatId: String?,
     onSelectChat: (String?) -> Unit,
@@ -505,6 +510,7 @@ private fun MainPane(
                     voiceBackgroundPlayback = voiceBackgroundPlayback,
                     focusMessageId = focusMessage?.takeIf { it.first == selected.id }?.second,
                     onFocusHandled = onFocusHandled,
+                    onOpenPlayingNote = onOpenPlayingNote,
                     sharedContent = if (shareTargetId == selected.id) pendingShare else null,
                     hasPendingShare = pendingShare != null && shareTargetId == null,
                     onClaimShare = { onClaimShare(selected.id) },
@@ -528,6 +534,7 @@ private fun ChatDestination(
     voiceBackgroundPlayback: Boolean,
     focusMessageId: String? = null,
     onFocusHandled: () -> Unit = {},
+    onOpenPlayingNote: () -> Unit = {},
     sharedContent: SharedContent?,
     hasPendingShare: Boolean,
     onClaimShare: () -> Unit,
@@ -606,6 +613,7 @@ private fun ChatDestination(
         voiceBackgroundPlayback = voiceBackgroundPlayback,
         focusMessageId = focusMessageId,
         onFocusHandled = onFocusHandled,
+        onOpenPlayingNote = onOpenPlayingNote,
         modifier = modifier,
     )
 }

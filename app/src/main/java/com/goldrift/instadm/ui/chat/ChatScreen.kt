@@ -182,6 +182,8 @@ import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
+import com.goldrift.instadm.ui.components.MiniVoicePlayer
+import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
 import kotlinx.coroutines.delay
@@ -254,6 +256,8 @@ fun ChatScreen(
     /** A note the player bar opened; scrolled to and outlined like a quote jump. */
     focusMessageId: String? = null,
     onFocusHandled: () -> Unit = {},
+    /** Opens the chat of the note the bar is playing. */
+    onOpenPlayingNote: () -> Unit = {},
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -606,51 +610,65 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            MessageComposer(
-                draft = draft,
-                onDraftChange = { value ->
-                    draft = value
-                    if (value.isNotBlank()) onTyping()
-                },
-                onSend = ::sendMessage,
-                replyingTo = replyTarget?.toReplySnapshot(),
-                replyingToLabel = replyLabel,
-                onCancelReply = { replyTarget = null },
-                focusRequester = composerFocus,
-                onCamera = ::takePhoto,
-                attachmentsEnabled = attachmentsEnabled,
-                onPickMedia = ::pickMedia,
-                stagedMediaCount = stagedMedia.size,
-                onClearStagedMedia = { stagedMedia = emptyList() },
-                recorder = voiceRecorder,
-                locked = recordingLocked,
-                cancelCandidate = recordingCancel,
-                onMicStart = ::startRecording,
-                onMicMove = { lock, cancel ->
-                    if (lock && !recordingLocked) {
-                        recordingLocked = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
-                    if (!recordingLocked) recordingCancel = cancel
-                },
-                onMicRelease = { lock, cancel ->
-                    if (!lock && voiceRecorder.isRecording) {
-                        if (cancel) {
-                            voiceRecorder.cancel()
-                            recordingLocked = false
-                            recordingCancel = false
-                        } else {
-                            finishRecording()
+            Column {
+                // Another chat's note plays here too, so the bar sits above the
+                // message box instead of over it.
+                if (
+                    showVoiceMiniPlayer(
+                        nowPlaying = voicePlayer.nowPlaying,
+                        visibleThreadId = conversation.id,
+                        enabled = voiceBackgroundPlayback,
+                        finished = voicePlayer.finished,
+                    )
+                ) {
+                    MiniVoicePlayer(player = voicePlayer, onOpen = onOpenPlayingNote)
+                }
+                MessageComposer(
+                    draft = draft,
+                    onDraftChange = { value ->
+                        draft = value
+                        if (value.isNotBlank()) onTyping()
+                    },
+                    onSend = ::sendMessage,
+                    replyingTo = replyTarget?.toReplySnapshot(),
+                    replyingToLabel = replyLabel,
+                    onCancelReply = { replyTarget = null },
+                    focusRequester = composerFocus,
+                    onCamera = ::takePhoto,
+                    attachmentsEnabled = attachmentsEnabled,
+                    onPickMedia = ::pickMedia,
+                    stagedMediaCount = stagedMedia.size,
+                    onClearStagedMedia = { stagedMedia = emptyList() },
+                    recorder = voiceRecorder,
+                    locked = recordingLocked,
+                    cancelCandidate = recordingCancel,
+                    onMicStart = ::startRecording,
+                    onMicMove = { lock, cancel ->
+                        if (lock && !recordingLocked) {
+                            recordingLocked = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
-                    }
-                },
-                onRecordingSend = ::finishRecording,
-                onRecordingDelete = {
-                    voiceRecorder.cancel()
-                    recordingLocked = false
-                    recordingCancel = false
-                },
-            )
+                        if (!recordingLocked) recordingCancel = cancel
+                    },
+                    onMicRelease = { lock, cancel ->
+                        if (!lock && voiceRecorder.isRecording) {
+                            if (cancel) {
+                                voiceRecorder.cancel()
+                                recordingLocked = false
+                                recordingCancel = false
+                            } else {
+                                finishRecording()
+                            }
+                        }
+                    },
+                    onRecordingSend = ::finishRecording,
+                    onRecordingDelete = {
+                        voiceRecorder.cancel()
+                        recordingLocked = false
+                        recordingCancel = false
+                    },
+                )
+            }
         },
     ) { innerPadding ->
         val chatContentShape = RoundedCornerShape(
