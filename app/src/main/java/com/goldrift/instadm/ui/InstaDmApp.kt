@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -102,6 +104,8 @@ fun InstaDmApp(
     var selectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
     // The note the player bar opened, waiting for its chat to show it.
     var focusMessage by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Reported by the open chat, so the bar can float just above its composer.
+    var composerHeight by remember { mutableStateOf(0.dp) }
     // The chat the pending share was handed to; chosen by opening a chat.
     var shareTargetId by remember { mutableStateOf<String?>(null) }
     val awaitingShareTarget = pendingShare != null && shareTargetId == null
@@ -160,18 +164,25 @@ fun InstaDmApp(
         // The bar floats over the screens so the surface shows around it: the
         // inbox keeps its own colour and the note sits on top like a player.
         val wide = maxWidth >= TwoPaneMinWidth
-        // A chat shows the bar above its composer, so the floating one only
-        // covers the screens that are not reading a chat.
-        val readingChat = currentChatThreadId != null ||
-            (currentRoute == Routes.Inbox && wide && selectedChatId != null)
-        val showPlayerBar = !readingChat && showVoiceMiniPlayer(
+        // Only the detail pane of a wide inbox counts as "reading" a chat.
+        val visibleThreadId = currentChatThreadId
+            ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide }
+        val showPlayerBar = showVoiceMiniPlayer(
             nowPlaying = nowPlaying,
-            visibleThreadId = null,
+            visibleThreadId = visibleThreadId,
             enabled = settings.voiceBackgroundPlayback,
             finished = voicePlayer.finished,
         )
         // The bar floats over the list, so the list keeps its last row clear.
-        val listBottomInset = if (showPlayerBar) MiniVoicePlayerInset else 0.dp
+        val listBottomInset =
+            if (showPlayerBar && visibleThreadId == null) MiniVoicePlayerInset else 0.dp
+        // One bar throughout: it rises from the window bottom to just above a
+        // chat's composer instead of a second one appearing there.
+        val lift by animateDpAsState(
+            targetValue = if (visibleThreadId != null) composerHeight else 0.dp,
+            animationSpec = motion.defaultSpatialSpec(),
+            label = "miniPlayerLift",
+        )
         // Opening the bar lands on the note it plays, from wherever it shows.
         val openPlayingNote: () -> Unit = {
             val target = nowPlaying
@@ -232,7 +243,7 @@ fun InstaDmApp(
                     voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
                     focusMessage = focusMessage,
                     onFocusHandled = { focusMessage = null },
-                    onOpenPlayingNote = openPlayingNote,
+                    onComposerHeight = { composerHeight = it },
                     listBottomInset = listBottomInset,
                     selectedChatId = selectedChatId,
                     onSelectChat = { selectedChatId = it },
@@ -339,7 +350,7 @@ fun InstaDmApp(
                         focusMessageId = focusMessage
                             ?.takeIf { it.first == conversation.id }?.second,
                         onFocusHandled = { focusMessage = null },
-                        onOpenPlayingNote = openPlayingNote,
+                        onComposerHeight = { composerHeight = it },
                         sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
                         hasPendingShare = awaitingShareTarget,
                         onClaimShare = { claimShare(conversation.id) },
@@ -363,9 +374,15 @@ fun InstaDmApp(
             visible = showPlayerBar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding(),
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
+                // A spring may dip past its target; padding cannot.
+                .padding(bottom = lift.coerceAtLeast(0.dp))
+                .then(
+                    // A chat's composer already carries the navigation bar.
+                    if (visibleThreadId == null) Modifier.navigationBarsPadding() else Modifier,
+                ),
+            enter = fadeIn(motion.defaultEffectsSpec()) +
+                slideInVertically(motion.defaultSpatialSpec()) { it },
+            exit = fadeOut(motion.fastEffectsSpec()),
         ) {
             MiniVoicePlayer(player = voicePlayer, onOpen = openPlayingNote)
         }
@@ -415,7 +432,7 @@ private fun MainPane(
     voiceBackgroundPlayback: Boolean,
     focusMessage: Pair<String, String>? = null,
     onFocusHandled: () -> Unit = {},
-    onOpenPlayingNote: () -> Unit = {},
+    onComposerHeight: (Dp) -> Unit = {},
     listBottomInset: Dp = 0.dp,
     selectedChatId: String?,
     onSelectChat: (String?) -> Unit,
@@ -510,7 +527,7 @@ private fun MainPane(
                     voiceBackgroundPlayback = voiceBackgroundPlayback,
                     focusMessageId = focusMessage?.takeIf { it.first == selected.id }?.second,
                     onFocusHandled = onFocusHandled,
-                    onOpenPlayingNote = onOpenPlayingNote,
+                    onComposerHeight = onComposerHeight,
                     sharedContent = if (shareTargetId == selected.id) pendingShare else null,
                     hasPendingShare = pendingShare != null && shareTargetId == null,
                     onClaimShare = { onClaimShare(selected.id) },
@@ -534,7 +551,7 @@ private fun ChatDestination(
     voiceBackgroundPlayback: Boolean,
     focusMessageId: String? = null,
     onFocusHandled: () -> Unit = {},
-    onOpenPlayingNote: () -> Unit = {},
+    onComposerHeight: (Dp) -> Unit = {},
     sharedContent: SharedContent?,
     hasPendingShare: Boolean,
     onClaimShare: () -> Unit,
@@ -613,7 +630,7 @@ private fun ChatDestination(
         voiceBackgroundPlayback = voiceBackgroundPlayback,
         focusMessageId = focusMessageId,
         onFocusHandled = onFocusHandled,
-        onOpenPlayingNote = onOpenPlayingNote,
+        onComposerHeight = onComposerHeight,
         modifier = modifier,
     )
 }

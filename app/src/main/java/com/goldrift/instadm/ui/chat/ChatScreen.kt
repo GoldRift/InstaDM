@@ -133,6 +133,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -182,7 +183,7 @@ import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
-import com.goldrift.instadm.ui.components.MiniVoicePlayer
+import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
@@ -256,8 +257,8 @@ fun ChatScreen(
     /** A note the player bar opened; scrolled to and outlined like a quote jump. */
     focusMessageId: String? = null,
     onFocusHandled: () -> Unit = {},
-    /** Opens the chat of the note the bar is playing. */
-    onOpenPlayingNote: () -> Unit = {},
+    /** Height of the message box, so the player bar can float just above it. */
+    onComposerHeight: (Dp) -> Unit = {},
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -353,6 +354,7 @@ fun ChatScreen(
     var recordingLocked by remember { mutableStateOf(false) }
     var recordingCancel by remember { mutableStateOf(false) }
     val voiceRecorder = remember { VoiceRecorder(context) }
+    val density = LocalDensity.current
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -598,6 +600,14 @@ fun ChatScreen(
         }
     }
 
+    // Another chat's note keeps playing on the app's bar, which floats just
+    // above this composer; the transcript keeps its last bubble clear of it.
+    val playerBarShown = showVoiceMiniPlayer(
+        nowPlaying = voicePlayer.nowPlaying,
+        visibleThreadId = conversation.id,
+        enabled = voiceBackgroundPlayback,
+        finished = voicePlayer.finished,
+    )
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -610,65 +620,56 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            Column {
-                // Another chat's note plays here too, so the bar sits above the
-                // message box instead of over it.
-                if (
-                    showVoiceMiniPlayer(
-                        nowPlaying = voicePlayer.nowPlaying,
-                        visibleThreadId = conversation.id,
-                        enabled = voiceBackgroundPlayback,
-                        finished = voicePlayer.finished,
-                    )
-                ) {
-                    MiniVoicePlayer(player = voicePlayer, onOpen = onOpenPlayingNote)
-                }
-                MessageComposer(
-                    draft = draft,
-                    onDraftChange = { value ->
-                        draft = value
-                        if (value.isNotBlank()) onTyping()
-                    },
-                    onSend = ::sendMessage,
-                    replyingTo = replyTarget?.toReplySnapshot(),
-                    replyingToLabel = replyLabel,
-                    onCancelReply = { replyTarget = null },
-                    focusRequester = composerFocus,
-                    onCamera = ::takePhoto,
-                    attachmentsEnabled = attachmentsEnabled,
-                    onPickMedia = ::pickMedia,
-                    stagedMediaCount = stagedMedia.size,
-                    onClearStagedMedia = { stagedMedia = emptyList() },
-                    recorder = voiceRecorder,
-                    locked = recordingLocked,
-                    cancelCandidate = recordingCancel,
-                    onMicStart = ::startRecording,
-                    onMicMove = { lock, cancel ->
-                        if (lock && !recordingLocked) {
-                            recordingLocked = true
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            MessageComposer(
+                draft = draft,
+                onDraftChange = { value ->
+                    draft = value
+                    if (value.isNotBlank()) onTyping()
+                },
+                onSend = ::sendMessage,
+                replyingTo = replyTarget?.toReplySnapshot(),
+                replyingToLabel = replyLabel,
+                onCancelReply = { replyTarget = null },
+                focusRequester = composerFocus,
+                onCamera = ::takePhoto,
+                attachmentsEnabled = attachmentsEnabled,
+                onPickMedia = ::pickMedia,
+                stagedMediaCount = stagedMedia.size,
+                onClearStagedMedia = { stagedMedia = emptyList() },
+                recorder = voiceRecorder,
+                locked = recordingLocked,
+                cancelCandidate = recordingCancel,
+                onMicStart = ::startRecording,
+                onMicMove = { lock, cancel ->
+                    if (lock && !recordingLocked) {
+                        recordingLocked = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                    if (!recordingLocked) recordingCancel = cancel
+                },
+                onMicRelease = { lock, cancel ->
+                    if (!lock && voiceRecorder.isRecording) {
+                        if (cancel) {
+                            voiceRecorder.cancel()
+                            recordingLocked = false
+                            recordingCancel = false
+                        } else {
+                            finishRecording()
                         }
-                        if (!recordingLocked) recordingCancel = cancel
-                    },
-                    onMicRelease = { lock, cancel ->
-                        if (!lock && voiceRecorder.isRecording) {
-                            if (cancel) {
-                                voiceRecorder.cancel()
-                                recordingLocked = false
-                                recordingCancel = false
-                            } else {
-                                finishRecording()
-                            }
-                        }
-                    },
-                    onRecordingSend = ::finishRecording,
-                    onRecordingDelete = {
-                        voiceRecorder.cancel()
-                        recordingLocked = false
-                        recordingCancel = false
-                    },
-                )
-            }
+                    }
+                },
+                onRecordingSend = ::finishRecording,
+                onRecordingDelete = {
+                    voiceRecorder.cancel()
+                    recordingLocked = false
+                    recordingCancel = false
+                },
+                // The player bar floats just above this box; measure it so it
+                // can sit there whatever the composer grows into.
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    onComposerHeight(with(density) { coordinates.size.height.toDp() })
+                },
+            )
         },
     ) { innerPadding ->
         val chatContentShape = RoundedCornerShape(
@@ -803,7 +804,9 @@ fun ChatScreen(
                             voicePlayer = voicePlayer,
                             viewerName = viewerName,
                             viewerAvatarUrl = viewerAvatarUrl,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().padding(
+                                bottom = if (playerBarShown) MiniVoicePlayerInset else 0.dp,
+                            ),
                         )
                     }
                 }
