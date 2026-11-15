@@ -37,6 +37,19 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun voiceBackgroundPlaybackDefaultsOnAndPersists() {
+        val writes = mutableListOf<AppSettings>()
+        val store = SettingsStore(persist = { writes += it })
+
+        assertTrue(store.current.voiceBackgroundPlayback)
+
+        store.setVoiceBackgroundPlayback(false)
+
+        assertFalse(store.current.voiceBackgroundPlayback)
+        assertEquals(listOf(store.current), writes)
+    }
+
+    @Test
     fun resetRestoresDefaultsAndPersists() {
         val writes = mutableListOf<AppSettings>()
         val store = SettingsStore(

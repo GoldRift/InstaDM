@@ -158,6 +158,8 @@
     <string name="settings_send_typing_supporting">Let people see when you\'re typing.</string>
     <string name="settings_send_read_receipts">Send read receipts</string>
     <string name="settings_send_read_receipts_supporting">Mark messages as seen when you open a chat. Sending a message still marks the thread read.</string>
+    <string name="settings_voice_background">Keep voice notes playing</string>
+    <string name="settings_voice_background_supporting">Play a voice message outside its chat, with a player bar at the bottom.</string>
     <string name="settings_notification_previews">Message previews</string>
     <string name="settings_notification_previews_supporting">Show message text in notifications. Sender names still appear.</string>
     <string name="settings_clear_cache">Clear media cache</string>

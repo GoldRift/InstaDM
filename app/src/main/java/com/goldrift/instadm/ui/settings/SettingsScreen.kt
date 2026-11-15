@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
@@ -99,6 +100,7 @@ fun SettingsScreen(
     onSendTypingChange: (Boolean) -> Unit,
     onSendReadReceiptsChange: (Boolean) -> Unit,
     onShowNotificationPreviewsChange: (Boolean) -> Unit,
+    onVoiceBackgroundPlaybackChange: (Boolean) -> Unit,
     onClearMediaCache: suspend () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -226,7 +228,7 @@ fun SettingsScreen(
                                 R.string.settings_double_tap_emoji_supporting,
                                 settings.doubleTapEmoji,
                             ),
-                            shapes = ListItemDefaults.segmentedShapes(index = 0, count = 3),
+                            shapes = ListItemDefaults.segmentedShapes(index = 0, count = 4),
                             trailing = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -249,7 +251,7 @@ fun SettingsScreen(
                             icon = Icons.Rounded.Keyboard,
                             label = stringResource(R.string.settings_send_typing),
                             supporting = stringResource(R.string.settings_send_typing_supporting),
-                            shapes = ListItemDefaults.segmentedShapes(index = 1, count = 3),
+                            shapes = ListItemDefaults.segmentedShapes(index = 1, count = 4),
                         )
                         SettingSwitchRow(
                             checked = settings.sendReadReceipts,
@@ -259,7 +261,17 @@ fun SettingsScreen(
                             supporting = stringResource(
                                 R.string.settings_send_read_receipts_supporting,
                             ),
-                            shapes = ListItemDefaults.segmentedShapes(index = 2, count = 3),
+                            shapes = ListItemDefaults.segmentedShapes(index = 2, count = 4),
+                        )
+                        SettingSwitchRow(
+                            checked = settings.voiceBackgroundPlayback,
+                            onCheckedChange = onVoiceBackgroundPlaybackChange,
+                            icon = Icons.Rounded.GraphicEq,
+                            label = stringResource(R.string.settings_voice_background),
+                            supporting = stringResource(
+                                R.string.settings_voice_background_supporting,
+                            ),
+                            shapes = ListItemDefaults.segmentedShapes(index = 3, count = 4),
                         )
                     }
                 }
@@ -508,6 +520,7 @@ private fun SettingsLightPreview() {
             onSendTypingChange = {},
             onSendReadReceiptsChange = {},
             onShowNotificationPreviewsChange = {},
+            onVoiceBackgroundPlaybackChange = {},
             onClearMediaCache = {},
             onBack = {},
         )
@@ -532,6 +545,7 @@ private fun SettingsDarkPreview() {
             onSendTypingChange = {},
             onSendReadReceiptsChange = {},
             onShowNotificationPreviewsChange = {},
+            onVoiceBackgroundPlaybackChange = {},
             onClearMediaCache = {},
             onBack = {},
         )

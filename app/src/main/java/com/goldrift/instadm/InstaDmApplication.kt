@@ -19,6 +19,7 @@ import com.goldrift.instadm.data.SettingsStore
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.service.MessageNotifier
 import com.goldrift.instadm.ui.chat.InboxState
+import com.goldrift.instadm.ui.chat.VoicePlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,6 +73,8 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
     val inboxState by lazy {
         InboxState(repository, chatStore, mailboxSync, outbox, settings, appScope, mediaReader)
     }
+    /** Outlives a chat so a voice note can keep playing behind the inbox. */
+    val voicePlayer by lazy { VoicePlayer(this) }
 
     override fun onCreate() {
         super.onCreate()

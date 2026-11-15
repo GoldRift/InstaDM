@@ -61,16 +61,26 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.roundToInt
 
+/** What the mini player bar shows about the note currently on the player. */
+data class NowPlaying(
+    val threadId: String,
+    val messageId: String,
+    val title: String,
+    val avatarUrl: String,
+    val initials: String,
+    val waveform: List<Float> = emptyList(),
+)
+
 /**
  * Plays one voice note at a time through the speaker. Compose state lets every
  * bubble react to the shared position; starting another note stops the first.
+ * The player is process-scoped so a note can keep playing after its chat closes.
  */
 @Stable
 class VoicePlayer(context: Context) {
@@ -92,24 +102,30 @@ class VoicePlayer(context: Context) {
     var durationMs by mutableIntStateOf(0)
         private set
 
+    /** The note on the player, with what a player bar needs to name it. */
+    var nowPlaying by mutableStateOf<NowPlaying?>(null)
+        private set
+
+    /** True once the note has played out, so a finished bar can stay hidden. */
+    val finished: Boolean
+        get() = activeId != null && !playing && durationMs > 0 &&
+            positionMs >= durationMs - COMPLETION_TOLERANCE_MS
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         if (change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause()
     }
 
-    /** Starts [file] for [messageId], or resumes it when it is already active. */
-    fun play(messageId: String, file: File, fallbackDurationMs: Int) {
+    /** Starts [file] for [note], or resumes it when it is already active. */
+    fun play(
+        note: NowPlaying,
+        file: File,
+        fallbackDurationMs: Int,
+    ) {
+        val messageId = note.messageId
         val current = player
         if (activeId == messageId && current != null) {
-            if (!playing) {
-                if (!requestFocus()) return
-                val resumeAt = if (positionMs >= durationMs - 50) 0 else positionMs
-                runCatching { current.seekTo(resumeAt) }
-                if (runCatching { current.start() }.isSuccess) {
-                    playing = true
-                    positionMs = resumeAt
-                    startTicker()
-                }
-            }
+            nowPlaying = note
+            resume()
             return
         }
 
@@ -137,6 +153,7 @@ class VoicePlayer(context: Context) {
         }
         player = mediaPlayer
         activeId = messageId
+        nowPlaying = note
         durationMs = mediaPlayer.duration.takeIf { it > 0 } ?: fallbackDurationMs
         positionMs = 0
         playing = true
@@ -151,6 +168,24 @@ class VoicePlayer(context: Context) {
         playing = false
         ticker?.cancel()
         ticker = null
+    }
+
+    /** Play/pause for the bar, which has no bubble to supply the file again. */
+    fun toggle() {
+        if (playing) pause() else resume()
+    }
+
+    private fun resume() {
+        val current = player ?: return
+        if (playing) return
+        if (!requestFocus()) return
+        val resumeAt = if (positionMs >= durationMs - COMPLETION_TOLERANCE_MS) 0 else positionMs
+        runCatching { current.seekTo(resumeAt) }
+        if (runCatching { current.start() }.isSuccess) {
+            playing = true
+            positionMs = resumeAt
+            startTicker()
+        }
     }
 
     /** Seeks the active note to [fraction] (0..1). */
@@ -174,11 +209,6 @@ class VoicePlayer(context: Context) {
         stopInternal()
     }
 
-    fun release() {
-        stopInternal()
-        scope.cancel()
-    }
-
     private fun stopInternal() {
         ticker?.cancel()
         ticker = null
@@ -186,6 +216,7 @@ class VoicePlayer(context: Context) {
         runCatching { player?.release() }
         player = null
         activeId = null
+        nowPlaying = null
         playing = false
         positionMs = 0
         durationMs = 0
@@ -245,6 +276,7 @@ class VoicePlayer(context: Context) {
 
     private companion object {
         const val PROGRESS_INTERVAL_MS = 80L
+        const val COMPLETION_TOLERANCE_MS = 50
     }
 }
 
@@ -261,6 +293,9 @@ fun VoiceNoteBubble(
     player: VoicePlayer,
     loadMedia: MediaLoader?,
     onLongClick: (() -> Unit)?,
+    noteTitle: String,
+    noteAvatarUrl: String,
+    noteInitials: String,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -280,6 +315,14 @@ fun VoiceNoteBubble(
     } else {
         durationMs
     }
+    val nowPlaying = NowPlaying(
+        threadId = threadId,
+        messageId = messageId,
+        title = noteTitle,
+        avatarUrl = noteAvatarUrl,
+        initials = noteInitials,
+        waveform = media.waveform,
+    )
 
     fun togglePlayback() {
         if (player.isPlaying(messageId)) {
@@ -288,7 +331,7 @@ fun VoiceNoteBubble(
         }
         val ready = file?.takeIf { it.isFile }
         if (ready != null) {
-            player.play(messageId, ready, media.durationMs)
+            player.play(nowPlaying, ready, media.durationMs)
             return
         }
         val loader = loadMedia ?: return
@@ -302,7 +345,7 @@ fun VoiceNoteBubble(
             loading = false
             if (downloaded != null) {
                 file = downloaded
-                player.play(messageId, downloaded, media.durationMs)
+                player.play(nowPlaying, downloaded, media.durationMs)
             } else {
                 failed = true
             }

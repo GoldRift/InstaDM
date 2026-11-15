@@ -50,6 +50,7 @@ import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.toReplySnapshot
+import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
@@ -85,6 +86,7 @@ fun InstaDmApp(
     val inboxState = application.inboxState
     val settingsState = application.settings
     val settings = settingsState.current
+    val voicePlayer = application.voicePlayer
     val navController = rememberNavController()
     var startRoute by remember { mutableStateOf<String?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
@@ -182,6 +184,8 @@ fun InstaDmApp(
                 likeEmoji = settings.doubleTapEmoji,
                 readReceiptsEnabled = settings.sendReadReceipts,
                 pendingShare = pendingShare,
+                voicePlayer = voicePlayer,
+                voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
                 shareTargetId = shareTargetId,
                 shareHint = shareHint,
                 onClaimShare = claimShare,
@@ -199,6 +203,7 @@ fun InstaDmApp(
                 onSettings = { navController.navigate(Routes.Settings) },
                 onLogout = {
                     inboxState.logout()
+                    voicePlayer.stop()
                     RealtimeService.stop(context)
                 },
             )
@@ -221,6 +226,10 @@ fun InstaDmApp(
                 onShowNotificationPreviewsChange = { enabled ->
                     settingsState.setShowNotificationPreviews(enabled)
                     if (!enabled) application.messageNotifier.dropMessageNotifications()
+                },
+                onVoiceBackgroundPlaybackChange = { enabled ->
+                    settingsState.setVoiceBackgroundPlayback(enabled)
+                    if (!enabled) voicePlayer.stop()
                 },
                 onClearMediaCache = {
                     application.chatStore.clearDownloadedMediaFiles()
@@ -275,6 +284,8 @@ fun InstaDmApp(
                     likeEmoji = settings.doubleTapEmoji,
                     readReceiptsEnabled = settings.sendReadReceipts,
                     sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
+                    voicePlayer = voicePlayer,
+                    voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
                     hasPendingShare = awaitingShareTarget,
                     onClaimShare = { claimShare(conversation.id) },
                     onSharedContentConsumed = consumeShare,
@@ -334,6 +345,8 @@ private fun MainPane(
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
     pendingShare: SharedContent?,
+    voicePlayer: VoicePlayer,
+    voiceBackgroundPlayback: Boolean,
     shareTargetId: String?,
     shareHint: String?,
     onClaimShare: (String) -> Unit,
@@ -420,6 +433,8 @@ private fun MainPane(
                     likeEmoji = likeEmoji,
                     readReceiptsEnabled = readReceiptsEnabled,
                     sharedContent = if (shareTargetId == selected.id) pendingShare else null,
+                    voicePlayer = voicePlayer,
+                    voiceBackgroundPlayback = voiceBackgroundPlayback,
                     hasPendingShare = pendingShare != null && shareTargetId == null,
                     onClaimShare = { onClaimShare(selected.id) },
                     onSharedContentConsumed = onShareConsumed,
@@ -439,6 +454,8 @@ private fun ChatDestination(
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
     sharedContent: SharedContent?,
+    voicePlayer: VoicePlayer,
+    voiceBackgroundPlayback: Boolean,
     hasPendingShare: Boolean,
     onClaimShare: () -> Unit,
     onSharedContentConsumed: () -> Unit,
@@ -513,5 +530,7 @@ private fun ChatDestination(
         likeEmoji = likeEmoji,
         readReceiptsEnabled = readReceiptsEnabled,
         modifier = modifier,
+        voicePlayer = voicePlayer,
+        voiceBackgroundPlayback = voiceBackgroundPlayback,
     )
 }

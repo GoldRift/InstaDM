@@ -37,6 +37,9 @@ class SettingsStore(
     fun setShowNotificationPreviews(value: Boolean) =
         update { it.copy(showNotificationPreviews = value) }
 
+    fun setVoiceBackgroundPlayback(value: Boolean) =
+        update { it.copy(voiceBackgroundPlayback = value) }
+
     fun reset() {
         current = AppSettings()
         persist(current)
@@ -57,6 +60,7 @@ class SettingsStore(
         private const val KEY_SEND_TYPING = "send_typing"
         private const val KEY_SEND_READ_RECEIPTS = "send_read_receipts"
         private const val KEY_NOTIFICATION_PREVIEWS = "notification_previews"
+        private const val KEY_VOICE_BACKGROUND = "voice_background_playback"
 
         fun create(context: Context): SettingsStore {
             val prefs = context.applicationContext
@@ -85,6 +89,10 @@ class SettingsStore(
                     KEY_NOTIFICATION_PREVIEWS,
                     defaults.showNotificationPreviews,
                 ),
+                voiceBackgroundPlayback = prefs.booleanOr(
+                    KEY_VOICE_BACKGROUND,
+                    defaults.voiceBackgroundPlayback,
+                ),
             )
         }
 
@@ -102,6 +110,7 @@ class SettingsStore(
                 putBoolean(KEY_SEND_TYPING, settings.sendTypingIndicators)
                 putBoolean(KEY_SEND_READ_RECEIPTS, settings.sendReadReceipts)
                 putBoolean(KEY_NOTIFICATION_PREVIEWS, settings.showNotificationPreviews)
+                putBoolean(KEY_VOICE_BACKGROUND, settings.voiceBackgroundPlayback)
             }
         }
     }

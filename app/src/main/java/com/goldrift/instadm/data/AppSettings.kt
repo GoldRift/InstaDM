@@ -32,6 +32,8 @@ data class AppSettings(
     val sendTypingIndicators: Boolean = true,
     val sendReadReceipts: Boolean = true,
     val showNotificationPreviews: Boolean = true,
+    /** Keeps a voice note playing when its chat closes, with a bar at the bottom. */
+    val voiceBackgroundPlayback: Boolean = true,
 )
 
 /** A picked emoji may arrive with padding; an empty or malformed choice restores the default. */

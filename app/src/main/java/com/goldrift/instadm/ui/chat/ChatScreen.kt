@@ -248,6 +248,9 @@ fun ChatScreen(
     readReceiptsEnabled: Boolean = true,
     sharedContent: SharedContent? = null,
     onSharedContentConsumed: () -> Unit = {},
+    // The inbox owns the player so a note can outlive this chat.
+    voicePlayer: VoicePlayer,
+    voiceBackgroundPlayback: Boolean = true,
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -312,6 +315,7 @@ fun ChatScreen(
     }
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val keepPlayingOnLeave by rememberUpdatedState(voiceBackgroundPlayback)
     var draft by remember { mutableStateOf("") }
     // Attachments handed over by another app wait here until the viewer sends.
     var stagedMedia by remember(conversation.id) { mutableStateOf<List<Uri>>(emptyList()) }
@@ -342,7 +346,6 @@ fun ChatScreen(
     var recordingLocked by remember { mutableStateOf(false) }
     var recordingCancel by remember { mutableStateOf(false) }
     val voiceRecorder = remember { VoiceRecorder(context) }
-    val voicePlayer = remember { VoicePlayer(context) }
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -457,14 +460,15 @@ fun ChatScreen(
     DisposableEffect(Unit) {
         onDispose {
             voiceRecorder.release()
-            voicePlayer.release()
+            // With the bar on, the note keeps playing after the chat closes.
+            if (!keepPlayingOnLeave) voicePlayer.pause()
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, keepPlayingOnLeave) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                voicePlayer.pause()
+                if (!keepPlayingOnLeave) voicePlayer.pause()
                 voiceRecorder.cancel()
             }
         }
@@ -1027,6 +1031,7 @@ private fun MessageList(
                 } else {
                     MessageRow(
                         message = message,
+                        contact = contact,
                         senderName = senderName,
                         showSenderName = showSenderName,
                         senderInitials = senderInitials,
@@ -1171,6 +1176,7 @@ private fun AdminNoticeRow(
 @Composable
 private fun MessageRow(
     message: ChatMessage,
+    contact: Contact,
     senderName: String,
     showSenderName: Boolean,
     senderInitials: String,
@@ -1415,6 +1421,10 @@ private fun MessageRow(
                         onLongPress = onLongPress,
                         onLoadMedia = onLoadMedia,
                         voicePlayer = voicePlayer,
+                        // The bar names the chat; a group keeps the sender.
+                        noteTitle = senderName.ifBlank { contact.name },
+                        noteAvatarUrl = senderAvatarUrl.ifBlank { contact.avatarUrl },
+                        noteInitials = senderInitials.ifBlank { contact.initials },
                     )
                 }
 
@@ -1630,6 +1640,9 @@ private fun MessageBubbleContent(
     onLongPress: () -> Unit,
     onLoadMedia: MediaLoader?,
     voicePlayer: VoicePlayer,
+    noteTitle: String,
+    noteAvatarUrl: String,
+    noteInitials: String,
 ) {
     val media = message.media.filter { it.isVisual && !it.isReel }
     val shares = message.media.filter { (it.isLink || it.isReel) && !it.viewOnce }
@@ -1706,6 +1719,9 @@ private fun MessageBubbleContent(
                     player = voicePlayer,
                     loadMedia = onLoadMedia,
                     onLongClick = onLongPress,
+                    noteTitle = noteTitle,
+                    noteAvatarUrl = noteAvatarUrl,
+                    noteInitials = noteInitials,
                 )
             }
         }
@@ -2852,11 +2868,14 @@ private val CANCEL_DISTANCE = 96.dp
 @Composable
 private fun ChatScreenLightPreview() {
     InstaDMTheme(darkTheme = false, dynamicColor = false) {
+        val previewContext = LocalContext.current
+        val player = remember { VoicePlayer(previewContext) }
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = false,
             onSend = { _, _ -> },
             onBack = {},
+            voicePlayer = player,
         )
     }
 }
@@ -2871,11 +2890,14 @@ private fun ChatScreenLightPreview() {
 @Composable
 private fun ChatScreenDarkPreview() {
     InstaDMTheme(darkTheme = true, dynamicColor = false) {
+        val previewContext = LocalContext.current
+        val player = remember { VoicePlayer(previewContext) }
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = true,
             onSend = { _, _ -> },
             onBack = {},
+            voicePlayer = player,
         )
     }
 }
