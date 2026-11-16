@@ -65,6 +65,11 @@ class DemoScreenshotTest {
         session.awaitText("perfect — see you at 8!")
         hideKeyboardAndReturnToChat()
         session.capture("06-echo-light")
+        val app = InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .applicationContext as DemoApplication
+        // A paused note would float its player bar over every later capture.
+        runBlocking { app.voicePlayer.stop() }
 
         longPress("see you at 8")
         session.tap("Edit")
@@ -128,9 +133,6 @@ class DemoScreenshotTest {
         session.awaitText("Maya Chen")
         session.tap("Maya Chen")
         session.awaitText("8pm?")
-        val app = InstrumentationRegistry.getInstrumentation()
-            .targetContext
-            .applicationContext as DemoApplication
         runBlocking { app.simulateIncoming("demo_sofia", "free for coffee at four?") }
         session.awaitText("free for coffee at four?")
         Thread.sleep(300)

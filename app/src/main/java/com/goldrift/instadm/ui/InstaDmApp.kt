@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +13,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -37,12 +40,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -81,6 +90,8 @@ import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
 import com.goldrift.instadm.ui.search.toSearchUsers
 import com.goldrift.instadm.ui.settings.SettingsScreen
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private object Routes {
     const val Login = "login"
@@ -421,7 +432,8 @@ fun InstaDmApp(
                 ),
             enter = fadeIn(motion.defaultEffectsSpec()) +
                 slideInVertically(motion.defaultSpatialSpec()) { -it },
-            exit = fadeOut(motion.fastEffectsSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()) +
+                slideOutVertically(motion.fastSpatialSpec()) { -it },
         ) {
             val incoming = shownBanner ?: return@AnimatedVisibility
             IncomingChatBanner(
@@ -601,7 +613,8 @@ private val SmallAppBarHeight = 64.dp
  * Banner for a message in a chat other than the open one. It reads as one
  * control that opens the chat, with its own dismiss button; the text is a live
  * region so TalkBack announces the arrival, and both lines wrap instead of
- * clipping at large font sizes.
+ * clipping at large font sizes. Swiping it up dismisses it the way the voice
+ * player swipes down.
  */
 @Composable
 private fun IncomingChatBanner(
@@ -609,23 +622,62 @@ private fun IncomingChatBanner(
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val motion = MaterialTheme.motionScheme
+    val scope = rememberCoroutineScope()
+    val pull = remember { Animatable(0f) }
+    var heightPx by remember { mutableIntStateOf(0) }
+    // A new message can arrive mid-exit; start that banner undragged.
+    LaunchedEffect(banner) { pull.snapTo(0f) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .offset { IntOffset(0, pull.value.roundToInt()) }
+            .graphicsLayer {
+                alpha = 1f - (-pull.value / (heightPx * 1.05f).coerceAtLeast(1f)).coerceIn(0f, 1f)
+            }
+            .onSizeChanged { heightPx = it.height }
+            .pointerInput(Unit) {
+                // Swiping up dismisses; swiping down does nothing.
+                fun release() = scope.launch { pull.animateTo(0f, motion.defaultSpatialSpec()) }
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, delta ->
+                        change.consume()
+                        scope.launch {
+                            pull.snapTo((pull.value + delta).coerceAtMost(0f))
+                        }
+                    },
+                    onDragEnd = {
+                        if (-pull.value > heightPx * 0.4f) {
+                            scope.launch {
+                                pull.animateTo(
+                                    targetValue = -heightPx * 1.05f,
+                                    animationSpec = motion.defaultSpatialSpec(),
+                                )
+                                onDismiss()
+                            }
+                        } else {
+                            release()
+                        }
+                    },
+                    onDragCancel = { release() },
+                )
+            }
+            // Same capsule silhouette as the floating voice player.
+            .clip(RoundedCornerShape(percent = 50))
             .clickable(
                 onClickLabel = stringResource(R.string.banner_open),
                 role = Role.Button,
                 onClick = onOpen,
             )
             .semantics { liveRegion = LiveRegionMode.Polite },
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(percent = 50),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 3.dp,
-        shadowElevation = 3.dp,
+        shadowElevation = 6.dp,
     ) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
+            modifier = Modifier.padding(start = 20.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {

@@ -152,7 +152,7 @@ Captured from the offline demo build on an API 37 emulator.
     <tr>
       <td align="center"><img src="docs/screenshots/light/13-account-menu-light.png" width="220" alt="Account menu"><br><sub>Account menu</sub></td>
       <td align="center"><img src="docs/screenshots/light/14-settings-light.png" width="220" alt="Settings"><br><sub>Settings</sub></td>
-      <td></td>
+      <td align="center"><img src="docs/screenshots/light/15-banner-light.png" width="220" alt="Banner for another chat"><br><sub>Banner for another chat</sub></td>
       <td></td>
     </tr>
 </table>
