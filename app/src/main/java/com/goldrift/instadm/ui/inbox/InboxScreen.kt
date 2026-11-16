@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -108,6 +109,9 @@ fun InboxScreen(
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
     shareHint: String? = null,
+    updateVersion: String? = null,
+    onInstallUpdate: () -> Unit = {},
+    onDismissUpdate: () -> Unit = {},
     onSearch: () -> Unit = {},
     onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
@@ -226,6 +230,45 @@ fun InboxScreen(
                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
+                            }
+                        }
+                        if (updateVersion != null) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 12.dp, end = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.updates_banner,
+                                            updateVersion,
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(vertical = 12.dp),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    TextButton(onClick = onInstallUpdate) {
+                                        Text(stringResource(R.string.updates_banner_action))
+                                    }
+                                    IconButton(onClick = onDismissUpdate) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = stringResource(
+                                                R.string.updates_banner_dismiss,
+                                            ),
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        )
+                                    }
+                                }
                             }
                         }
                         if (errorMessage != null) {

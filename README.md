@@ -249,11 +249,19 @@ NDK under `$ANDROID_HOME/ndk`.
 
 Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It builds the
 stripped AAR, signs the four APKs, and attaches
-`instadm-<version>-<abi>.apk` plus `SHA256SUMS` to the GitHub Release.
+`instadm-<version>-<abi>.apk` plus `SHA256SUMS` and the `latest.json` update
+manifest to the GitHub Release.
 `versionName` is the tag without `v`; `versionCode` is
 `major*10000 + minor*100 + patch` (for example `v1.2.3` becomes 10203). Do not
 edit the version fields in `app/build.gradle.kts` for a release; the workflow
 overrides them from the tag.
+
+InstaDM can update itself from those releases. Once a day, and when you tap
+Check for updates in Settings, it reads `latest.json`, downloads the APK for
+your ABI straight into the system installer, and verifies its SHA-256 before
+handing it over; the system then asks you to confirm the install. Android needs
+"Install unknown apps" allowed for InstaDM once. Updates only work on builds
+signed with the same release key, so a debug or demo build never offers one.
 
 ```bash
 git tag -a v1.2.3 -m "What changed in 1.2.3"

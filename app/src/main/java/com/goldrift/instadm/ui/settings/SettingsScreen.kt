@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -24,9 +25,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -37,11 +40,15 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +63,7 @@ import androidx.compose.material3.ToggleButtonSize
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -78,12 +87,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.AppSettings
 import com.goldrift.instadm.data.ThemeMode
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import com.goldrift.instadm.update.UpdateApk
+import com.goldrift.instadm.update.UpdateInstaller
+import com.goldrift.instadm.update.UpdateManifest
+import com.goldrift.instadm.update.UpdateState
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * Device-local preferences for appearance, chat signals, notifications, and
@@ -101,6 +117,11 @@ fun SettingsScreen(
     onSendReadReceiptsChange: (Boolean) -> Unit,
     onShowNotificationPreviewsChange: (Boolean) -> Unit,
     onVoiceBackgroundPlaybackChange: (Boolean) -> Unit,
+    onAutoCheckUpdatesChange: (Boolean) -> Unit,
+    updateState: UpdateState,
+    installedVersion: String,
+    onCheckUpdates: () -> Unit,
+    onInstallUpdate: () -> Unit,
     onClearMediaCache: suspend () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -110,6 +131,20 @@ fun SettingsScreen(
     var showEmojiPicker by remember { mutableStateOf(false) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var clearingCache by remember { mutableStateOf(false) }
+    var updateDialog by remember { mutableStateOf<Pair<UpdateManifest, UpdateApk>?>(null) }
+    var canInstall by remember { mutableStateOf(UpdateInstaller.canInstall(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Granting install permission happens on a system page, so the dialog
+    // re-reads it when the screen comes back instead of staying stale.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canInstall = UpdateInstaller.canInstall(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     Scaffold(
@@ -292,6 +327,62 @@ fun SettingsScreen(
                     )
                 }
 
+                item(key = "updates") {
+                    SettingsSectionHeader(R.string.settings_section_updates)
+                }
+                item(key = "updates-group") {
+                    Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                        SettingSwitchRow(
+                            checked = settings.autoCheckUpdates,
+                            onCheckedChange = onAutoCheckUpdatesChange,
+                            icon = Icons.Rounded.Sync,
+                            label = stringResource(R.string.settings_auto_check_updates),
+                            supporting = stringResource(
+                                R.string.settings_auto_check_updates_supporting,
+                            ),
+                            shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
+                        )
+                        SettingActionRow(
+                            onClick = {
+                                val shown = when (val current = updateState) {
+                                    is UpdateState.Available -> current.update to current.apk
+                                    is UpdateState.Downloading -> current.update to current.apk
+                                    else -> null
+                                }
+                                if (shown != null) updateDialog = shown else onCheckUpdates()
+                            },
+                            icon = Icons.Rounded.Refresh,
+                            label = stringResource(R.string.settings_check_updates),
+                            supporting = stringResource(
+                                R.string.settings_check_updates_supporting,
+                                installedVersion,
+                                updateStateLabel(updateState),
+                            ),
+                            shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
+                            trailing = {
+                                when (val current = updateState) {
+                                    is UpdateState.Downloading -> CircularProgressIndicator(
+                                        progress = { current.fraction },
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    UpdateState.Checking -> CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    else -> Text(
+                                        text = stringResource(
+                                            R.string.settings_check_updates_action,
+                                        ),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+
                 item(key = "storage") {
                     SettingsSectionHeader(R.string.settings_section_storage)
                 }
@@ -323,6 +414,18 @@ fun SettingsScreen(
             },
             onDismiss = { showEmojiPicker = false },
             title = stringResource(R.string.settings_choose_reaction),
+        )
+    }
+
+    updateDialog?.let { (update, apk) ->
+        UpdateDialog(
+            update = update,
+            apk = apk,
+            state = updateState,
+            canInstall = canInstall,
+            onInstall = onInstallUpdate,
+            onOpenInstallPermission = { UpdateInstaller.openInstallPermission(context) },
+            onDismiss = { updateDialog = null },
         )
     }
 
@@ -366,6 +469,92 @@ fun SettingsScreen(
         )
     }
 }
+
+@Composable
+private fun UpdateDialog(
+    update: UpdateManifest,
+    apk: UpdateApk,
+    state: UpdateState,
+    canInstall: Boolean,
+    onInstall: () -> Unit,
+    onOpenInstallPermission: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val busy = state is UpdateState.Downloading || state is UpdateState.Installing
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.updates_dialog_title, update.version)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.updates_dialog_size, formatMegabytes(apk.size)))
+                if (update.notes.isNotBlank()) {
+                    Text(
+                        text = update.notes,
+                        modifier = Modifier
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                when (state) {
+                    is UpdateState.Downloading -> LinearProgressIndicator(
+                        progress = { state.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    UpdateState.Installing -> Text(
+                        stringResource(R.string.updates_state_installing),
+                    )
+                    is UpdateState.Failed -> Text(
+                        text = state.message ?: stringResource(R.string.updates_install_failed),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    else -> Unit
+                }
+                if (!canInstall) Text(stringResource(R.string.updates_dialog_permission))
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy,
+                onClick = if (canInstall) onInstall else onOpenInstallPermission,
+            ) {
+                Text(
+                    stringResource(
+                        if (canInstall) {
+                            R.string.updates_dialog_install
+                        } else {
+                            R.string.updates_dialog_permission_action
+                        },
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) {
+                Text(stringResource(R.string.chat_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun updateStateLabel(state: UpdateState): String = when (state) {
+    UpdateState.Idle -> stringResource(R.string.updates_state_up_to_date)
+    UpdateState.Checking -> stringResource(R.string.updates_state_checking)
+    is UpdateState.Available -> stringResource(
+        R.string.updates_state_available,
+        state.update.version,
+    )
+    is UpdateState.Downloading -> stringResource(
+        R.string.updates_state_downloading,
+        (state.fraction * 100).toInt(),
+    )
+    UpdateState.Installing -> stringResource(R.string.updates_state_installing)
+    is UpdateState.Failed -> state.message ?: stringResource(R.string.updates_check_failed)
+}
+
+private fun formatMegabytes(bytes: Long): String =
+    String.format(Locale.US, "%.1f", bytes / (1024f * 1024f))
 
 @Composable
 private fun SettingsSectionHeader(@StringRes title: Int) {
@@ -521,6 +710,11 @@ private fun SettingsLightPreview() {
             onSendReadReceiptsChange = {},
             onShowNotificationPreviewsChange = {},
             onVoiceBackgroundPlaybackChange = {},
+            onAutoCheckUpdatesChange = {},
+            updateState = UpdateState.Idle,
+            installedVersion = "1.0",
+            onCheckUpdates = {},
+            onInstallUpdate = {},
             onClearMediaCache = {},
             onBack = {},
         )
@@ -546,6 +740,11 @@ private fun SettingsDarkPreview() {
             onSendReadReceiptsChange = {},
             onShowNotificationPreviewsChange = {},
             onVoiceBackgroundPlaybackChange = {},
+            onAutoCheckUpdatesChange = {},
+            updateState = UpdateState.Idle,
+            installedVersion = "1.0",
+            onCheckUpdates = {},
+            onInstallUpdate = {},
             onClearMediaCache = {},
             onBack = {},
         )

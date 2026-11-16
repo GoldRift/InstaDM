@@ -219,3 +219,41 @@ jobs:
               "${notes[@]}" \
               --target "$GITHUB_SHA"
           fi
+
+      - name: Publish update manifest
+        if: github.ref_type == 'tag' || inputs.publish == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          notes=""
+          if [[ "$(git cat-file -t "refs/tags/${TAG}" 2>/dev/null || true)" == "tag" ]]; then
+            notes="$(git tag -l --format='%(contents)' "$TAG")"
+          fi
+          apks='{}'
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            apk="build/dist/instadm-${VERSION}-${abi}.apk"
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::missing $apk"
+              exit 1
+            fi
+            apks="$(jq -c \
+              --arg abi "$abi" \
+              --arg url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/instadm-${VERSION}-${abi}.apk" \
+              --arg size "$(stat -c %s "$apk")" \
+              --arg sha256 "$(sha256sum "$apk" | cut -d' ' -f1)" \
+              --argjson apks "$apks" \
+              '$apks + {($abi): {url: $url, size: ($size | tonumber), sha256: $sha256}}' <<< '{}')"
+          done
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson versionCode "$VERSION_CODE" \
+            --arg notes "$notes" \
+            --argjson apks "$apks" \
+            '{version: $version, versionCode: $versionCode, notes: $notes, apks: $apks}' \
+            > build/dist/latest.json
+          # Uploaded last, so the manifest never advertises an APK that is not there yet.
+          gh release upload "$TAG" build/dist/latest.json --clobber

@@ -204,4 +204,26 @@
     <string name="notification_group_chat">Group chat</string>
     <string name="banner_open">Open chat</string>
     <string name="banner_dismiss">Dismiss</string>
+    <string name="settings_section_updates">Updates</string>
+    <string name="settings_auto_check_updates">Check for updates automatically</string>
+    <string name="settings_auto_check_updates_supporting">Once a day while InstaDM is open.</string>
+    <string name="settings_check_updates">Check for updates</string>
+    <string name="settings_check_updates_supporting">Version %1$s · %2$s</string>
+    <string name="settings_check_updates_action">Check</string>
+    <string name="updates_state_up_to_date">Up to date</string>
+    <string name="updates_state_checking">Checking…</string>
+    <string name="updates_state_available">Version %1$s available</string>
+    <string name="updates_state_downloading">Downloading %1$d%%</string>
+    <string name="updates_state_installing">Waiting for the installer…</string>
+    <string name="updates_check_failed">Couldn\'t check for updates.</string>
+    <string name="updates_install_failed">Couldn\'t install the update.</string>
+    <string name="updates_unsupported">This build can\'t update itself.</string>
+    <string name="updates_dialog_title">InstaDM %1$s</string>
+    <string name="updates_dialog_size">Download · %1$s MB</string>
+    <string name="updates_dialog_install">Download and install</string>
+    <string name="updates_dialog_permission">Allow InstaDM to install unknown apps, then come back here.</string>
+    <string name="updates_dialog_permission_action">Allow installs</string>
+    <string name="updates_banner">InstaDM %1$s is available</string>
+    <string name="updates_banner_action">Update</string>
+    <string name="updates_banner_dismiss">Dismiss update</string>
 </resources>

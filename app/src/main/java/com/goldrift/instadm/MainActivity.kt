@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
         AppVisibility.isForeground = true
         VoicePlaybackNotifier.hide(this)
         val app = application as InstaDmApplication
+        app.updates.checkIfStale()
         if (app.sessionStore.hasStoredSession()) {
             RealtimeService.start(this)
         }

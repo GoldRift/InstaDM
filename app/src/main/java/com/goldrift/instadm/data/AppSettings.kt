@@ -34,6 +34,8 @@ data class AppSettings(
     val showNotificationPreviews: Boolean = true,
     /** Keeps a voice note playing when its chat closes, with a bar at the bottom. */
     val voiceBackgroundPlayback: Boolean = true,
+    /** Checks the release manifest once a day while the app comes to the foreground. */
+    val autoCheckUpdates: Boolean = true,
 )
 
 /** A picked emoji may arrive with padding; an empty or malformed choice restores the default. */

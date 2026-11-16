@@ -40,6 +40,9 @@ class SettingsStore(
     fun setVoiceBackgroundPlayback(value: Boolean) =
         update { it.copy(voiceBackgroundPlayback = value) }
 
+    fun setAutoCheckUpdates(value: Boolean) =
+        update { it.copy(autoCheckUpdates = value) }
+
     fun reset() {
         current = AppSettings()
         persist(current)
@@ -61,6 +64,7 @@ class SettingsStore(
         private const val KEY_SEND_READ_RECEIPTS = "send_read_receipts"
         private const val KEY_NOTIFICATION_PREVIEWS = "notification_previews"
         private const val KEY_VOICE_BACKGROUND = "voice_background_playback"
+        private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
 
         fun create(context: Context): SettingsStore {
             val prefs = context.applicationContext
@@ -93,6 +97,10 @@ class SettingsStore(
                     KEY_VOICE_BACKGROUND,
                     defaults.voiceBackgroundPlayback,
                 ),
+                autoCheckUpdates = prefs.booleanOr(
+                    KEY_AUTO_CHECK_UPDATES,
+                    defaults.autoCheckUpdates,
+                ),
             )
         }
 
@@ -111,6 +119,7 @@ class SettingsStore(
                 putBoolean(KEY_SEND_READ_RECEIPTS, settings.sendReadReceipts)
                 putBoolean(KEY_NOTIFICATION_PREVIEWS, settings.showNotificationPreviews)
                 putBoolean(KEY_VOICE_BACKGROUND, settings.voiceBackgroundPlayback)
+                putBoolean(KEY_AUTO_CHECK_UPDATES, settings.autoCheckUpdates)
             }
         }
     }
