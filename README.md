@@ -451,6 +451,8 @@ InstaDM works, but it is still early:
   without a release.
 - The shared protocol library is AGPL-3.0, so this project is too.
 
+Open work is tracked in [docs/roadmap.md](docs/roadmap.md).
+
 ## Disclaimer
 
 This project is provided for personal, educational use. It is not affiliated
