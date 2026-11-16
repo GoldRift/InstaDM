@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -7,6 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.goldrift.instadm.R
 import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
@@ -15,6 +17,7 @@ import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.ProtocolApi
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
+import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.SettingsStore
@@ -22,6 +25,7 @@ import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.RealtimeService
+import com.goldrift.instadm.service.suppressesNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,6 +37,13 @@ import org.json.JSONObject
 import java.io.File
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
+
+/** A message that arrived in another chat while the reader was in one. */
+data class ChatBanner(
+    val threadId: String,
+    val title: String,
+    val preview: String,
+)
 
 /** Message requests must be accepted before they are marked read. */
 private val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
@@ -61,6 +72,9 @@ private const val TYPING_TTL_MS = 6_000L
 /** Send at most one typing signal per thread in this window. */
 private const val TYPING_PING_MS = 5_000L
 
+/** How long the in-app banner for another chat stays before it hides itself. */
+private const val BANNER_TTL_MS = 5_000L
+
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
  * [ProtocolRepository]; this class only applies JSON and realtime results to UI
@@ -75,6 +89,7 @@ class InboxState(
     private val settings: SettingsStore,
     private val scope: CoroutineScope,
     private val mediaReader: MediaReader,
+    private val appContext: Context,
 ) {
     private val items = mutableStateListOf<Conversation>()
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
@@ -98,6 +113,11 @@ class InboxState(
     var viewerAvatarUrl by mutableStateOf("")
         private set
 
+    /** Message in another chat, shown as a banner over the screen; null when none. */
+    var banner by mutableStateOf<ChatBanner?>(null)
+        private set
+    private var bannerJob: Job? = null
+
     /** True while Instagram reports more conversations older than [inboxCursor]. */
     var hasMoreConversations by mutableStateOf(false)
         private set
@@ -114,6 +134,9 @@ class InboxState(
         scope.launch {
             RealtimeBus.events.collect { event ->
                 if (event.type == "typing") applyTyping(event)
+                if (event.type == "message.new" || event.type == "message.admin") {
+                    showBannerFor(event)
+                }
             }
         }
         scope.launch {
@@ -213,6 +236,7 @@ class InboxState(
             viewerAvatarUrl = ""
             draftThread = null
             // refresh() wipes the cached inbox, outbox, and media of the old account.
+            dismissBanner()
             refresh()
         }
     }
@@ -220,6 +244,66 @@ class InboxState(
     /** Loads the inbox once per process; rotations reuse the retained state. */
     fun refreshIfNeeded() {
         if (status == InboxStatus.Loading && items.isEmpty()) refresh()
+    }
+
+    /**
+     * Announces a message that arrived in a chat the reader is not in. The
+     * notification rule decides whether the open chat already shows it, and a
+     * muted thread stays as quiet here as it does in the shade; everything else
+     * is the notification's in-app counterpart while the app is in front.
+     */
+    internal fun showBannerFor(event: RealtimeEvent) {
+        val message = event.message ?: return
+        val foreground = AppVisibility.isForeground
+        if (!foreground || message.isFromViewer) return
+        if (event.threadId.isBlank() || message.id.isBlank()) return
+        if (suppressesNotification(foreground, AppVisibility.openThreadId, event.threadId)) return
+
+        scope.launch {
+            val thread = chatStore.threadWithParticipants(event.threadId)
+            if (thread?.thread?.isMuted == true) return@launch
+            val conversation = thread?.toConversation(previous = null)
+            val isGroup = conversation?.isGroup == true
+            val preview = ConversationPreview(
+                kind = message.kind,
+                text = message.text,
+                fromViewer = false,
+                senderName = message.senderName,
+            ).label(isGroup)
+                ?.render { id, args -> appContext.getString(id, *args.toTypedArray()) }
+                ?: appContext.getString(R.string.notification_message)
+
+            banner = ChatBanner(
+                threadId = event.threadId,
+                title = bannerTitle(message, conversation, isGroup),
+                preview = preview,
+            )
+            bannerJob?.cancel()
+            bannerJob = scope.launch {
+                delay(BANNER_TTL_MS)
+                banner = null
+            }
+        }
+    }
+
+    private fun bannerTitle(
+        message: RealtimeMessage,
+        conversation: Conversation?,
+        isGroup: Boolean,
+    ): String {
+        val threadName = conversation?.contact?.name
+            ?.takeIf { it.isNotBlank() && it != UNKNOWN_CONVERSATION_TITLE }
+        return when {
+            isGroup -> threadName ?: appContext.getString(R.string.notification_group_chat)
+            else -> message.senderName.trim()
+                .ifBlank { threadName.orEmpty() }
+                .ifBlank { appContext.getString(R.string.chat_someone) }
+        }
+    }
+
+    fun dismissBanner() {
+        bannerJob?.cancel()
+        banner = null
     }
 
     fun refresh() {
@@ -327,6 +411,7 @@ class InboxState(
      * thread releases the previous observer, so chats do not accumulate.
      */
     fun openThread(threadId: String) {
+        if (banner?.threadId == threadId) dismissBanner()
         if (openThreadId == threadId && messageCollector?.isActive == true) return
         messageCollector?.cancel()
         openThreadId = threadId

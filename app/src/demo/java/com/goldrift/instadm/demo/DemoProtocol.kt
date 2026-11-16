@@ -215,6 +215,28 @@ internal class DemoProtocol(
         }
     }
 
+    /**
+     * Publishes a fictional incoming message the way the socket would, so the
+     * banner for another chat and its open and dismiss states can be shown on
+     * demand instead of waiting for a timed surprise.
+     */
+    suspend fun simulateIncoming(threadId: String, text: String) {
+        val person = seeder.replyPerson(threadId) ?: return
+        val message = RealtimeMessage(
+            id = "demo_banner_${echoCounter.incrementAndGet()}",
+            text = text,
+            senderName = person.name,
+            senderFbid = person.fbid,
+            isFromViewer = false,
+            timestampMs = System.currentTimeMillis(),
+            kind = "text",
+        )
+        chatStore.ingestRealtimeMessage(threadId, message)
+        RealtimeBus.publish(
+            RealtimeEvent(type = "message.new", threadId = threadId, message = message),
+        )
+    }
+
     private fun replyFor(threadId: String): String = when (threadId) {
         "demo_maya" -> "perfect — see you at 8!"
         "demo_design" -> "love it, let's do it"

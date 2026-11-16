@@ -41,4 +41,9 @@ class DemoApplication : InstaDmApplication() {
         settings.reset()
         resetDemoData()
     }
+
+    /** Fires a fictional incoming message so the in-app banner can be captured. */
+    suspend fun simulateIncoming(threadId: String, text: String) {
+        (repository as DemoProtocol).simulateIncoming(threadId, text)
+    }
 }

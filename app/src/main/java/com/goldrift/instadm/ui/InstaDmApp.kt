@@ -11,16 +11,26 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -37,8 +47,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -52,6 +66,7 @@ import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.RealtimeService
+import com.goldrift.instadm.ui.chat.ChatBanner
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
@@ -119,6 +134,12 @@ fun InstaDmApp(
         shareTargetId = null
         onShareHandled()
     }
+
+    // A message in another chat lands as a banner over the screen. The exit
+    // animation keeps drawing the last one after the state clears.
+    val banner = inboxState.banner
+    var shownBanner by remember { mutableStateOf<ChatBanner?>(null) }
+    LaunchedEffect(banner) { if (banner != null) shownBanner = banner }
 
     LaunchedEffect(application.repository) {
         startRoute = if (application.repository.hasCookies()) Routes.Inbox else Routes.Login
@@ -386,6 +407,34 @@ fun InstaDmApp(
         ) {
             MiniVoicePlayer(player = voicePlayer, onOpen = openPlayingNote)
         }
+
+        AnimatedVisibility(
+            visible = banner != null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            enter = fadeIn(motion.defaultEffectsSpec()) +
+                slideInVertically(motion.defaultSpatialSpec()) { -it },
+            exit = fadeOut(motion.fastEffectsSpec()),
+        ) {
+            val incoming = shownBanner ?: return@AnimatedVisibility
+            IncomingChatBanner(
+                banner = incoming,
+                onOpen = {
+                    inboxState.dismissBanner()
+                    if (wide && currentRoute == Routes.Inbox) {
+                        selectedChatId = incoming.threadId
+                    } else {
+                        navController.navigate(Routes.chat(incoming.threadId)) {
+                            popUpTo(Routes.Inbox)
+                            launchSingleTop = true
+                        }
+                    }
+                },
+                onDismiss = inboxState::dismissBanner,
+            )
+        }
     }
 
     LaunchedEffect(
@@ -534,6 +583,62 @@ private fun MainPane(
                     onSharedContentConsumed = onShareConsumed,
                     onBack = { onSelectChat(null) },
                     modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Banner for a message in a chat other than the open one. It reads as one
+ * control that opens the chat, with its own dismiss button; the text is a live
+ * region so TalkBack announces the arrival, and both lines wrap instead of
+ * clipping at large font sizes.
+ */
+@Composable
+private fun IncomingChatBanner(
+    banner: ChatBanner,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                onClickLabel = stringResource(R.string.banner_open),
+                role = Role.Button,
+                onClick = onOpen,
+            )
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 3.dp,
+        shadowElevation = 3.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = banner.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = banner.preview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.banner_dismiss),
                 )
             }
         }

@@ -71,7 +71,7 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
         )
     }
     val inboxState by lazy {
-        InboxState(repository, chatStore, mailboxSync, outbox, settings, appScope, mediaReader)
+        InboxState(repository, chatStore, mailboxSync, outbox, settings, appScope, mediaReader, this)
     }
     /** Outlives a chat so a voice note can keep playing behind the inbox. */
     val voicePlayer by lazy { VoicePlayer(this) }

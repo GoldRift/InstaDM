@@ -9,7 +9,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.MainActivity
+import com.goldrift.instadm.demo.DemoApplication
+import kotlinx.coroutines.runBlocking
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -120,6 +123,20 @@ class DemoScreenshotTest {
         session.awaitText("Theme")
         Thread.sleep(600)
         session.capture("14-settings-light")
+
+        session.tapBack()
+        session.awaitText("Maya Chen")
+        session.tap("Maya Chen")
+        session.awaitText("8pm?")
+        val app = InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .applicationContext as DemoApplication
+        runBlocking { app.simulateIncoming("demo_sofia", "free for coffee at four?") }
+        session.awaitText("free for coffee at four?")
+        Thread.sleep(300)
+        session.capture("15-banner-light")
+        session.nodeWithDescription("Dismiss").performClick()
+        session.awaitGone("free for coffee at four?")
     }
 
     private fun hideKeyboardAndReturnToChat() {
