@@ -413,7 +413,12 @@ fun InstaDmApp(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(
+                    start = 12.dp,
+                    top = SmallAppBarHeight + 8.dp,
+                    end = 12.dp,
+                    bottom = 8.dp,
+                ),
             enter = fadeIn(motion.defaultEffectsSpec()) +
                 slideInVertically(motion.defaultSpatialSpec()) { -it },
             exit = fadeOut(motion.fastEffectsSpec()),
@@ -588,6 +593,9 @@ private fun MainPane(
         }
     }
 }
+
+/** M3 small app bar height; the banner parks just below it instead of over the title. */
+private val SmallAppBarHeight = 64.dp
 
 /**
  * Banner for a message in a chat other than the open one. It reads as one
