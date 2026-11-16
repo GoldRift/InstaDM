@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -462,6 +463,11 @@ fun WaveformBars(
     val seek = onSeek
     // Follows the finger so the bars don't trail MediaPlayer while it seeks.
     var dragProgress by remember { mutableStateOf<Float?>(null) }
+    // The lambdas are new on every recomposition, so a pointerInput keyed on
+    // them would restart mid-drag and drop the gesture to the bubble's
+    // swipe-to-reply detector, which is an ancestor.
+    val latestSeek by rememberUpdatedState(seek)
+    val latestLongClick by rememberUpdatedState(onLongClick)
     val gestureModifier = if (seek != null) {
         Modifier
             .semantics {
@@ -475,28 +481,28 @@ fun WaveformBars(
                     true
                 }
             }
-            .pointerInput(amplitudes, seek, onLongClick) {
+            .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { offset ->
-                        if (size.width > 0) seek(offset.x / size.width)
+                        if (size.width > 0) latestSeek?.invoke(offset.x / size.width)
                     },
                     // A slow drag must scrub, not open the message actions.
-                    onLongPress = { if (dragProgress == null) onLongClick?.invoke() },
+                    onLongPress = { if (dragProgress == null) latestLongClick?.invoke() },
                 )
             }
-            .pointerInput(seek) {
+            .pointerInput(Unit) {
                 var fraction = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         fraction = scrubFraction(offset.x / size.width, 0f, size.width.toFloat())
                         dragProgress = fraction
-                        seek(fraction)
+                        latestSeek?.invoke(fraction)
                     },
                     onHorizontalDrag = { change, delta ->
                         change.consume()
                         fraction = scrubFraction(fraction, delta, size.width.toFloat())
                         dragProgress = fraction
-                        seek(fraction)
+                        latestSeek?.invoke(fraction)
                     },
                     onDragEnd = { dragProgress = null },
                     onDragCancel = { dragProgress = null },
