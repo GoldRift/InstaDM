@@ -7,6 +7,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.roundToInt
 
 enum class MessageSender { Me, Them }
 
@@ -259,6 +260,12 @@ fun startsGroupSenderRun(
 fun <T> List<T>.moved(from: Int, to: Int): List<T> {
     if (from == to || from !in indices || to !in indices) return this
     return toMutableList().apply { add(to, removeAt(from)) }
+}
+
+/** Slot a dragged item lands on after [offsetPx] of travel, clamped to the list. */
+fun stagedDragTarget(index: Int, offsetPx: Float, stepPx: Float, lastIndex: Int): Int {
+    if (stepPx <= 0f) return index
+    return (index + (offsetPx / stepPx).roundToInt()).coerceIn(0, lastIndex)
 }
 
 /** Two-letter initials used by avatars, or "?" for an empty name. */

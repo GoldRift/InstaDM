@@ -35,6 +35,7 @@ import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -183,6 +184,7 @@ import androidx.compose.ui.unit.takeOrElse
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
@@ -243,6 +245,9 @@ private const val MAX_STAGED_MEDIA = 10
 /** Staged attachment thumb and the gap between thumbs in the strip. */
 private val STAGED_MEDIA_SIZE = 56.dp
 private val STAGED_MEDIA_GAP = 8.dp
+
+/** Distance from the strip's edge where a drag scrolls the row. */
+private val STAGED_MEDIA_EDGE = 48.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -2662,26 +2667,77 @@ private fun MessageComposer(
     }
 }
 
-/** Picked attachments waiting for Send; TalkBack can move a thumb left or right. */
+/** Picked attachments waiting for Send; long-press a thumb to drag it into place. */
 @Composable
 private fun StagedMediaStrip(
     media: List<PickedMedia>,
     onRemove: (PickedMedia) -> Unit,
     onMove: (from: Int, to: Int) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val stepPx = with(density) { (STAGED_MEDIA_SIZE + STAGED_MEDIA_GAP).toPx() }
+    val edgePx = with(density) { STAGED_MEDIA_EDGE.toPx() }
     val moveLeft = stringResource(R.string.chat_staged_move_left)
     val moveRight = stringResource(R.string.chat_staged_move_right)
+    var draggedIndex by remember { mutableStateOf(-1) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
 
     LazyRow(
+        state = listState,
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(STAGED_MEDIA_GAP),
     ) {
         itemsIndexed(media, key = { _, picked -> picked.uri.toString() }) { index, picked ->
+            val dragging = index == draggedIndex
             Box(
                 modifier = Modifier
                     .size(STAGED_MEDIA_SIZE)
+                    .zIndex(if (dragging) 1f else 0f)
+                    .offset {
+                        IntOffset(if (dragging) dragOffset.roundToInt() else 0, 0)
+                    }
+                    .pointerInput(picked.uri, index) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                draggedIndex = index
+                                dragOffset = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dragOffset += amount.x
+                                val info = listState.layoutInfo
+                                val item = info.visibleItemsInfo.firstOrNull { it.index == index }
+                                if (item != null && info.viewportSize.width > 0) {
+                                    val center = item.offset + item.size / 2f + dragOffset
+                                    val delta = when {
+                                        center < edgePx -> -stepPx / 4f
+                                        center > info.viewportSize.width - edgePx -> stepPx / 4f
+                                        else -> 0f
+                                    }
+                                    if (delta != 0f) {
+                                        scope.launch { listState.dispatchRawDelta(delta) }
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                val target =
+                                    stagedDragTarget(index, dragOffset, stepPx, media.lastIndex)
+                                draggedIndex = -1
+                                dragOffset = 0f
+                                onMove(index, target)
+                            },
+                            onDragCancel = {
+                                draggedIndex = -1
+                                dragOffset = 0f
+                            },
+                        )
+                    }
                     .semantics {
                         customActions = listOf(
                             CustomAccessibilityAction(moveLeft) {
