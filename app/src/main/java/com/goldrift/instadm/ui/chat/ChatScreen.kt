@@ -2739,6 +2739,7 @@ private fun StagedMediaStrip(
                         )
                     }
                     .semantics {
+                        contentDescription = picked.fileName
                         customActions = listOf(
                             CustomAccessibilityAction(moveLeft) {
                                 if (index > 0) onMove(index, index - 1)
@@ -2761,7 +2762,7 @@ private fun StagedMediaStrip(
                     if (picked.kind == "image") {
                         AsyncImage(
                             model = picked.uri,
-                            contentDescription = picked.fileName,
+                            contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -2773,7 +2774,7 @@ private fun StagedMediaStrip(
                                 } else {
                                     Icons.Rounded.Audiotrack
                                 },
-                                contentDescription = picked.fileName,
+                                contentDescription = null,
                                 modifier = Modifier.size(24.dp),
                             )
                         }
