@@ -59,6 +59,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -81,7 +82,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -95,6 +96,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -143,6 +145,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -151,10 +154,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
@@ -180,10 +185,12 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import coil.compose.AsyncImage
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.DEFAULT_DOUBLE_TAP_EMOJI
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.SharedContent
@@ -230,6 +237,13 @@ private val ReactionAvatarSize = 18.dp
 /** How many typing pictures the group bubble stacks before it stops growing. */
 private const val MaxTypingAvatars = 3
 
+/** Attachments a composer stages at once. */
+private const val MAX_STAGED_MEDIA = 10
+
+/** Staged attachment thumb and the gap between thumbs in the strip. */
+private val STAGED_MEDIA_SIZE = 56.dp
+private val STAGED_MEDIA_GAP = 8.dp
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatScreen(
@@ -237,7 +251,8 @@ fun ChatScreen(
     onSend: (String, ChatMessage?) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onSendMedia: (Uri) -> Unit = {},
+    onPrepareMedia: suspend (Uri) -> PickedMedia? = { null },
+    onSendMedia: (List<PickedMedia>) -> Unit = {},
     onRetryMedia: (String) -> Unit = {},
     isTyping: Boolean = false,
     typingSenders: List<ConversationParticipant> = emptyList(),
@@ -335,8 +350,29 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val keepPlayingOnLeave by rememberUpdatedState(voiceBackgroundPlayback)
     val draft = rememberTextFieldState()
-    // Attachments handed over by another app wait here until the viewer sends.
-    var stagedMedia by remember(conversation.id) { mutableStateOf<List<Uri>>(emptyList()) }
+    // Attachments picked or shared into this chat wait here until the viewer
+    // sends them, in the order the strip shows.
+    var stagedMedia by remember(conversation.id) { mutableStateOf<List<PickedMedia>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    fun stageMedia(uris: List<Uri>) {
+        val fresh = uris.distinct().filterNot { uri -> stagedMedia.any { it.uri == uri } }
+        val room = MAX_STAGED_MEDIA - stagedMedia.size
+        if (fresh.size > room) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.chat_staged_limit, MAX_STAGED_MEDIA),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        if (room <= 0) return
+        scope.launch {
+            for (uri in fresh.take(room)) {
+                val picked = onPrepareMedia(uri) ?: continue
+                stagedMedia = stagedMedia + picked
+            }
+        }
+    }
 
     // Content shared from another app lands in this chat's composer once the
     // viewer picks the conversation.
@@ -351,7 +387,7 @@ fun ChatScreen(
                 },
             )
         }
-        stagedMedia = (stagedMedia + share.uris).distinct()
+        stageMedia(share.uris)
         onSharedContentConsumed()
     }
     var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
@@ -373,7 +409,6 @@ fun ChatScreen(
     val density = LocalDensity.current
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
     var quotedMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     var pendingQuoteJumpId by remember(conversation.id) { mutableStateOf<String?>(null) }
 
@@ -386,17 +421,17 @@ fun ChatScreen(
         capturePath = null
         if (success && uri != null) {
             replyTarget = null
-            onSendMedia(uri.toUri())
+            stageMedia(listOf(uri.toUri()))
         } else if (path != null) {
             runCatching { File(path).delete() }
         }
     }
     val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_STAGED_MEDIA),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
             replyTarget = null
-            onSendMedia(uri)
+            stageMedia(uris)
         }
     }
 
@@ -584,7 +619,7 @@ fun ChatScreen(
         if (text.isEmpty() && stagedMedia.isEmpty()) return
 
         if (text.isNotEmpty()) onSend(text, replyTarget)
-        stagedMedia.forEach(onSendMedia)
+        if (stagedMedia.isNotEmpty()) onSendMedia(stagedMedia)
         stagedMedia = emptyList()
         draft.clearText()
         replyTarget = null
@@ -653,11 +688,8 @@ fun ChatScreen(
             MessageComposer(
                 draft = draft,
                 onSend = ::sendMessage,
-                // Keyboard GIFs and stickers upload like a picked image.
-                onCommitMedia = { uri ->
-                    replyTarget = null
-                    onSendMedia(uri)
-                },
+                // Keyboard GIFs and stickers join the strip like a picked image.
+                onCommitMedia = { uri -> stageMedia(listOf(uri)) },
                 replyingTo = replyTarget?.toReplySnapshot(),
                 replyingToLabel = replyLabel,
                 onCancelReply = { replyTarget = null },
@@ -665,8 +697,9 @@ fun ChatScreen(
                 onCamera = ::takePhoto,
                 attachmentsEnabled = attachmentsEnabled,
                 onPickMedia = ::pickMedia,
-                stagedMediaCount = stagedMedia.size,
-                onClearStagedMedia = { stagedMedia = emptyList() },
+                stagedMedia = stagedMedia,
+                onRemoveStagedMedia = { picked -> stagedMedia = stagedMedia - picked },
+                onMoveStagedMedia = { from, to -> stagedMedia = stagedMedia.moved(from, to) },
                 recorder = voiceRecorder,
                 locked = recordingLocked,
                 cancelCandidate = recordingCancel,
@@ -2419,8 +2452,9 @@ private fun MessageComposer(
     focusRequester: FocusRequester,
     onCamera: () -> Unit,
     onPickMedia: () -> Unit,
-    stagedMediaCount: Int,
-    onClearStagedMedia: () -> Unit,
+    stagedMedia: List<PickedMedia>,
+    onRemoveStagedMedia: (PickedMedia) -> Unit,
+    onMoveStagedMedia: (from: Int, to: Int) -> Unit,
     recorder: VoiceRecorder,
     locked: Boolean,
     cancelCandidate: Boolean,
@@ -2432,8 +2466,8 @@ private fun MessageComposer(
     attachmentsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val showSend = draft.text.isNotBlank() || stagedMediaCount > 0
-    val showActions = !showSend && attachmentsEnabled
+    val showSend = draft.text.isNotBlank() || stagedMedia.isNotEmpty()
+    val showActions = attachmentsEnabled
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
     // Keyboard GIFs and stickers arrive through commitContent, which
@@ -2474,10 +2508,11 @@ private fun MessageComposer(
                         onCancel = onCancelReply,
                     )
                 }
-                if (stagedMediaCount > 0) {
-                    StagedMediaBar(
-                        count = stagedMediaCount,
-                        onClear = onClearStagedMedia,
+                if (stagedMedia.isNotEmpty()) {
+                    StagedMediaStrip(
+                        media = stagedMedia,
+                        onRemove = onRemoveStagedMedia,
+                        onMove = onMoveStagedMedia,
                     )
                 }
                 Row(
@@ -2627,39 +2662,84 @@ private fun MessageComposer(
     }
 }
 
-/** Attachments shared from another app, waiting in the composer for Send. */
+/** Picked attachments waiting for Send; TalkBack can move a thumb left or right. */
 @Composable
-private fun StagedMediaBar(count: Int, onClear: () -> Unit) {
-    Surface(
+private fun StagedMediaStrip(
+    media: List<PickedMedia>,
+    onRemove: (PickedMedia) -> Unit,
+    onMove: (from: Int, to: Int) -> Unit,
+) {
+    val moveLeft = stringResource(R.string.chat_staged_move_left)
+    val moveRight = stringResource(R.string.chat_staged_move_right)
+
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 8.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        horizontalArrangement = Arrangement.spacedBy(STAGED_MEDIA_GAP),
     ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.AttachFile,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = pluralStringResource(R.plurals.chat_share_attachments, count, count),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onClear) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.chat_share_clear),
-                    modifier = Modifier.size(18.dp),
-                )
+        itemsIndexed(media, key = { _, picked -> picked.uri.toString() }) { index, picked ->
+            Box(
+                modifier = Modifier
+                    .size(STAGED_MEDIA_SIZE)
+                    .semantics {
+                        customActions = listOf(
+                            CustomAccessibilityAction(moveLeft) {
+                                if (index > 0) onMove(index, index - 1)
+                                true
+                            },
+                            CustomAccessibilityAction(moveRight) {
+                                if (index < media.lastIndex) onMove(index, index + 1)
+                                true
+                            },
+                        )
+                    },
+            ) {
+                val thumbShape = RoundedCornerShape(12.dp)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = thumbShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ) {
+                    if (picked.kind == "image") {
+                        AsyncImage(
+                            model = picked.uri,
+                            contentDescription = picked.fileName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (picked.kind == "video") {
+                                    Icons.Rounded.Videocam
+                                } else {
+                                    Icons.Rounded.Audiotrack
+                                },
+                                contentDescription = picked.fileName,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .clickable(role = Role.Button) { onRemove(picked) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = stringResource(R.string.chat_staged_remove),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         }
     }

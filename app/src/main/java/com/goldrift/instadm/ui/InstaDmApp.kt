@@ -801,7 +801,8 @@ private fun ChatDestination(
             }
         },
         onBack = onBack,
-        onSendMedia = { uri -> inboxState.sendMedia(threadId, uri) },
+        onPrepareMedia = { uri -> inboxState.prepareMedia(uri) },
+        onSendMedia = { media -> inboxState.sendMedia(threadId, media) },
         onSendVoice = { recording -> inboxState.sendVoiceNote(threadId, recording) },
         onRetryMedia = { messageId -> inboxState.retryMedia(threadId, messageId) },
         isTyping = inboxState.isTyping(threadId),

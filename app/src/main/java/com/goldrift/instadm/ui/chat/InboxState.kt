@@ -14,6 +14,7 @@ import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.Outbox
+import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.ProtocolApi
 import com.goldrift.instadm.data.RealtimeBus
 import com.goldrift.instadm.data.RealtimeEvent
@@ -576,20 +577,31 @@ class InboxState(
         conversationForRecipient(recipientFbid)?.id.orEmpty()
 
     /**
-     * Copies a picked attachment into the durable outbox and shows it as a
-     * pending bubble. The upload runs from [Outbox], so it survives a restart.
+     * Reads a picked attachment's metadata so the composer can stage it. A file
+     * the policy rejects reports through [errorMessage] and stages nothing.
      */
-    fun sendMedia(threadId: String, uri: Uri) {
-        if (conversation(threadId) == null) return
+    suspend fun prepareMedia(uri: Uri): PickedMedia? =
+        runCatching { mediaReader.prepare(uri) }
+            .onFailure { error -> errorMessage = describeError(error) }
+            .getOrNull()
+
+    /**
+     * Copies picked attachments into the durable outbox and shows them as
+     * pending bubbles, in the order the viewer arranged them. One failed file
+     * does not drop the rest of the batch.
+     */
+    fun sendMedia(threadId: String, media: List<PickedMedia>) {
+        if (conversation(threadId) == null || media.isEmpty()) return
         errorMessage = null
         scope.launch {
-            runCatching {
-                outbox.enqueueMedia(threadId, mediaReader.prepare(uri))
-            }.onSuccess {
-                markRead(threadId, fromSend = true)
-            }.onFailure { error ->
-                errorMessage = describeError(error)
+            var stamp = System.currentTimeMillis()
+            var enqueued = false
+            media.forEach { picked ->
+                runCatching { outbox.enqueueMedia(threadId, picked, stamp++) }
+                    .onSuccess { enqueued = true }
+                    .onFailure { error -> errorMessage = describeError(error) }
             }
+            if (enqueued) markRead(threadId, fromSend = true)
         }
     }
 

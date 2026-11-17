@@ -255,6 +255,12 @@ fun startsGroupSenderRun(
                 previous.senderFbid != message.senderFbid
             )
 
+/** Moves the item at [from] to [to]; a move outside the list changes nothing. */
+fun <T> List<T>.moved(from: Int, to: Int): List<T> {
+    if (from == to || from !in indices || to !in indices) return this
+    return toMutableList().apply { add(to, removeAt(from)) }
+}
+
 /** Two-letter initials used by avatars, or "?" for an empty name. */
 fun initialsOf(name: String): String {
     val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }

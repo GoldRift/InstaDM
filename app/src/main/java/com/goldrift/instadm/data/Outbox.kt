@@ -166,7 +166,11 @@ class Outbox(
      * Copies the picked bytes into app-private storage, then queues the upload.
      * The copy is what survives process death; the content URI may not.
      */
-    suspend fun enqueueMedia(threadId: String, picked: PickedMedia): String {
+    suspend fun enqueueMedia(
+        threadId: String,
+        picked: PickedMedia,
+        timestampMs: Long = clock(),
+    ): String {
         val otid = OfflineThreadingIds.next()
         val extension = extensionFor(picked.mimeType, picked.kind)
         val file = withContext(Dispatchers.IO) {
@@ -175,7 +179,7 @@ class Outbox(
             File(outboxDir, "$otid.$extension").apply { writeBytes(data) }
         }
 
-        val now = clock()
+        val now = timestampMs
         val localId = "local:${UUID.randomUUID()}"
         val localUri = file.toURI().toString()
         db.withTransaction {
