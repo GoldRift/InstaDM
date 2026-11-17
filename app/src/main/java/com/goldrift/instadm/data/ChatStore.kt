@@ -246,7 +246,7 @@ class ChatStore(
         if (threadId.isBlank() || message.id.isBlank()) return
 
         val now = clock()
-        val timestamp = message.timestampMs.takeIf { it > 0 } ?: now
+        val serverTimestamp = message.timestampMs.takeIf { it > 0 } ?: now
         db.withTransaction {
             if (threadDao.thread(threadId) == null) {
                 threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
@@ -264,6 +264,7 @@ class ChatStore(
             // The echo of an optimistic reply may omit the quoted snapshot, so
             // fall back to the pending row that was just matched by OTID.
             val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
+            val timestamp = sentTimestamp(previous, message.isFromViewer, serverTimestamp)
             val replyToId = message.replyToId.ifBlank { previous?.replyToId.orEmpty() }
             val storedReply = previous?.takeIf { it.replyToId == replyToId }
             val reply = message.reply
@@ -372,7 +373,7 @@ class ChatStore(
     ) {
         val messageId = result.optString("message_id").ifBlank { result.optString("id") }
         val now = clock()
-        val timestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
+        val serverTimestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
         val text = result.optString("text").ifBlank { fallbackText }
         db.withTransaction {
             if (messageId.isBlank()) {
@@ -390,6 +391,7 @@ class ChatStore(
                 ?: result.optString("offline_threading_id").trim()
                     .takeIf { it.isNotEmpty() }
                     ?.let { messageDao.byOtid(it) }
+            val timestamp = sentTimestamp(previous, fromViewer = true, serverMs = serverTimestamp)
             if (previous != null && previous.id != messageId) {
                 messageDao.delete(previous.id)
             }
@@ -443,7 +445,7 @@ class ChatStore(
     ) {
         val messageId = result.optString("message_id").ifBlank { result.optString("id") }
         val now = clock()
-        val timestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
+        val serverTimestamp = result.optLong("timestamp_ms").takeIf { it > 0 } ?: now
         db.withTransaction {
             if (messageId.isBlank()) {
                 messageDao.setStatus(localMessageId, MessageStatus.SENT)
@@ -451,6 +453,10 @@ class ChatStore(
                 messageDao.setAttachmentFile(localMessageId, 0, localPath, localUri)
                 return@withTransaction
             }
+            // An echo may already have swapped the pending row for the server
+            // one, so take the send time from whichever row still exists.
+            val previous = messageDao.message(localMessageId) ?: messageDao.message(messageId)
+            val timestamp = sentTimestamp(previous, fromViewer = true, serverMs = serverTimestamp)
             messageDao.delete(localMessageId)
             messageDao.upsertMessage(
                 MessageEntity(
@@ -822,6 +828,14 @@ private fun MessageEntity.withReplySnapshotFrom(fallback: MessageEntity?): Messa
     )
 }
 
+/**
+ * The viewer's own send time wins over Instagram's, so a staged batch keeps the
+ * order it was sent in while each attachment is acked. Other senders have no
+ * stored row, so their server time stands.
+ */
+internal fun sentTimestamp(previous: MessageEntity?, fromViewer: Boolean, serverMs: Long): Long =
+    if (fromViewer) previous?.timestampMs?.takeIf { it > 0 } ?: serverMs else serverMs
+
 internal fun messageEntity(
     json: JSONObject,
     threadId: String,
@@ -832,6 +846,7 @@ internal fun messageEntity(
     if (id.isEmpty()) return null
 
     val status = previous?.status?.takeIf { it == MessageStatus.DELETED } ?: MessageStatus.SENT
+    val fromViewer = json.optBoolean("is_from_viewer")
     val quoted = json.optJSONObject("replied_to_message")
     val replyToId = json.optString("replied_to_message_id")
         .ifBlank { quoted?.optString("id").orEmpty() }
@@ -845,7 +860,7 @@ internal fun messageEntity(
         threadId = threadId,
         senderFbid = json.optLong("sender_fbid"),
         senderName = json.optString("sender_name"),
-        timestampMs = json.optLong("timestamp_ms"),
+        timestampMs = sentTimestamp(previous, fromViewer, json.optLong("timestamp_ms")),
         kind = json.optString("kind").ifBlank { "unknown" },
         text = json.optString("text"),
         replyToId = replyToId,
@@ -859,7 +874,7 @@ internal fun messageEntity(
             ?: storedReply?.replyToMediaCount
             ?: 0,
         otid = json.optString("offline_threading_id"),
-        isFromViewer = json.optBoolean("is_from_viewer"),
+        isFromViewer = fromViewer,
         status = status,
         seen = json.optBoolean("seen"),
         mediaCount = json.optInt("media_count"),
