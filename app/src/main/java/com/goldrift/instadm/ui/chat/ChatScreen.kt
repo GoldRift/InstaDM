@@ -26,9 +26,13 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -65,6 +69,11 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Reply
@@ -120,6 +129,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -324,7 +334,7 @@ fun ChatScreen(
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val keepPlayingOnLeave by rememberUpdatedState(voiceBackgroundPlayback)
-    var draft by remember { mutableStateOf("") }
+    val draft = rememberTextFieldState()
     // Attachments handed over by another app wait here until the viewer sends.
     var stagedMedia by remember(conversation.id) { mutableStateOf<List<Uri>>(emptyList()) }
 
@@ -333,7 +343,13 @@ fun ChatScreen(
     LaunchedEffect(sharedContent) {
         val share = sharedContent ?: return@LaunchedEffect
         if (share.text.isNotBlank()) {
-            draft = if (draft.isBlank()) share.text else draft.trimEnd() + "\n" + share.text
+            draft.setTextAndPlaceCursorAtEnd(
+                if (draft.text.isBlank()) {
+                    share.text
+                } else {
+                    draft.text.trimEnd().toString() + "\n" + share.text
+                },
+            )
         }
         stagedMedia = (stagedMedia + share.uris).distinct()
         onSharedContentConsumed()
@@ -564,14 +580,21 @@ fun ChatScreen(
     }
 
     fun sendMessage() {
-        val text = draft.trim()
+        val text = draft.text.trim().toString()
         if (text.isEmpty() && stagedMedia.isEmpty()) return
 
         if (text.isNotEmpty()) onSend(text, replyTarget)
         stagedMedia.forEach(onSendMedia)
         stagedMedia = emptyList()
-        draft = ""
+        draft.clearText()
         replyTarget = null
+    }
+
+    val typing = rememberUpdatedState(onTyping)
+    LaunchedEffect(draft) {
+        snapshotFlow { draft.text }.collect { text ->
+            if (text.isNotBlank()) typing.value()
+        }
     }
 
     // Follow the newest bubble on first load, on a new message, and when typing
@@ -629,11 +652,12 @@ fun ChatScreen(
         bottomBar = {
             MessageComposer(
                 draft = draft,
-                onDraftChange = { value ->
-                    draft = value
-                    if (value.isNotBlank()) onTyping()
-                },
                 onSend = ::sendMessage,
+                // Keyboard GIFs and stickers upload like a picked image.
+                onCommitMedia = { uri ->
+                    replyTarget = null
+                    onSendMedia(uri)
+                },
                 replyingTo = replyTarget?.toReplySnapshot(),
                 replyingToLabel = replyLabel,
                 onCancelReply = { replyTarget = null },
@@ -2379,11 +2403,16 @@ private fun DayHeader(timestampMs: Long) {
     }
 }
 
+/** An IME commits one image per keyboard GIF or sticker. */
+private fun ClipData.firstUri(): Uri? =
+    (0 until itemCount).firstNotNullOfOrNull { getItemAt(it).uri }
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageComposer(
-    draft: String,
-    onDraftChange: (String) -> Unit,
+    draft: TextFieldState,
     onSend: () -> Unit,
+    onCommitMedia: (Uri) -> Unit,
     replyingTo: ReplySnapshot?,
     replyingToLabel: String,
     onCancelReply: () -> Unit,
@@ -2403,10 +2432,24 @@ private fun MessageComposer(
     attachmentsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val showSend = draft.isNotBlank() || stagedMediaCount > 0
+    val showSend = draft.text.isNotBlank() || stagedMediaCount > 0
     val showActions = !showSend && attachmentsEnabled
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
+    // Keyboard GIFs and stickers arrive through commitContent, which
+    // BasicTextField hands over as an image URI.
+    val commitMedia = rememberUpdatedState(onCommitMedia)
+    val contentReceiver = remember {
+        ReceiveContentListener { content ->
+            val uri = content.clipEntry.clipData.firstUri()
+            if (uri == null) {
+                content
+            } else {
+                commitMedia.value(uri)
+                content.consume { true }
+            }
+        }
+    }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -2485,11 +2528,17 @@ private fun MessageComposer(
                                 )
                             } else {
                                 BasicTextField(
-                                    value = draft,
-                                    onValueChange = onDraftChange,
+                                    state = draft,
                                     modifier = Modifier
                                         .weight(1f)
                                         .focusRequester(focusRequester)
+                                        .then(
+                                            if (attachmentsEnabled) {
+                                                Modifier.contentReceiver(contentReceiver)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .padding(
                                             start = if (showActions) 0.dp else 12.dp,
                                             end = 8.dp,
@@ -2501,10 +2550,13 @@ private fun MessageComposer(
                                         capitalization = KeyboardCapitalization.Sentences,
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    maxLines = 4,
-                                    decorationBox = { innerTextField ->
+                                    lineLimits = TextFieldLineLimits.MultiLine(
+                                        minHeightInLines = 1,
+                                        maxHeightInLines = 4,
+                                    ),
+                                    decorator = { innerTextField ->
                                         Box(contentAlignment = Alignment.CenterStart) {
-                                            if (draft.isEmpty()) {
+                                            if (draft.text.isEmpty()) {
                                                 Text(
                                                     text = stringResource(
                                                         R.string.chat_message_hint,

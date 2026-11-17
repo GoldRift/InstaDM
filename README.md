@@ -49,9 +49,10 @@ official app.
   message is text, because Instagram creates the thread with it.
 - Conversations page 30 messages at a time and scroll back to the start of the
   thread, keeping the viewport stable while older pages load.
-- Send text, photos, videos, files, and voice notes. Every send is an optimistic
-  bubble plus a durable outbox row that retries with the same offline threading
-  ID after a failure or process death.
+- Send text, photos, videos, files, and voice notes, plus GIFs and stickers
+  picked from the keyboard. Every send is an optimistic bubble plus a durable
+  outbox row that retries with the same offline threading ID after a failure or
+  process death.
 - Share text, photos, videos, audio, or files into InstaDM from another app's
   share sheet: pick a chat in the inbox and the content waits in that chat's
   composer until you send it.
