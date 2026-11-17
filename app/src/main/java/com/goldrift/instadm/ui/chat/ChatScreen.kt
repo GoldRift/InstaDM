@@ -206,6 +206,7 @@ import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -694,7 +695,10 @@ fun ChatScreen(
                 draft = draft,
                 onSend = ::sendMessage,
                 // Keyboard GIFs and stickers join the strip like a picked image.
-                onCommitMedia = { uri -> stageMedia(listOf(uri)) },
+                onCommitMedia = { uri ->
+                    replyTarget = null
+                    stageMedia(listOf(uri))
+                },
                 replyingTo = replyTarget?.toReplySnapshot(),
                 replyingToLabel = replyLabel,
                 onCancelReply = { replyTarget = null },
@@ -2684,6 +2688,31 @@ private fun StagedMediaStrip(
     val moveRight = stringResource(R.string.chat_staged_move_right)
     var draggedIndex by remember { mutableStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
+    var scrollDelta by remember { mutableFloatStateOf(0f) }
+
+    // Holding a thumb against the strip's edge keeps scrolling the row. The
+    // offset follows the scroll so the thumb stays under the finger and the
+    // drop target keeps advancing with it.
+    fun stopAutoScroll() {
+        scrollJob?.cancel()
+        scrollJob = null
+        scrollDelta = 0f
+    }
+
+    fun autoScroll(delta: Float) {
+        if (scrollJob?.isActive == true && scrollDelta == delta) return
+        stopAutoScroll()
+        scrollDelta = delta
+        scrollJob = scope.launch {
+            while (true) {
+                val consumed = listState.dispatchRawDelta(delta)
+                if (consumed == 0f) break
+                dragOffset += consumed
+                delay(16)
+            }
+        }
+    }
 
     LazyRow(
         state = listState,
@@ -2706,6 +2735,7 @@ private fun StagedMediaStrip(
                             onDragStart = {
                                 draggedIndex = index
                                 dragOffset = 0f
+                                stopAutoScroll()
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onDrag = { change, amount ->
@@ -2715,17 +2745,18 @@ private fun StagedMediaStrip(
                                 val item = info.visibleItemsInfo.firstOrNull { it.index == index }
                                 if (item != null && info.viewportSize.width > 0) {
                                     val center = item.offset + item.size / 2f + dragOffset
-                                    val delta = when {
-                                        center < edgePx -> -stepPx / 4f
-                                        center > info.viewportSize.width - edgePx -> stepPx / 4f
-                                        else -> 0f
+                                    when {
+                                        center < edgePx -> autoScroll(-stepPx / 4f)
+                                        center > info.viewportSize.width - edgePx ->
+                                            autoScroll(stepPx / 4f)
+                                        else -> stopAutoScroll()
                                     }
-                                    if (delta != 0f) {
-                                        scope.launch { listState.dispatchRawDelta(delta) }
-                                    }
+                                } else {
+                                    stopAutoScroll()
                                 }
                             },
                             onDragEnd = {
+                                stopAutoScroll()
                                 val target =
                                     stagedDragTarget(index, dragOffset, stepPx, media.lastIndex)
                                 draggedIndex = -1
@@ -2733,6 +2764,7 @@ private fun StagedMediaStrip(
                                 onMove(index, target)
                             },
                             onDragCancel = {
+                                stopAutoScroll()
                                 draggedIndex = -1
                                 dragOffset = 0f
                             },
