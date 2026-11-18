@@ -25,6 +25,7 @@ internal data class NotifiedMessage(
     val senderFbid: Long,
     val senderName: String,
     val senderAvatarUrl: String,
+    val kind: String = "",
 )
 
 /**

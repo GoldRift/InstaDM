@@ -161,6 +161,7 @@ class MessageNotifier(
                 senderFbid = message.senderFbid,
                 senderName = sender.name,
                 senderAvatarUrl = sender.avatarUrl,
+                kind = message.kind,
             ),
             append = isNotificationActive(tag, notificationId),
         ).sortedBy { it.timestampMs }
@@ -195,6 +196,21 @@ class MessageNotifier(
             .setWhen(entries.last().timestampMs)
             .setNumber(entries.size)
             .setContentIntent(contentIntent(threadId, notificationId))
+
+        // The actions act on the newest line, so a stack always replies to the
+        // message the notification body ends with.
+        val target = NotificationTarget(
+            threadId = threadId,
+            longThreadId = conversation?.longThreadId.orEmpty(),
+            messageId = entries.last().id,
+            timestampMs = entries.last().timestampMs,
+        )
+        notificationMessageActions(
+            context = appContext,
+            target = target,
+            requestCode = notificationId,
+            canLike = canLikeNotification(entries.last().kind),
+        ).forEach { builder.addAction(it) }
 
         lock.withLock {
             // The reader can open the chat and finish the receipt while the

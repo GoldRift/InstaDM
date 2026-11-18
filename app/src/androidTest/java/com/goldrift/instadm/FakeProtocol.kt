@@ -15,6 +15,23 @@ internal class FakeProtocol(
     @Volatile var cookies: Boolean = false,
     @Volatile var mailboxError: Throwable? = null,
 ) : ProtocolApi {
+    data class React(
+        val threadId: String,
+        val messageId: String,
+        val emoji: String,
+        val remove: Boolean,
+    )
+
+    data class Read(
+        val threadId: String,
+        val messageId: String,
+        val longThreadId: String,
+        val timestampMs: Long,
+    )
+
+    val reacts = mutableListOf<React>()
+    val reads = mutableListOf<Read>()
+
     override suspend fun hasCookies(): Boolean = cookies
 
     override suspend fun signOut() {
@@ -61,14 +78,20 @@ internal class FakeProtocol(
         messageId: String,
         longThreadId: String,
         timestampMs: Long,
-    ): JSONObject = unsupported()
+    ): JSONObject {
+        reads += Read(threadId, messageId, longThreadId, timestampMs)
+        return JSONObject()
+    }
 
     override suspend fun react(
         threadId: String,
         messageId: String,
         emoji: String,
         remove: Boolean,
-    ): JSONObject = unsupported()
+    ): JSONObject {
+        reacts += React(threadId, messageId, emoji, remove)
+        return JSONObject()
+    }
 
     override suspend fun edit(threadId: String, messageId: String, text: String): JSONObject =
         unsupported()

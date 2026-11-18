@@ -8,6 +8,13 @@ package com.goldrift.instadm.ui.chat
 fun shouldPublishReadReceipt(receiptsEnabled: Boolean, fromSend: Boolean): Boolean =
     receiptsEnabled || fromSend
 
+/** Message requests must be accepted before they are marked read. */
+internal val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
+
+/** A read request folder takes no receipt at all, not even the one a reply would publish. */
+fun publishesReadReceipt(folder: String, receiptsEnabled: Boolean, fromSend: Boolean): Boolean =
+    folder !in READ_REQUEST_FOLDERS && shouldPublishReadReceipt(receiptsEnabled, fromSend)
+
 /**
  * Applies another participant's read watermark to an open thread. A message the
  * viewer sent is "seen" once a participant's watermark reaches its timestamp.

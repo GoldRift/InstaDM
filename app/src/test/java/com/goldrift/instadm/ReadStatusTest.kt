@@ -7,6 +7,7 @@ import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
 import com.goldrift.instadm.ui.chat.lastOutgoingMessageId
+import com.goldrift.instadm.ui.chat.publishesReadReceipt
 import com.goldrift.instadm.ui.chat.requestReadWatermark
 import com.goldrift.instadm.ui.chat.shouldPublishReadReceipt
 import com.goldrift.instadm.ui.chat.showsStatusTicks
@@ -114,6 +115,26 @@ class ReadStatusTest {
         assertTrue(shouldPublishReadReceipt(receiptsEnabled = false, fromSend = true))
         assertTrue(shouldPublishReadReceipt(receiptsEnabled = true, fromSend = false))
         assertTrue(shouldPublishReadReceipt(receiptsEnabled = true, fromSend = true))
+    }
+
+    @Test
+    fun inboxThreadsFollowTheReceiptSetting() {
+        assertTrue(publishesReadReceipt("", receiptsEnabled = true, fromSend = true))
+        assertTrue(publishesReadReceipt("", receiptsEnabled = true, fromSend = false))
+        assertTrue(publishesReadReceipt("", receiptsEnabled = false, fromSend = true))
+        assertFalse(publishesReadReceipt("", receiptsEnabled = false, fromSend = false))
+    }
+
+    @Test
+    fun messageRequestsNeverPublishAReadReceipt() {
+        assertFalse(publishesReadReceipt("PENDING", receiptsEnabled = true, fromSend = true))
+        assertFalse(publishesReadReceipt("PENDING", receiptsEnabled = true, fromSend = false))
+        assertFalse(publishesReadReceipt("PENDING", receiptsEnabled = false, fromSend = true))
+        assertFalse(publishesReadReceipt("PENDING", receiptsEnabled = false, fromSend = false))
+        assertFalse(publishesReadReceipt("SPAM", receiptsEnabled = true, fromSend = true))
+        assertFalse(publishesReadReceipt("SPAM", receiptsEnabled = true, fromSend = false))
+        assertFalse(publishesReadReceipt("SPAM", receiptsEnabled = false, fromSend = true))
+        assertFalse(publishesReadReceipt("SPAM", receiptsEnabled = false, fromSend = false))
     }
 
     @Test

@@ -93,12 +93,17 @@ official app.
 - Realtime delivery through a foreground `dataSync`/`remoteMessaging` service, so
   new messages, edits, deletes, reactions, receipts, and typing land even when the
   UI is in the background. Background messages stack into one notification per
-  conversation: groups show the group name on top with each sender and profile
-  picture on their messages, tapping a notification opens that chat, and the
-  notification goes away once that conversation is read. The chat you have open
-  never notifies. While a chat is open, a message in another one also shows a
-  small banner with the sender and a one-line preview; tapping it opens that
-  chat, and it can be dismissed or hides itself after a few seconds.
+  conversation instead of replacing the previous body: groups show the group name
+  on top with each sender and profile picture on their messages, tapping a
+  notification opens that chat, and the notification goes away once that
+  conversation is read. Each notification also carries Reply (inline, queued
+  through the outbox so it survives a restart) and Like (your double-tap emoji,
+  hidden on calls, reaction activity entries, and admin notices). A reply also
+  advances that conversation's read position, so your own message never lands
+  after one Instagram still counts as unseen. The chat you have open never
+  notifies. While a chat is open, a message in another one also shows a small
+  banner with the sender and a one-line preview; tapping it opens that chat, and
+  it can be dismissed or hides itself after a few seconds.
 - Material 3 Expressive with Material You colors and the expressive motion
   scheme: date headers, animated loading indicators, a two-pane inbox/chat
   layout at 840 dp and wider, and TalkBack-friendly controls.

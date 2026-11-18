@@ -95,6 +95,9 @@ class ChatStore(
     suspend fun threadExists(threadId: String): Boolean =
         threadId.isNotBlank() && threadDao.thread(threadId) != null
 
+    suspend fun message(messageId: String): MessageEntity? =
+        if (messageId.isBlank()) null else messageDao.message(messageId)
+
     /**
      * The activity entry Instagram wrote for a reaction, matched by the
      * reaction's own timestamp because the realtime delta carries no entry ID.

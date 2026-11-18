@@ -46,9 +46,6 @@ data class ChatBanner(
     val preview: String,
 )
 
-/** Message requests must be accepted before they are marked read. */
-private val READ_REQUEST_FOLDERS = setOf("PENDING", "SPAM")
-
 /** Wait for a burst of incoming messages to settle before sending a receipt. */
 private const val READ_DEBOUNCE_MS = 1_000L
 
