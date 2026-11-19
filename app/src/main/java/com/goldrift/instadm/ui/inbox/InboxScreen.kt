@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -523,11 +524,15 @@ private fun AccountMenu(
             badge = {
                 if (showUpdateBadge) {
                     val description = stringResource(R.string.inbox_update_badge)
+                    // Inset from the icon button's own corner: its circular clip
+                    // cuts a badge that sits further out.
                     Badge(
-                        modifier = Modifier.semantics {
-                            contentDescription = description
-                            liveRegion = LiveRegionMode.Polite
-                        },
+                        modifier = Modifier
+                            .offset(x = (-2).dp, y = 2.dp)
+                            .semantics {
+                                contentDescription = description
+                                liveRegion = LiveRegionMode.Polite
+                            },
                     )
                 }
             },
