@@ -6,6 +6,15 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -46,7 +56,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -55,11 +67,15 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.goldrift.instadm.R
 import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.ui.components.segmentFrequentTick
+import com.goldrift.instadm.ui.components.thresholdActivated
+import com.goldrift.instadm.ui.components.toggle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -287,6 +303,75 @@ class VoicePlayer(context: Context) {
 }
 
 /**
+ * Play/pause artwork shared by the bubble, the mini player, and the recording
+ * bar, so every voice control changes through the same motion. Callers own the
+ * clickable semantics; the glyphs stay undescribed to avoid doubling it.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun VoicePlayPauseIcon(
+    playing: Boolean,
+    loading: Boolean,
+    failed: Boolean,
+    tint: Color,
+    iconSize: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val state = when {
+        loading -> VoiceControlState.Loading
+        failed -> VoiceControlState.Failed
+        playing -> VoiceControlState.Playing
+        else -> VoiceControlState.Paused
+    }
+    val motion = MaterialTheme.motionScheme
+    AnimatedContent(
+        targetState = state,
+        modifier = modifier,
+        transitionSpec = {
+            (scaleIn(initialScale = 0.6f, animationSpec = motion.fastSpatialSpec()) +
+                fadeIn(motion.fastEffectsSpec()))
+                .togetherWith(
+                    scaleOut(targetScale = 0.6f, animationSpec = motion.fastSpatialSpec()) +
+                        fadeOut(motion.fastEffectsSpec()),
+                )
+        },
+        contentAlignment = Alignment.Center,
+        contentKey = { it },
+        label = "voicePlayPause",
+    ) { target ->
+        when (target) {
+            VoiceControlState.Loading -> LoadingIndicator(
+                modifier = Modifier.size(24.dp),
+                color = tint,
+            )
+
+            VoiceControlState.Failed -> Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(iconSize),
+            )
+
+            VoiceControlState.Playing -> Icon(
+                imageVector = Icons.Rounded.Pause,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(iconSize),
+            )
+
+            VoiceControlState.Paused -> Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(iconSize),
+            )
+        }
+    }
+}
+
+private enum class VoiceControlState { Loading, Failed, Paused, Playing }
+
+/**
  * Inline voice note: play/pause, waveform with progress, duration, and
  * tap-to-seek. The file is downloaded on first play; outgoing notes play from
  * the local copy the outbox already wrote.
@@ -330,19 +415,23 @@ fun VoiceNoteBubble(
         initials = noteInitials,
         waveform = media.waveform,
     )
+    val haptic = LocalHapticFeedback.current
 
     fun togglePlayback() {
         if (player.isPlaying(messageId)) {
+            haptic.toggle(false)
             player.pause()
             return
         }
         val ready = file?.takeIf { it.isFile }
         if (ready != null) {
+            haptic.toggle(true)
             player.play(nowPlaying, ready, media.durationMs)
             return
         }
         val loader = loadMedia ?: return
         if (loading) return
+        haptic.toggle(true)
         loading = true
         failed = false
         scope.launch {
@@ -361,6 +450,18 @@ fun VoiceNoteBubble(
 
     val longClickLabel = stringResource(R.string.chat_message_actions)
     val contentColor = LocalContentColor.current
+    val motion = MaterialTheme.motionScheme
+    // Playing squashes the round control into a squircle and deepens its fill.
+    val controlCorner by animateFloatAsState(
+        targetValue = if (isPlaying) 30f else 50f,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "voiceControlCorner",
+    )
+    val controlFill by animateFloatAsState(
+        targetValue = if (isPlaying) 0.26f else 0.16f,
+        animationSpec = motion.fastEffectsSpec(),
+        label = "voiceControlFill",
+    )
     val controlDescription = stringResource(
         when {
             failed -> R.string.chat_voice_error
@@ -392,30 +493,17 @@ fun VoiceNoteBubble(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(CircleShape)
-                    .background(contentColor.copy(alpha = 0.16f)),
+                    .clip(RoundedCornerShape(percent = controlCorner.roundToInt()))
+                    .background(contentColor.copy(alpha = controlFill)),
                 contentAlignment = Alignment.Center,
             ) {
-                when {
-                    loading -> LoadingIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = contentColor,
-                    )
-
-                    failed -> Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-
-                    else -> Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
+                VoicePlayPauseIcon(
+                    playing = isPlaying,
+                    loading = loading,
+                    failed = failed,
+                    tint = contentColor,
+                    iconSize = 22.dp,
+                )
             }
         }
 
@@ -460,10 +548,19 @@ fun WaveformBars(
     onLongClick: (() -> Unit)? = null,
 ) {
     val contentColor = LocalContentColor.current
+    val haptic = LocalHapticFeedback.current
     val waveformLabel = stringResource(R.string.chat_voice_waveform)
     val seek = onSeek
     // Follows the finger so the bars don't trail MediaPlayer while it seeks.
     var dragProgress by remember { mutableStateOf<Float?>(null) }
+    // The player reports every 80 ms; a linear tween covers each gap so the
+    // playhead glides instead of hopping. Read in the draw lambda, not here, so
+    // a tick repaints without recomposing the bubble.
+    val animatedProgress = animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
+        label = "waveformProgress",
+    )
     // The lambdas are new on every recomposition, so a pointerInput keyed on
     // them would restart mid-drag and drop the gesture to the bubble's
     // swipe-to-reply detector, which is an ancestor.
@@ -493,15 +590,23 @@ fun WaveformBars(
             }
             .pointerInput(Unit) {
                 var fraction = 0f
+                var tickStep = 0
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         fraction = scrubFraction(offset.x / size.width, 0f, size.width.toFloat())
+                        tickStep = scrubTickStep(fraction)
                         dragProgress = fraction
+                        haptic.thresholdActivated()
                         latestSeek?.invoke(fraction)
                     },
                     onHorizontalDrag = { change, delta ->
                         change.consume()
                         fraction = scrubFraction(fraction, delta, size.width.toFloat())
+                        val nextStep = scrubTickStep(fraction)
+                        if (nextStep != tickStep) {
+                            tickStep = nextStep
+                            haptic.segmentFrequentTick()
+                        }
                         dragProgress = fraction
                         latestSeek?.invoke(fraction)
                     },
@@ -517,7 +622,7 @@ fun WaveformBars(
         val gap = 2.dp.toPx()
         val count = ((size.width + gap) / (barWidth + gap)).toInt().coerceIn(1, 64)
         val step = if (amplitudes.isEmpty()) 0f else amplitudes.size.toFloat() / count
-        val played = (dragProgress ?: progress).coerceIn(0f, 1f)
+        val played = (dragProgress ?: animatedProgress.value).coerceIn(0f, 1f)
         for (index in 0 until count) {
             val amplitude = if (amplitudes.isEmpty()) {
                 0.4f
@@ -526,14 +631,33 @@ fun WaveformBars(
                     0.4f
                 }
             }
-            val height = (size.height * (0.12f + 0.88f * amplitude.coerceIn(0f, 1f)))
+            val base = (size.height * (0.12f + 0.88f * amplitude.coerceIn(0f, 1f)))
                 .coerceIn(3.dp.toPx(), size.height)
             val left = index * (barWidth + gap)
-            val top = (size.height - height) / 2f
-            val playedBar = (index + 1).toFloat() / count <= played
+            val from = index.toFloat() / count
+            val to = (index + 1).toFloat() / count
+            // The bar the playhead is crossing blends between the played and
+            // unplayed alphas and grows slightly, so progress advances without
+            // a column switching on and off.
+            val alpha: Float
+            val height: Float
+            when {
+                to <= played -> {
+                    alpha = 1f
+                    height = base
+                }
+                from >= played -> {
+                    alpha = 0.32f
+                    height = base
+                }
+                else -> {
+                    alpha = 1f - 0.68f * ((played - from) * count)
+                    height = (base * 1.1f).coerceAtMost(size.height)
+                }
+            }
             drawRoundRect(
-                color = contentColor.copy(alpha = if (playedBar) 1f else 0.32f),
-                topLeft = Offset(left, top),
+                color = contentColor.copy(alpha = alpha),
+                topLeft = Offset(left, (size.height - height) / 2f),
                 size = Size(barWidth, height),
                 cornerRadius = CornerRadius(barWidth / 2, barWidth / 2),
             )
@@ -589,4 +713,11 @@ private fun localVoiceFile(media: MessageMedia): File? {
 internal fun scrubFraction(startFraction: Float, deltaPx: Float, widthPx: Float): Float {
     if (widthPx <= 0f) return startFraction.coerceIn(0f, 1f)
     return (startFraction + deltaPx / widthPx).coerceIn(0f, 1f)
+}
+
+/** Which of [steps] equal bands [fraction] has reached, for one tick per band. */
+internal fun scrubTickStep(fraction: Float, steps: Int = 20): Int {
+    if (steps <= 0) return 0
+    val scaled = fraction.coerceIn(0f, 1f) * steps
+    return scaled.toInt().coerceIn(0, steps - 1)
 }

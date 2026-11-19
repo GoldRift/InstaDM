@@ -1,8 +1,11 @@
 package com.goldrift.instadm.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,12 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,16 +29,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
 import com.goldrift.instadm.ui.chat.NowPlaying
+import com.goldrift.instadm.ui.chat.VoicePlayPauseIcon
 import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.chat.WaveformBars
 import com.goldrift.instadm.ui.chat.formatMediaDuration
@@ -86,6 +91,19 @@ fun MiniVoicePlayer(
     )
     val motion = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    // The bar's control matches the bubble's: a squircle while playing and a
+    // faint tonal wash.
+    val controlCorner by animateFloatAsState(
+        targetValue = if (playing) 30f else 50f,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "miniControlCorner",
+    )
+    val controlFill by animateFloatAsState(
+        targetValue = if (playing) 0.12f else 0f,
+        animationSpec = motion.fastEffectsSpec(),
+        label = "miniControlFill",
+    )
     // The bar rides the finger down and then leaves, rather than blinking out.
     val pull = remember { Animatable(0f) }
     var heightPx by remember { mutableIntStateOf(0) }
@@ -104,14 +122,24 @@ fun MiniVoicePlayer(
             .pointerInput(player) {
                 // Pulling down closes the player; pulling up does nothing.
                 fun release() = scope.launch { pull.animateTo(0f, motion.defaultSpatialSpec()) }
+                var armed = false
                 detectVerticalDragGestures(
+                    onDragStart = { armed = false },
                     onVerticalDrag = { change, delta ->
                         change.consume()
+                        val next = (pull.value + delta).coerceAtLeast(0f)
+                        // One tick when the pull first passes the dismiss point,
+                        // not one per dragged pixel past it.
+                        if (!armed && next > heightPx * 0.4f) {
+                            armed = true
+                            haptic.thresholdActivated()
+                        }
                         scope.launch {
-                            pull.snapTo((pull.value + delta).coerceAtLeast(0f))
+                            pull.snapTo(next)
                         }
                     },
                     onDragEnd = {
+                        armed = false
                         if (pull.value > heightPx * 0.4f) {
                             scope.launch {
                                 pull.animateTo(
@@ -124,7 +152,10 @@ fun MiniVoicePlayer(
                             release()
                         }
                     },
-                    onDragCancel = { release() },
+                    onDragCancel = {
+                        armed = false
+                        release()
+                    },
                 )
             },
         shape = RoundedCornerShape(percent = 50),
@@ -182,14 +213,29 @@ fun MiniVoicePlayer(
             }
             Spacer(Modifier.width(4.dp))
             IconButton(
-                onClick = player::toggle,
-                modifier = Modifier.size(48.dp),
+                onClick = {
+                    haptic.toggle(!playing)
+                    player.toggle()
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics { contentDescription = controlLabel },
             ) {
-                Icon(
-                    imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = controlLabel,
-                    modifier = Modifier.size(24.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(percent = controlCorner.roundToInt()))
+                        .background(LocalContentColor.current.copy(alpha = controlFill)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    VoicePlayPauseIcon(
+                        playing = playing,
+                        loading = false,
+                        failed = false,
+                        tint = LocalContentColor.current,
+                        iconSize = 24.dp,
+                    )
+                }
             }
         }
     }

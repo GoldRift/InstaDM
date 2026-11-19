@@ -93,8 +93,6 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
@@ -203,6 +201,7 @@ import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
+import com.goldrift.instadm.ui.components.toggle
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
 import kotlinx.coroutines.Job
@@ -3044,6 +3043,10 @@ private fun LockedRecordingBar(
     modifier: Modifier = Modifier,
 ) {
     val paused = recorder.state == VoiceRecordingState.Paused
+    val haptic = LocalHapticFeedback.current
+    val controlDescription = stringResource(
+        if (paused) R.string.chat_recording_resume else R.string.chat_recording_pause,
+    )
     Row(
         modifier = modifier
             .navigationBarsPadding()
@@ -3097,14 +3100,20 @@ private fun LockedRecordingBar(
             }
         }
         IconButton(
-            onClick = { if (paused) recorder.resume() else recorder.pause() },
+            onClick = {
+                haptic.toggle(paused)
+                if (paused) recorder.resume() else recorder.pause()
+            },
+            modifier = Modifier.semantics {
+                contentDescription = controlDescription
+            },
         ) {
-            Icon(
-                imageVector = if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                contentDescription = stringResource(
-                    if (paused) R.string.chat_recording_resume else R.string.chat_recording_pause,
-                ),
+            VoicePlayPauseIcon(
+                playing = !paused,
+                loading = false,
+                failed = false,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                iconSize = 24.dp,
             )
         }
         FilledIconButton(

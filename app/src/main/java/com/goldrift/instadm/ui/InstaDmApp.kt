@@ -429,7 +429,8 @@ fun InstaDmApp(
                 ),
             enter = fadeIn(motion.defaultEffectsSpec()) +
                 slideInVertically(motion.defaultSpatialSpec()) { it },
-            exit = fadeOut(motion.fastEffectsSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()) +
+                slideOutVertically(motion.fastSpatialSpec()) { it },
         ) {
             MiniVoicePlayer(player = voicePlayer, onOpen = openPlayingNote)
         }
