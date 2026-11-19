@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
@@ -85,6 +86,7 @@ import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.components.MiniVoicePlayer
 import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
+import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.inbox.InboxScreen
 import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
@@ -655,6 +657,7 @@ private fun IncomingChatBanner(
 ) {
     val motion = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val pull = remember { Animatable(0f) }
     var heightPx by remember { mutableIntStateOf(0) }
     // A new message can arrive mid-exit; start that banner undragged.
@@ -670,14 +673,24 @@ private fun IncomingChatBanner(
             .pointerInput(Unit) {
                 // Swiping up dismisses; swiping down does nothing.
                 fun release() = scope.launch { pull.animateTo(0f, motion.defaultSpatialSpec()) }
+                var armed = false
                 detectVerticalDragGestures(
+                    onDragStart = { armed = false },
                     onVerticalDrag = { change, delta ->
                         change.consume()
+                        val next = (pull.value + delta).coerceAtMost(0f)
+                        // One tick when the pull first passes the dismiss point,
+                        // not one per dragged pixel past it.
+                        if (!armed && -next > heightPx * 0.4f) {
+                            armed = true
+                            haptic.thresholdActivated()
+                        }
                         scope.launch {
-                            pull.snapTo((pull.value + delta).coerceAtMost(0f))
+                            pull.snapTo(next)
                         }
                     },
                     onDragEnd = {
+                        armed = false
                         if (-pull.value > heightPx * 0.4f) {
                             scope.launch {
                                 pull.animateTo(
@@ -690,7 +703,10 @@ private fun IncomingChatBanner(
                             release()
                         }
                     },
-                    onDragCancel = { release() },
+                    onDragCancel = {
+                        armed = false
+                        release()
+                    },
                 )
             }
             // Same capsule silhouette as the floating voice player.

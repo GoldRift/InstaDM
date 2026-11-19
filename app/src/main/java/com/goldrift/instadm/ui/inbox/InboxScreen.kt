@@ -1,5 +1,11 @@
 package com.goldrift.instadm.ui.inbox
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +41,7 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -65,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -96,6 +104,7 @@ import com.goldrift.instadm.ui.chat.toPreview
 import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
+import com.goldrift.instadm.ui.components.confirm
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.update.UpdateDialog
 import com.goldrift.instadm.update.UpdateInstaller
@@ -371,6 +380,7 @@ private fun OlderConversationsFooter(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun InboxMessage(
     title: String,
@@ -401,11 +411,11 @@ private fun InboxMessage(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onAction) {
+        Button(onClick = onAction, shapes = ButtonDefaults.shapes()) {
             Text(actionLabel)
         }
         if (secondaryActionLabel != null) {
-            TextButton(onClick = onSecondaryAction) {
+            TextButton(onClick = onSecondaryAction, shapes = ButtonDefaults.shapes()) {
                 Text(secondaryActionLabel)
             }
         }
@@ -638,6 +648,7 @@ private fun AccountSheetContent(
             .fillMaxWidth()
             .padding(bottom = 24.dp),
     ) {
+        val haptic = LocalHapticFeedback.current
         Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -693,7 +704,10 @@ private fun AccountSheetContent(
                 supporting = stringResource(R.string.account_logout_supporting),
                 iconContainerColor = MaterialTheme.colorScheme.errorContainer,
                 iconContentColor = MaterialTheme.colorScheme.onErrorContainer,
-                onClick = onLogout,
+                onClick = {
+                    haptic.confirm()
+                    onLogout()
+                },
             )
         }
     }
@@ -754,6 +768,7 @@ private fun AccountAction(
 @Composable
 private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
     val description = pluralStringResource(R.plurals.inbox_unread_messages, count, count)
+    val motion = MaterialTheme.motionScheme
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
@@ -762,12 +777,27 @@ private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
             .clearAndSetSemantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = unreadBadgeLabel(count),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
+        AnimatedContent(
+            targetState = count,
+            transitionSpec = {
+                val enter = fadeIn(motion.fastEffectsSpec()) +
+                    scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f)
+                val exit = fadeOut(motion.fastEffectsSpec()) +
+                    scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f)
+                enter togetherWith exit
+            },
+            // Counts past the cap all read "99+", so only a change in digits
+            // replays the swap.
+            contentKey = { unreadBadgeLabel(it) },
+            label = "unreadBadgeCount",
+        ) { value ->
+            Text(
+                text = unreadBadgeLabel(value),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
     }
 }
 

@@ -71,6 +71,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -90,6 +91,9 @@ import com.goldrift.instadm.R
 import com.goldrift.instadm.data.AppSettings
 import com.goldrift.instadm.data.ThemeMode
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
+import com.goldrift.instadm.ui.components.confirm
+import com.goldrift.instadm.ui.components.segmentTick
+import com.goldrift.instadm.ui.components.toggle
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.update.UpdateDialog
 import com.goldrift.instadm.update.UpdateApk
@@ -125,6 +129,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     var showEmojiPicker by remember { mutableStateOf(false) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var clearingCache by remember { mutableStateOf(false) }
@@ -433,6 +438,7 @@ fun SettingsScreen(
                 TextButton(
                     enabled = !clearingCache,
                     onClick = {
+                        haptic.confirm()
                         scope.launch {
                             clearingCache = true
                             val cleared = runCatching { onClearMediaCache() }.isSuccess
@@ -500,6 +506,7 @@ private fun ThemeModeGroup(
     onSelect: (ThemeMode) -> Unit,
 ) {
     val modes = ThemeMode.entries
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -509,7 +516,12 @@ private fun ThemeModeGroup(
         modes.forEachIndexed { index, mode ->
             ToggleButton(
                 checked = mode == selected,
-                onCheckedChange = { onSelect(mode) },
+                onCheckedChange = {
+                    // Tapping the mode already selected keeps its state, so it
+                    // gets no tick.
+                    if (mode != selected) haptic.segmentTick()
+                    onSelect(mode)
+                },
                 buttonSize = ToggleButtonSize.Small,
                 shapes = when (index) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
@@ -540,8 +552,12 @@ private fun SettingSwitchRow(
     shapes: ListItemShapes,
     enabled: Boolean = true,
 ) {
+    val haptic = LocalHapticFeedback.current
     SegmentedListItem(
-        onClick = { onCheckedChange(!checked) },
+        onClick = {
+            haptic.toggle(!checked)
+            onCheckedChange(!checked)
+        },
         shapes = shapes,
         enabled = enabled,
         modifier = Modifier.semantics {

@@ -21,6 +21,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -150,6 +151,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -214,8 +216,10 @@ import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.confirm
+import com.goldrift.instadm.ui.components.contextClick
 import com.goldrift.instadm.ui.components.longPress
 import com.goldrift.instadm.ui.components.reject
+import com.goldrift.instadm.ui.components.segmentTick
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
 import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.components.toggle
@@ -1302,6 +1306,8 @@ private fun AdminNoticeRow(
     }
 }
 
+private enum class MessageStatus { Failed, Pending, Sent, Seen }
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MessageRow(
@@ -1355,6 +1361,7 @@ private fun MessageRow(
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val motion = MaterialTheme.motionScheme
     // Outlining the bubble a quote jumped to lets the eye find it after the
     // scroll; the tint comes from the bubble's own content role so an outgoing
     // accent bubble and a neutral incoming bubble both keep it visible.
@@ -1375,6 +1382,12 @@ private fun MessageRow(
         message.reply == null &&
         message.localMedia == null
     val canReply = message.canReply()
+    val messageStatus = when {
+        message.failed -> MessageStatus.Failed
+        message.pending -> MessageStatus.Pending
+        message.seen -> MessageStatus.Seen
+        else -> MessageStatus.Sent
+    }
     val replyThreshold = with(density) { SWIPE_REPLY_THRESHOLD.toPx() }
     val maxDrag = with(density) { SWIPE_REPLY_MAX.toPx() }
     var dragOffset by remember(message.id) { mutableFloatStateOf(0f) }
@@ -1473,11 +1486,7 @@ private fun MessageRow(
                                     val armed = next >= replyThreshold
                                     if (armed != replyArmed) {
                                         replyArmed = armed
-                                        if (armed) {
-                                            haptic.performHapticFeedback(
-                                                HapticFeedbackType.LongPress,
-                                            )
-                                        }
+                                        if (armed) haptic.thresholdActivated()
                                     }
                                 },
                                 onDragEnd = {
@@ -1514,13 +1523,20 @@ private fun MessageRow(
                         }
                         .pointerInput(message.id) {
                             detectTapGestures(
-                                onTap = { currentOnToggleStatus?.invoke() },
+                                onTap = {
+                                    // Only older bubbles own a toggle; tapping
+                                    // the newest one is not a receipt change.
+                                    currentOnToggleStatus?.let { toggle ->
+                                        haptic.segmentTick()
+                                        toggle()
+                                    }
+                                },
                                 // A double tap likes the message, so a single
                                 // tap now waits out the double-tap timeout; the
                                 // tick reveal can absorb that delay.
                                 onDoubleTap = if (message.canReact()) {
                                     {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        haptic.confirm()
                                         currentOnLike()
                                     }
                                 } else {
@@ -1584,51 +1600,81 @@ private fun MessageRow(
             // Failure and in-flight states stay actionable on every bubble. The
             // sent/seen ticks are a receipt, so they belong only to the newest
             // outgoing bubble or one the viewer tapped to inspect.
-            if (isMine && (message.failed || message.pending || showStatusTicks)) {
+            AnimatedVisibility(
+                visible = isMine &&
+                    (message.failed || message.pending || showStatusTicks),
+                enter = expandVertically(motion.fastSpatialSpec()) +
+                    fadeIn(motion.fastEffectsSpec()),
+                exit = shrinkVertically(motion.fastSpatialSpec()) +
+                    fadeOut(motion.fastEffectsSpec()),
+            ) {
+                val tickTint by animateColorAsState(
+                    targetValue = if (message.seen) {
+                        bubbles.accent
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = motion.fastEffectsSpec(),
+                    label = "statusTickTint",
+                )
                 Row(
                     modifier = Modifier.padding(top = 2.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    when {
-                        message.failed -> Row(
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(MaterialTheme.shapes.extraSmall)
-                                .clickable(role = Role.Button, onClick = onRetry)
-                                .padding(horizontal = 3.dp, vertical = 1.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Refresh,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
+                    AnimatedContent(
+                        targetState = messageStatus,
+                        transitionSpec = {
+                            val enter = fadeIn(motion.fastEffectsSpec()) +
+                                scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f)
+                            val exit = fadeOut(motion.fastEffectsSpec()) +
+                                scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f)
+                            (enter togetherWith exit).using(SizeTransform(clip = false))
+                        },
+                        label = "messageStatus",
+                    ) { status ->
+                        val isTarget = transition.targetState == EnterExitState.Visible
+                        when (status) {
+                            MessageStatus.Failed -> Row(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .inputOnlyWhen(isTarget)
+                                    .clickable(role = Role.Button, onClick = onRetry)
+                                    .padding(horizontal = 3.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = stringResource(R.string.chat_media_failed),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            MessageStatus.Pending -> LoadingIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            MessageStatus.Sent, MessageStatus.Seen -> Icon(
+                                imageVector = Icons.Rounded.DoneAll,
+                                contentDescription = stringResource(
+                                    if (status == MessageStatus.Seen) {
+                                        R.string.chat_seen
+                                    } else {
+                                        R.string.chat_sent
+                                    },
+                                ),
+                                tint = tickTint,
                                 modifier = Modifier.size(14.dp),
                             )
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                text = stringResource(R.string.chat_media_failed),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.error,
-                            )
                         }
-
-                        message.pending -> LoadingIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        else -> Icon(
-                            imageVector = Icons.Rounded.DoneAll,
-                            contentDescription = stringResource(
-                                if (message.seen) R.string.chat_seen else R.string.chat_sent,
-                            ),
-                            tint = if (message.seen) {
-                                bubbles.accent
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.size(14.dp),
-                        )
                     }
                 }
             }
@@ -1968,8 +2014,23 @@ private fun ReactionPill(
     author: ReactionAuthor?,
 ) {
     val description = pluralStringResource(R.plurals.chat_reaction_count, count, emoji, count)
+    val motion = MaterialTheme.motionScheme
+    // Both paths (group and direct) get the entrance because it lives in the
+    // pill, and a remembered Animatable keeps it to the pill's first appearance.
+    val appearScale = remember { Animatable(0f) }
+    val appearAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        launch { appearScale.animateTo(1f, motion.defaultSpatialSpec()) }
+        appearAlpha.animateTo(1f, motion.defaultEffectsSpec())
+    }
     Surface(
-        modifier = Modifier.clearAndSetSemantics { contentDescription = description },
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = 0.6f + 0.4f * appearScale.value
+                scaleY = 0.6f + 0.4f * appearScale.value
+                alpha = appearAlpha.value
+            }
+            .clearAndSetSemantics { contentDescription = description },
         shape = CircleShape,
         color = if (fromViewer) {
             MaterialTheme.colorScheme.primaryContainer
@@ -2028,6 +2089,15 @@ private fun MessageActionsPopup(
     onUnsend: () -> Unit,
 ) {
     val density = LocalDensity.current
+    val motion = MaterialTheme.motionScheme
+    // Re-created whenever the popup opens, so the entrance plays per open and
+    // the card grows out of the bubble instead of popping over it.
+    val appearScale = remember { Animatable(0f) }
+    val appearAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        launch { appearScale.animateTo(1f, motion.defaultSpatialSpec()) }
+        appearAlpha.animateTo(1f, motion.defaultEffectsSpec())
+    }
     val reactionBarHeight = with(density) { 60.dp.roundToPx() }
     val margin = with(density) { 8.dp.roundToPx() }
     val topMargin = margin + WindowInsets.statusBars.getTop(density)
@@ -2065,6 +2135,14 @@ private fun MessageActionsPopup(
         ),
     ) {
         Column(
+            modifier = Modifier.graphicsLayer {
+                // Scale from the bubble's own corner: the card is anchored
+                // under the long-pressed bubble and must not drift sideways.
+                transformOrigin = TransformOrigin(if (isMine) 1f else 0f, 1f)
+                scaleX = 0.94f + 0.06f * appearScale.value
+                scaleY = 0.94f + 0.06f * appearScale.value
+                alpha = appearAlpha.value
+            },
             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
         ) {
             ReactionBar(onReact = onReact, onMoreEmoji = onMoreEmoji)
@@ -2097,6 +2175,25 @@ private fun ReactionBar(
     onReact: (String) -> Unit,
     onMoreEmoji: () -> Unit,
 ) {
+    val motion = MaterialTheme.motionScheme
+    val haptic = LocalHapticFeedback.current
+    // One slot per quick emoji plus the "more" button; each reveals a beat
+    // after the one before it so the bar unfolds rather than appearing whole.
+    val entrance = remember { List(QuickReactions.size + 1) { Animatable(0f) } }
+    LaunchedEffect(Unit) {
+        entrance.forEachIndexed { index, reveal ->
+            launch {
+                delay(index * 28L)
+                reveal.animateTo(1f, motion.defaultSpatialSpec())
+            }
+        }
+    }
+    fun Modifier.reveal(index: Int): Modifier = graphicsLayer {
+        val progress = entrance[index].value
+        scaleX = 0.8f + 0.2f * progress
+        scaleY = 0.8f + 0.2f * progress
+        alpha = progress
+    }
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -2106,15 +2203,19 @@ private fun ReactionBar(
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            QuickReactions.forEach { emoji ->
+            QuickReactions.forEachIndexed { index, emoji ->
                 Box(
                     modifier = Modifier
                         .size(48.dp)
+                        .reveal(index)
                         .clip(CircleShape)
                         .clickable(
                             role = Role.Button,
                             onClickLabel = stringResource(R.string.chat_react_with, emoji),
-                        ) { onReact(emoji) },
+                        ) {
+                            haptic.confirm()
+                            onReact(emoji)
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     EmojiGlyph(emoji)
@@ -2123,6 +2224,7 @@ private fun ReactionBar(
             Box(
                 modifier = Modifier
                     .size(48.dp)
+                    .reveal(QuickReactions.size)
                     .clip(CircleShape)
                     .clickable(role = Role.Button, onClick = onMoreEmoji),
                 contentAlignment = Alignment.Center,
@@ -2150,6 +2252,7 @@ private fun MessageMenu(
     val showEdit = message.canEdit()
     val showUnsend = message.canUnsend()
     if (!showReply && !showCopy && !showEdit && !showUnsend) return
+    val haptic = LocalHapticFeedback.current
 
     Surface(
         shape = MaterialTheme.shapes.large,
@@ -2169,7 +2272,10 @@ private fun MessageMenu(
                 MessageActionRow(
                     icon = Icons.Rounded.ContentCopy,
                     label = R.string.chat_action_copy,
-                    onClick = onCopy,
+                    onClick = {
+                        haptic.contextClick()
+                        onCopy()
+                    },
                 )
             }
             if (showEdit) {
