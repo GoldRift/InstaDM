@@ -120,7 +120,9 @@ fun InboxScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        // Matches the TopAppBar so the sheet's rounded top corners read as
+        // cut into the bar instead of showing a background-colored sliver.
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -168,7 +170,7 @@ fun InboxScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             shape = listTopShape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = MaterialTheme.colorScheme.surface,
         ) {
             PullToRefreshBox(
                 isRefreshing = status == InboxStatus.Loading && conversations.isNotEmpty(),

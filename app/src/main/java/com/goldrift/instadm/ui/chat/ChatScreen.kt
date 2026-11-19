@@ -681,7 +681,7 @@ fun ChatScreen(
     )
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             ChatTopSection(
                 contact = conversation.contact,
