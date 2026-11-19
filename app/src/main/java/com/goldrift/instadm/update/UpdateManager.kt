@@ -69,24 +69,30 @@ class UpdateManager(
 
     /**
      * A found update outlives the process, so a restart inside the same day does
-     * not hide the banner until tomorrow's check.
+     * not forget it until tomorrow's check.
      */
-    private var lastFound: UpdateState.Available? = if (canSelfUpdate) {
-        prefs.getString(KEY_PENDING, null)
-            ?.let(UpdateManifest::parse)
-            ?.takeIf { it.isNewerThan(installedVersionCode) }
-            ?.let { update ->
-                update.apkFor(Build.SUPPORTED_ABIS.toList())
-                    ?.let { UpdateState.Available(update, it) }
-            }
-    } else {
-        null
-    }
+    private var lastFound by mutableStateOf(
+        if (canSelfUpdate) {
+            prefs.getString(KEY_PENDING, null)
+                ?.let(UpdateManifest::parse)
+                ?.takeIf { it.isNewerThan(installedVersionCode) }
+                ?.let { update ->
+                    update.apkFor(Build.SUPPORTED_ABIS.toList())
+                        ?.let { UpdateState.Available(update, it) }
+                }
+        } else {
+            null
+        },
+    )
+
+    /** The update itself outlives check and install results, so its row can reopen. */
+    val pendingUpdate: UpdateState.Available?
+        get() = lastFound
 
     var state by mutableStateOf<UpdateState>(lastFound ?: UpdateState.Idle)
         private set
 
-    var dismissedVersionCode by mutableLongStateOf(prefs.getLong(KEY_DISMISSED, 0L))
+    var badgeSeenVersionCode by mutableLongStateOf(prefs.getLong(KEY_BADGE_SEEN, 0L))
         private set
 
     fun checkIfStale() {
@@ -131,10 +137,10 @@ class UpdateManager(
         }
     }
 
-    fun dismiss() {
-        val available = state as? UpdateState.Available ?: return
-        dismissedVersionCode = available.update.versionCode
-        prefs.edit { putLong(KEY_DISMISSED, dismissedVersionCode) }
+    fun markBadgeSeen() {
+        val versionCode = versionToMarkSeen(pendingUpdate) ?: return
+        badgeSeenVersionCode = versionCode
+        prefs.edit { putLong(KEY_BADGE_SEEN, versionCode) }
     }
 
     /** Only a session this process started can fail; a fresh process ignores it. */
@@ -196,7 +202,7 @@ class UpdateManager(
 
     private companion object {
         const val PREFS = "instadm.updates"
-        const val KEY_DISMISSED = "dismissed_version_code"
+        const val KEY_BADGE_SEEN = "badge_seen_version_code"
         const val KEY_LAST_CHECK = "last_check_at"
         const val KEY_PENDING = "pending_manifest"
         const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L

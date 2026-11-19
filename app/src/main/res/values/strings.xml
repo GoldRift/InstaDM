@@ -132,6 +132,9 @@
     <string name="search_error">Couldn\'t search. Check the network and retry.</string>
     <string name="search_verified">Verified account</string>
     <string name="inbox_profile_photo">Your profile photo</string>
+    <string name="inbox_update_badge">Update available</string>
+    <string name="account_update">Update to %1$s</string>
+    <string name="account_update_supporting">Ready to download and install.</string>
     <string name="account_settings">Settings</string>
     <string name="account_settings_supporting">Appearance, chats, and notifications.</string>
     <string name="account_logout">Log out</string>
@@ -224,7 +227,4 @@
     <string name="updates_dialog_install">Download and install</string>
     <string name="updates_dialog_permission">Allow InstaDM to install unknown apps, then come back here.</string>
     <string name="updates_dialog_permission_action">Allow installs</string>
-    <string name="updates_banner">InstaDM %1$s is available</string>
-    <string name="updates_banner_action">Update</string>
-    <string name="updates_banner_dismiss">Dismiss update</string>
 </resources>

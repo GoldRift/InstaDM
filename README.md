@@ -265,7 +265,9 @@ overrides them from the tag.
 InstaDM can update itself from those releases. Once a day, and when you tap
 Check for updates in Settings, it reads `latest.json`, downloads the APK for
 your ABI straight into the system installer, and verifies its SHA-256 before
-handing it over; the system then asks you to confirm the install. Android needs
+handing it over; the system then asks you to confirm the install. A found update
+shows as a dot on the inbox profile picture and as a row in the account sheet,
+where the download progress is shown. Android needs
 "Install unknown apps" allowed for InstaDM once. Updates only work on builds
 signed with the same release key, so a debug or demo build never offers one.
 
@@ -453,9 +455,9 @@ requests; `go-core/fixtures/` holds synthetic samples only.
 InstaDM works, but it is still early:
 
 - Single account only. The inbox profile picture opens an account sheet that
-  names the signed-in account and offers log out, which discards the session and
-  clears the local cache; an expired session still needs a manual "log in again"
-  tap. Account switching is out of scope.
+  names the signed-in account and offers settings, the available update, and log
+  out, which discards the session and clears the local cache; an expired session
+  still needs a manual "log in again" tap. Account switching is out of scope.
 - View-once photos and videos are deliberately never fetched; their bubbles point
   to the official app.
 - Instagram can challenge or block an embedded browser. The login uses a desktop

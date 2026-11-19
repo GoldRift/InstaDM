@@ -90,8 +90,8 @@ import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
 import com.goldrift.instadm.ui.search.toSearchUsers
 import com.goldrift.instadm.ui.settings.SettingsScreen
-import com.goldrift.instadm.update.UpdateInstaller
 import com.goldrift.instadm.update.UpdateState
+import com.goldrift.instadm.update.showUpdateBadge
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -127,11 +127,7 @@ fun InstaDmApp(
     val voicePlayer = application.voicePlayer
     val updates = application.updates
     val updateState = updates.state
-    // A dismissed version stays out of the inbox banner; Settings still offers it.
-    val updateVersion = (updateState as? UpdateState.Available)
-        ?.takeIf { it.update.versionCode != updates.dismissedVersionCode }
-        ?.update
-        ?.version
+    val hasUpdateBadge = showUpdateBadge(updates.pendingUpdate, updates.badgeSeenVersionCode)
     val navController = rememberNavController()
     var startRoute by remember { mutableStateOf<String?>(null) }
     // The two-pane detail selection lives here so the player bar can tell which
@@ -291,15 +287,11 @@ fun InstaDmApp(
                     pendingShare = pendingShare,
                     shareTargetId = shareTargetId,
                     shareHint = shareHint,
-                    updateVersion = updateVersion,
-                    onInstallUpdate = {
-                        if (UpdateInstaller.canInstall(context)) {
-                            updates.install()
-                        } else {
-                            UpdateInstaller.openInstallPermission(context)
-                        }
-                    },
-                    onDismissUpdate = updates::dismiss,
+                    pendingUpdate = updates.pendingUpdate,
+                    showUpdateBadge = hasUpdateBadge,
+                    updateState = updateState,
+                    onUpdateSeen = updates::markBadgeSeen,
+                    onInstallUpdate = updates::install,
                     onClaimShare = claimShare,
                     onShareConsumed = consumeShare,
                     onRefresh = {
@@ -528,9 +520,11 @@ private fun MainPane(
     pendingShare: SharedContent?,
     shareTargetId: String?,
     shareHint: String?,
-    updateVersion: String?,
+    pendingUpdate: UpdateState.Available?,
+    showUpdateBadge: Boolean,
+    updateState: UpdateState,
+    onUpdateSeen: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onDismissUpdate: () -> Unit,
     onClaimShare: (String) -> Unit,
     onShareConsumed: () -> Unit,
     onRefresh: () -> Unit,
@@ -547,9 +541,11 @@ private fun MainPane(
                 status = inboxState.status,
                 errorMessage = inboxState.errorMessage,
                 shareHint = shareHint,
-                updateVersion = updateVersion,
+                pendingUpdate = pendingUpdate,
+                showUpdateBadge = showUpdateBadge,
+                updateState = updateState,
+                onUpdateSeen = onUpdateSeen,
                 onInstallUpdate = onInstallUpdate,
-                onDismissUpdate = onDismissUpdate,
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 onConversationClick = onOpenChat,
@@ -581,9 +577,11 @@ private fun MainPane(
                 onLogin = onLogin,
                 selectedConversationId = selectedChatId,
                 shareHint = shareHint,
-                updateVersion = updateVersion,
+                pendingUpdate = pendingUpdate,
+                showUpdateBadge = showUpdateBadge,
+                updateState = updateState,
+                onUpdateSeen = onUpdateSeen,
                 onInstallUpdate = onInstallUpdate,
-                onDismissUpdate = onDismissUpdate,
                 onConversationClick = { threadId ->
                     inboxState.clearError()
                     onSelectChat(threadId)

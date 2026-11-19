@@ -27,10 +27,12 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -48,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -60,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -76,6 +80,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.goldrift.instadm.R
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxStatus
@@ -89,6 +95,9 @@ import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import com.goldrift.instadm.ui.update.UpdateDialog
+import com.goldrift.instadm.update.UpdateInstaller
+import com.goldrift.instadm.update.UpdateState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -109,9 +118,11 @@ fun InboxScreen(
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
     shareHint: String? = null,
-    updateVersion: String? = null,
+    pendingUpdate: UpdateState.Available? = null,
+    showUpdateBadge: Boolean = false,
+    updateState: UpdateState = UpdateState.Idle,
+    onUpdateSeen: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
-    onDismissUpdate: () -> Unit = {},
     onSearch: () -> Unit = {},
     onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
@@ -146,6 +157,11 @@ fun InboxScreen(
                     AccountMenu(
                         viewerName = viewerName,
                         viewerAvatarUrl = viewerAvatarUrl,
+                        pendingUpdate = pendingUpdate,
+                        showUpdateBadge = showUpdateBadge,
+                        updateState = updateState,
+                        onUpdateSeen = onUpdateSeen,
+                        onInstallUpdate = onInstallUpdate,
                         onSettings = onSettings,
                         onLogout = onLogout,
                     )
@@ -232,45 +248,6 @@ fun InboxScreen(
                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
-                            }
-                        }
-                        if (updateVersion != null) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .semantics { liveRegion = LiveRegionMode.Polite },
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 12.dp, end = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = stringResource(
-                                            R.string.updates_banner,
-                                            updateVersion,
-                                        ),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(vertical = 12.dp),
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    TextButton(onClick = onInstallUpdate) {
-                                        Text(stringResource(R.string.updates_banner_action))
-                                    }
-                                    IconButton(onClick = onDismissUpdate) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Close,
-                                            contentDescription = stringResource(
-                                                R.string.updates_banner_dismiss,
-                                            ),
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        )
-                                    }
-                                }
                             }
                         }
                         if (errorMessage != null) {
@@ -525,53 +502,107 @@ private fun ConversationRow(
 private fun AccountMenu(
     viewerName: String,
     viewerAvatarUrl: String,
+    pendingUpdate: UpdateState.Available?,
+    showUpdateBadge: Boolean,
+    updateState: UpdateState,
+    onUpdateSeen: () -> Unit,
+    onInstallUpdate: () -> Unit,
     onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var updateDialog by remember { mutableStateOf<UpdateState.Available?>(null) }
     IconButton(
-        onClick = { expanded = true },
+        onClick = {
+            onUpdateSeen()
+            expanded = true
+        },
         modifier = Modifier.padding(end = 8.dp),
     ) {
-        if (viewerAvatarUrl.isBlank() && viewerName.isBlank()) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Person,
+        BadgedBox(
+            badge = {
+                if (showUpdateBadge) {
+                    val description = stringResource(R.string.inbox_update_badge)
+                    Badge(
+                        modifier = Modifier.semantics {
+                            contentDescription = description
+                            liveRegion = LiveRegionMode.Polite
+                        },
+                    )
+                }
+            },
+        ) {
+            if (viewerAvatarUrl.isBlank() && viewerName.isBlank()) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Person,
+                        contentDescription = stringResource(R.string.inbox_profile_photo),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else {
+                Avatar(
+                    initials = initialsOf(viewerName),
+                    size = 32.dp,
+                    imageUrl = viewerAvatarUrl,
                     contentDescription = stringResource(R.string.inbox_profile_photo),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    colorSeed = viewerName,
                 )
             }
-        } else {
-            Avatar(
-                initials = initialsOf(viewerName),
-                size = 32.dp,
-                imageUrl = viewerAvatarUrl,
-                contentDescription = stringResource(R.string.inbox_profile_photo),
-                colorSeed = viewerName,
+        }
+    }
+    if (expanded) {
+        ModalBottomSheet(onDismissRequest = { expanded = false }) {
+            AccountSheetContent(
+                viewerName = viewerName,
+                viewerAvatarUrl = viewerAvatarUrl,
+                pendingUpdate = pendingUpdate,
+                onUpdate = {
+                    expanded = false
+                    updateDialog = pendingUpdate
+                },
+                onSettings = {
+                    expanded = false
+                    onSettings()
+                },
+                onLogout = {
+                    expanded = false
+                    onLogout()
+                },
             )
         }
     }
-    if (!expanded) return
 
-    ModalBottomSheet(onDismissRequest = { expanded = false }) {
-        AccountSheetContent(
-            viewerName = viewerName,
-            viewerAvatarUrl = viewerAvatarUrl,
-            onSettings = {
-                expanded = false
-                onSettings()
-            },
-            onLogout = {
-                expanded = false
-                onLogout()
-            },
+    updateDialog?.let { available ->
+        val context = LocalContext.current
+        var canInstall by remember { mutableStateOf(UpdateInstaller.canInstall(context)) }
+        val lifecycleOwner = LocalLifecycleOwner.current
+        // Granting install permission happens on a system page, so the dialog
+        // re-reads it when the screen comes back instead of staying stale.
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    canInstall = UpdateInstaller.canInstall(context)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+        UpdateDialog(
+            update = available.update,
+            apk = available.apk,
+            state = updateState,
+            canInstall = canInstall,
+            onInstall = onInstallUpdate,
+            onOpenInstallPermission = { UpdateInstaller.openInstallPermission(context) },
+            onDismiss = { updateDialog = null },
         )
     }
 }
@@ -581,6 +612,8 @@ private fun AccountMenu(
 private fun AccountSheetContent(
     viewerName: String,
     viewerAvatarUrl: String,
+    pendingUpdate: UpdateState.Available?,
+    onUpdate: () -> Unit,
     onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -617,6 +650,19 @@ private fun AccountSheetContent(
         }
         Spacer(Modifier.height(24.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (pendingUpdate != null) {
+                AccountAction(
+                    icon = Icons.Rounded.SystemUpdate,
+                    label = stringResource(
+                        R.string.account_update,
+                        pendingUpdate.update.version,
+                    ),
+                    supporting = stringResource(R.string.account_update_supporting),
+                    iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    iconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    onClick = onUpdate,
+                )
+            }
             AccountAction(
                 icon = Icons.Rounded.Settings,
                 label = stringResource(R.string.account_settings),

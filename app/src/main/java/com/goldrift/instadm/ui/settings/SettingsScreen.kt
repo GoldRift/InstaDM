@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -25,11 +24,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -94,12 +91,12 @@ import com.goldrift.instadm.data.AppSettings
 import com.goldrift.instadm.data.ThemeMode
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
 import com.goldrift.instadm.ui.theme.InstaDMTheme
+import com.goldrift.instadm.ui.update.UpdateDialog
 import com.goldrift.instadm.update.UpdateApk
 import com.goldrift.instadm.update.UpdateInstaller
 import com.goldrift.instadm.update.UpdateManifest
 import com.goldrift.instadm.update.UpdateState
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 /**
  * Device-local preferences for appearance, chat signals, notifications, and
@@ -471,73 +468,6 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun UpdateDialog(
-    update: UpdateManifest,
-    apk: UpdateApk,
-    state: UpdateState,
-    canInstall: Boolean,
-    onInstall: () -> Unit,
-    onOpenInstallPermission: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val busy = state is UpdateState.Downloading || state is UpdateState.Installing
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.updates_dialog_title, update.version)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.updates_dialog_size, formatMegabytes(apk.size)))
-                if (update.notes.isNotBlank()) {
-                    Text(
-                        text = update.notes,
-                        modifier = Modifier
-                            .heightIn(max = 200.dp)
-                            .verticalScroll(rememberScrollState()),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                when (state) {
-                    is UpdateState.Downloading -> LinearProgressIndicator(
-                        progress = { state.fraction },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    UpdateState.Installing -> Text(
-                        stringResource(R.string.updates_state_installing),
-                    )
-                    is UpdateState.Failed -> Text(
-                        text = state.message ?: stringResource(R.string.updates_install_failed),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    else -> Unit
-                }
-                if (!canInstall) Text(stringResource(R.string.updates_dialog_permission))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !busy,
-                onClick = if (canInstall) onInstall else onOpenInstallPermission,
-            ) {
-                Text(
-                    stringResource(
-                        if (canInstall) {
-                            R.string.updates_dialog_install
-                        } else {
-                            R.string.updates_dialog_permission_action
-                        },
-                    ),
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.chat_cancel))
-            }
-        },
-    )
-}
-
-@Composable
 private fun updateStateLabel(state: UpdateState): String = when (state) {
     UpdateState.Idle -> stringResource(R.string.updates_state_up_to_date)
     UpdateState.Checking -> stringResource(R.string.updates_state_checking)
@@ -552,9 +482,6 @@ private fun updateStateLabel(state: UpdateState): String = when (state) {
     UpdateState.Installing -> stringResource(R.string.updates_state_installing)
     is UpdateState.Failed -> state.message ?: stringResource(R.string.updates_check_failed)
 }
-
-private fun formatMegabytes(bytes: Long): String =
-    String.format(Locale.US, "%.1f", bytes / (1024f * 1024f))
 
 @Composable
 private fun SettingsSectionHeader(@StringRes title: Int) {
