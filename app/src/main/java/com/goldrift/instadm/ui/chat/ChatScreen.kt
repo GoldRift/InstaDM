@@ -95,6 +95,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
@@ -113,6 +114,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ButtonDefaults
@@ -122,6 +124,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -660,6 +663,14 @@ fun ChatScreen(
         }
     }
 
+    // The transcript is reversed, so the pill only shows once the reader has
+    // scrolled past a couple of bubbles. Deferring it through derivedStateOf
+    // keeps a scroll from recomposing the whole screen per frame.
+    val motion = MaterialTheme.motionScheme
+    val scrolledAwayFromNewest by remember(listState) {
+        derivedStateOf { showScrollToBottom(listState.firstVisibleItemIndex) }
+    }
+
     // Follow the newest bubble on first load, on a new message, and when typing
     // starts. Prepending an older page must not move the viewport, so this keys
     // on the newest message ID rather than the list size; a new message only
@@ -833,81 +844,125 @@ fun ChatScreen(
                     }
 
                     else -> {
-                        MessageList(
-                            messages = transcript,
-                            contact = conversation.contact,
-                            isGroup = conversation.isGroup,
-                            participants = conversation.participants,
-                            isTyping = isTyping,
-                            typingSenders = typingSenders,
-                            listState = listState,
-                            threadId = conversation.id,
-                            hasMoreOlder = conversation.hasMoreOlder,
-                            isLoadingOlder = conversation.isLoadingOlder,
-                            olderError = conversation.olderError,
-                            onLoadOlder = onLoadOlder,
-                            onRetryOlder = onRetryOlder,
-                            onOpenMedia = { messageId, media ->
-                                viewerTarget = MediaViewerTarget(messageId, media)
-                            },
-                            onLongPress = { actionMessageId = it.id },
-                            onReply = { replyTarget = it },
-                            onJumpToQuoted = ::jumpToQuotedMessage,
-                            highlightedMessageId = quotedMessageId,
-                            lastOutgoingId = lastOutgoingId,
-                            revealedStatusMessageId = revealedStatusMessageId,
-                            onToggleStatus = { messageId ->
-                                // The newest outgoing bubble always shows its
-                                // receipt, so only older ones can be toggled.
-                                if (messageId != lastOutgoingId) {
-                                    revealedStatusMessageId =
-                                        if (revealedStatusMessageId == messageId) {
-                                            null
-                                        } else {
-                                            messageId
-                                        }
+                        Box(Modifier.fillMaxSize()) {
+                            MessageList(
+                                messages = transcript,
+                                contact = conversation.contact,
+                                isGroup = conversation.isGroup,
+                                participants = conversation.participants,
+                                isTyping = isTyping,
+                                typingSenders = typingSenders,
+                                listState = listState,
+                                threadId = conversation.id,
+                                hasMoreOlder = conversation.hasMoreOlder,
+                                isLoadingOlder = conversation.isLoadingOlder,
+                                olderError = conversation.olderError,
+                                onLoadOlder = onLoadOlder,
+                                onRetryOlder = onRetryOlder,
+                                onOpenMedia = { messageId, media ->
+                                    viewerTarget = MediaViewerTarget(messageId, media)
+                                },
+                                onLongPress = { actionMessageId = it.id },
+                                onReply = { replyTarget = it },
+                                onJumpToQuoted = ::jumpToQuotedMessage,
+                                highlightedMessageId = quotedMessageId,
+                                lastOutgoingId = lastOutgoingId,
+                                revealedStatusMessageId = revealedStatusMessageId,
+                                onToggleStatus = { messageId ->
+                                    // The newest outgoing bubble always shows its
+                                    // receipt, so only older ones can be toggled.
+                                    if (messageId != lastOutgoingId) {
+                                        revealedStatusMessageId =
+                                            if (revealedStatusMessageId == messageId) {
+                                                null
+                                            } else {
+                                                messageId
+                                            }
+                                    }
+                                },
+                                actionMessageId = actionMessageId,
+                                onDismissActions = { actionMessageId = null },
+                                onReactAt = { messageId, emoji ->
+                                    actionMessageId = null
+                                    onReact(messageId, emoji)
+                                },
+                                likeEmoji = likeEmoji,
+                                onCopyAt = { messageId ->
+                                    actionMessageId = null
+                                    messages.firstOrNull { it.id == messageId }?.let {
+                                        copyToClipboard(context, it.text)
+                                    }
+                                },
+                                onReplyAt = { messageId ->
+                                    actionMessageId = null
+                                    messages.firstOrNull { it.id == messageId }?.let {
+                                        replyTarget = it
+                                    }
+                                },
+                                onMoreEmojiAt = { messageId ->
+                                    actionMessageId = null
+                                    emojiPickerMessageId = messageId
+                                },
+                                onEditAt = { messageId ->
+                                    actionMessageId = null
+                                    editMessageId = messageId
+                                },
+                                onUnsendAt = { messageId ->
+                                    actionMessageId = null
+                                    unsendMessageId = messageId
+                                },
+                                onRetryMedia = onRetryMedia,
+                                onLoadMedia = onLoadMedia,
+                                voicePlayer = voicePlayer,
+                                viewerName = viewerName,
+                                viewerAvatarUrl = viewerAvatarUrl,
+                                modifier = Modifier.fillMaxSize().padding(
+                                    bottom = if (playerBarShown) MiniVoicePlayerInset else 0.dp,
+                                ),
+                            )
+
+                            // Fully qualified: the enclosing Column's own
+                            // AnimatedVisibility would take the implicit receiver.
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = scrolledAwayFromNewest,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    // Clear the player bar as well: it floats in the
+                                    // transcript's own bottom inset.
+                                    .padding(
+                                        end = 16.dp,
+                                        bottom = 16.dp +
+                                            if (playerBarShown) MiniVoicePlayerInset else 0.dp,
+                                    ),
+                                enter = scaleIn(
+                                    animationSpec = motion.fastSpatialSpec(),
+                                    initialScale = 0.8f,
+                                ) + fadeIn(motion.fastEffectsSpec()),
+                                exit = scaleOut(
+                                    animationSpec = motion.fastSpatialSpec(),
+                                    targetScale = 0.8f,
+                                ) + fadeOut(motion.fastEffectsSpec()),
+                                label = "scrollToBottom",
+                            ) {
+                                SmallFloatingActionButton(
+                                    onClick = {
+                                        haptic.segmentTick()
+                                        scope.launch { listState.animateScrollToItem(0) }
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    elevation = FloatingActionButtonDefaults.loweredElevation(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ArrowDownward,
+                                        contentDescription = stringResource(
+                                            R.string.chat_scroll_to_bottom,
+                                        ),
+                                        modifier = Modifier.size(24.dp),
+                                    )
                                 }
-                            },
-                            actionMessageId = actionMessageId,
-                            onDismissActions = { actionMessageId = null },
-                            onReactAt = { messageId, emoji ->
-                                actionMessageId = null
-                                onReact(messageId, emoji)
-                            },
-                            likeEmoji = likeEmoji,
-                            onCopyAt = { messageId ->
-                                actionMessageId = null
-                                messages.firstOrNull { it.id == messageId }?.let {
-                                    copyToClipboard(context, it.text)
-                                }
-                            },
-                            onReplyAt = { messageId ->
-                                actionMessageId = null
-                                messages.firstOrNull { it.id == messageId }?.let {
-                                    replyTarget = it
-                                }
-                            },
-                            onMoreEmojiAt = { messageId ->
-                                actionMessageId = null
-                                emojiPickerMessageId = messageId
-                            },
-                            onEditAt = { messageId ->
-                                actionMessageId = null
-                                editMessageId = messageId
-                            },
-                            onUnsendAt = { messageId ->
-                                actionMessageId = null
-                                unsendMessageId = messageId
-                            },
-                            onRetryMedia = onRetryMedia,
-                            onLoadMedia = onLoadMedia,
-                            voicePlayer = voicePlayer,
-                            viewerName = viewerName,
-                            viewerAvatarUrl = viewerAvatarUrl,
-                            modifier = Modifier.fillMaxSize().padding(
-                                bottom = if (playerBarShown) MiniVoicePlayerInset else 0.dp,
-                            ),
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -1000,6 +1055,14 @@ private fun ChatTopSection(
         )
     }
 }
+
+/**
+ * Whether the transcript has scrolled away from its newest message. The list is
+ * reversed, so index 0 is the newest bubble; a couple of bubbles stay in the
+ * buffer because the typing indicator takes the first slot while it shows.
+ */
+internal fun showScrollToBottom(firstVisibleItemIndex: Int, buffer: Int = 2): Boolean =
+    firstVisibleItemIndex.coerceAtLeast(0) > buffer.coerceAtLeast(0)
 
 @Composable
 private fun MessageList(
