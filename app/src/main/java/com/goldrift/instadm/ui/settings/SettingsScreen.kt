@@ -41,13 +41,13 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
@@ -103,7 +103,7 @@ import kotlinx.coroutines.launch
  * the media cache. The theme selector is the screen's single expressive
  * accent; the remaining rows stay on quiet tonal containers.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
@@ -358,14 +358,12 @@ fun SettingsScreen(
                             shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
                             trailing = {
                                 when (val current = updateState) {
-                                    is UpdateState.Downloading -> CircularProgressIndicator(
+                                    is UpdateState.Downloading -> LoadingIndicator(
                                         progress = { current.fraction },
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(24.dp),
                                     )
-                                    UpdateState.Checking -> CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
+                                    UpdateState.Checking -> LoadingIndicator(
+                                        modifier = Modifier.size(24.dp),
                                     )
                                     else -> Text(
                                         text = stringResource(

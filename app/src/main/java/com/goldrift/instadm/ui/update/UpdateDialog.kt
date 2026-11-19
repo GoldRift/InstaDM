@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,7 +48,7 @@ fun UpdateDialog(
                     )
                 }
                 when (state) {
-                    is UpdateState.Downloading -> LinearProgressIndicator(
+                    is UpdateState.Downloading -> LinearWavyProgressIndicator(
                         progress = { state.fraction },
                         modifier = Modifier.fillMaxWidth(),
                     )

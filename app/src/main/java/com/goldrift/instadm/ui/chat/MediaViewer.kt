@@ -29,9 +29,11 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -253,6 +255,7 @@ private fun ThumbnailImage(
  * Downloads a GIF through the Go client once its row is visible, then loops it
  * inline. While the download runs, the static preview stays in place.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun InlineGif(
     threadId: String,
@@ -284,7 +287,7 @@ private fun InlineGif(
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
             if (!failed) {
-                CircularProgressIndicator(color = Color.White)
+                ContainedLoadingIndicator(modifier = Modifier.size(52.dp))
             }
         }
     }
@@ -321,6 +324,7 @@ private fun LoopingVideo(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MediaPlaceholder(isLoading: Boolean) {
     Box(
@@ -328,7 +332,7 @@ private fun MediaPlaceholder(isLoading: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (isLoading) {
-            CircularProgressIndicator()
+            LoadingIndicator()
         } else {
             Icon(
                 imageVector = Icons.Rounded.BrokenImage,
@@ -572,6 +576,7 @@ private fun LocalFileCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MediaViewerDialog(
     threadId: String,
@@ -609,9 +614,10 @@ fun MediaViewerDialog(
                 .clickable(enabled = state !is MediaLoadState.Ready) { onDismiss() },
         ) {
             when (val current = state) {
-                MediaLoadState.Loading -> CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.align(Alignment.Center),
+                MediaLoadState.Loading -> ContainedLoadingIndicator(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(52.dp),
                 )
 
                 MediaLoadState.Failed -> Text(
@@ -663,6 +669,7 @@ fun MediaViewerDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ImageViewer(
     file: File,
@@ -676,7 +683,7 @@ private fun ImageViewer(
         modifier = modifier.padding(horizontal = 8.dp, vertical = 48.dp),
         loading = {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+                ContainedLoadingIndicator(modifier = Modifier.size(52.dp))
             }
         },
         error = {

@@ -35,12 +35,11 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -50,6 +49,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -189,10 +190,20 @@ fun InboxScreen(
             shape = listTopShape,
             color = MaterialTheme.colorScheme.surface,
         ) {
+            val refreshing = status == InboxStatus.Loading && conversations.isNotEmpty()
+            val pullState = rememberPullToRefreshState()
             PullToRefreshBox(
-                isRefreshing = status == InboxStatus.Loading && conversations.isNotEmpty(),
+                isRefreshing = refreshing,
                 onRefresh = onRefresh,
                 modifier = Modifier.fillMaxSize(),
+                state = pullState,
+                indicator = {
+                    PullToRefreshDefaults.LoadingIndicator(
+                        state = pullState,
+                        isRefreshing = refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                },
             ) {
                 when {
                     status == InboxStatus.Loading && conversations.isEmpty() -> {
@@ -329,6 +340,7 @@ fun InboxScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun OlderConversationsFooter(
     isLoading: Boolean,
@@ -349,11 +361,10 @@ private fun OlderConversationsFooter(
 
             isLoading -> {
                 val description = stringResource(R.string.inbox_loading_older)
-                CircularProgressIndicator(
+                LoadingIndicator(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(28.dp)
                         .semantics { contentDescription = description },
-                    strokeWidth = 2.dp,
                 )
             }
         }

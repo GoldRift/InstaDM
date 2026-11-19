@@ -24,11 +24,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -93,7 +94,7 @@ private val BLOCKED_PATHS = listOf(
  * core. The WebView is only a cookie source: no JavaScript bridge is installed
  * and no scripts are injected into the page.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LoginScreen(
     signIn: suspend (String) -> JSONObject,
@@ -210,17 +211,17 @@ fun LoginScreen(
                 .imePadding(),
         ) {
             when {
-                pageLoading -> LinearProgressIndicator(
+                pageLoading -> LinearWavyProgressIndicator(
                     progress = { pageProgress / 100f },
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                validating -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                validating -> LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             }
 
             Box(Modifier.weight(1f)) {
                 if (!sessionCleared) {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    LoadingIndicator(Modifier.align(Alignment.Center))
                 } else AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
@@ -323,9 +324,8 @@ fun LoginScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
+                            LoadingIndicator(
+                                modifier = Modifier.size(22.dp),
                             )
                             Text(
                                 text = stringResource(R.string.login_validating),

@@ -25,8 +25,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -290,6 +291,7 @@ class VoicePlayer(context: Context) {
  * tap-to-seek. The file is downloaded on first play; outgoing notes play from
  * the local copy the outbox already wrote.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VoiceNoteBubble(
     media: MessageMedia,
@@ -395,9 +397,8 @@ fun VoiceNoteBubble(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    loading -> CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
+                    loading -> LoadingIndicator(
+                        modifier = Modifier.size(24.dp),
                         color = contentColor,
                     )
 

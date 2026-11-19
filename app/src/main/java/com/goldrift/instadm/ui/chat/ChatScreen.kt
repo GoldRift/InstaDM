@@ -99,7 +99,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -1279,6 +1278,7 @@ private fun AdminNoticeRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MessageRow(
     message: ChatMessage,
@@ -1588,9 +1588,8 @@ private fun MessageRow(
                             )
                         }
 
-                        message.pending -> CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 1.5.dp,
+                        message.pending -> LoadingIndicator(
+                            modifier = Modifier.size(16.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
 
@@ -2369,6 +2368,7 @@ private fun TypingDots(color: androidx.compose.ui.graphics.Color, modifier: Modi
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun OlderMessagesFooter(
     isLoading: Boolean,
@@ -2397,9 +2397,8 @@ private fun OlderMessagesFooter(
             }
 
             isLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
+                LoadingIndicator(
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
