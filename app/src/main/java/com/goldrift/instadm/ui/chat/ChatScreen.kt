@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -152,6 +153,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
@@ -2475,6 +2477,27 @@ private fun DayHeader(timestampMs: Long) {
 private fun ClipData.firstUri(): Uri? =
     (0 until itemCount).firstNotNullOfOrNull { getItemAt(it).uri }
 
+/**
+ * AnimatedContent keeps the leaving child composed and hit-testable until its
+ * exit ends. Swallow that child's pointers in the initial pass, before
+ * clickable() looks for an unconsumed down, and drop its semantics so the
+ * vanishing control is neither tapped nor read.
+ */
+private fun Modifier.inputOnlyWhen(active: Boolean): Modifier =
+    if (active) {
+        this
+    } else {
+        this
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                }
+            }
+            .clearAndSetSemantics { }
+    }
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MessageComposer(
@@ -2506,12 +2529,11 @@ private fun MessageComposer(
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
     val motion = MaterialTheme.motionScheme
-    // The reply bar and the media strip take non-null arguments, so their last
-    // values are kept for the frame the exit animation still draws.
-    var shownReply by remember { mutableStateOf<Pair<ReplySnapshot, String>?>(null) }
-    LaunchedEffect(replyingTo, replyingToLabel) {
-        if (replyingTo != null) shownReply = replyingTo to replyingToLabel
-    }
+    val replyArgs = replyingTo?.let { it to replyingToLabel }
+    // The bars take non-null arguments, so the last values are kept for the
+    // frame the exit animation still draws.
+    var shownReply by remember { mutableStateOf(replyArgs) }
+    LaunchedEffect(replyArgs) { if (replyArgs != null) shownReply = replyArgs }
     var shownStagedMedia by remember { mutableStateOf(stagedMedia) }
     LaunchedEffect(stagedMedia) {
         if (stagedMedia.isNotEmpty()) shownStagedMedia = stagedMedia
@@ -2546,17 +2568,20 @@ private fun MessageComposer(
             },
             label = "composerRecording",
         ) { lockedRecording ->
+            val isTarget = transition.targetState == EnterExitState.Visible
             if (lockedRecording) {
                 LockedRecordingBar(
                     recorder = recorder,
                     onDelete = onRecordingDelete,
                     onSend = onRecordingSend,
+                    modifier = Modifier.inputOnlyWhen(isTarget),
                 )
             } else {
                 Column(
                     modifier = Modifier
                         .navigationBarsPadding()
-                        .imePadding(),
+                        .imePadding()
+                        .inputOnlyWhen(isTarget),
                 ) {
                     AnimatedVisibility(
                         visible = replyingTo != null,
@@ -2565,7 +2590,8 @@ private fun MessageComposer(
                         exit = shrinkVertically(motion.defaultSpatialSpec()) +
                             fadeOut(motion.defaultEffectsSpec()),
                     ) {
-                        val (reply, label) = shownReply ?: return@AnimatedVisibility
+                        val shown = replyArgs ?: shownReply
+                        val (reply, label) = shown ?: return@AnimatedVisibility
                         ReplyComposerBar(
                             reply = reply,
                             label = label,
@@ -2715,11 +2741,14 @@ private fun MessageComposer(
                             contentKey = { it },
                             label = "composerAction",
                         ) { send ->
+                            val isTarget = transition.targetState == EnterExitState.Visible
                             if (send) {
                                 FilledIconButton(
                                     onClick = onSend,
                                     shapes = IconButtonDefaults.shapes(),
-                                    modifier = Modifier.size(48.dp),
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .inputOnlyWhen(isTarget),
                                     colors = IconButtonDefaults.filledIconButtonColors(
                                         containerColor = bubbles.composerAccent,
                                         contentColor = bubbles.onComposerAccent,
@@ -2734,6 +2763,7 @@ private fun MessageComposer(
                             } else {
                                 MicButton(
                                     recording = recording,
+                                    enabled = isTarget,
                                     onStart = onMicStart,
                                     onToggle = { if (recording) onRecordingSend() else onMicStart() },
                                     onMove = onMicMove,
@@ -2988,6 +3018,7 @@ private fun MicButton(
     onToggle: () -> Unit,
     onMove: (Boolean, Boolean) -> Unit,
     onRelease: (Boolean, Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     val lockThreshold = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
     val cancelThreshold = with(LocalDensity.current) { CANCEL_DISTANCE.toPx() }
@@ -3025,9 +3056,8 @@ private fun MicButton(
         animationSpec = motion.fastEffectsSpec(),
         label = "micTint",
     )
-    Box(
-        modifier = Modifier
-            .size(48.dp)
+    val interaction = if (enabled) {
+        Modifier
             .semantics {
                 role = Role.Button
                 contentDescription = recordLabel
@@ -3055,7 +3085,14 @@ private fun MicButton(
                     }
                     release.value(locked, cancelled)
                 }
-            },
+            }
+    } else {
+        Modifier.clearAndSetSemantics { }
+    }
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .then(interaction),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -3083,16 +3120,20 @@ private fun RecordingStatus(
     modifier: Modifier = Modifier,
 ) {
     val paused = recorder.state == VoiceRecordingState.Paused
-    val transition = rememberInfiniteTransition(label = "recordingDot")
-    val pulse by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 700, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "recordingDotAlpha",
-    )
+    // A paused recording keeps the dot still, so no clock runs.
+    val pulse = if (paused) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "recordingDot").animateFloat(
+            initialValue = 1f,
+            targetValue = 0.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 700, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "recordingDotAlpha",
+        )
+    }
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
@@ -3100,7 +3141,7 @@ private fun RecordingStatus(
         Box(
             modifier = Modifier
                 .size(8.dp)
-                .graphicsLayer { alpha = if (paused) 1f else pulse }
+                .graphicsLayer { alpha = pulse?.value ?: 1f }
                 .clip(CircleShape)
                 .background(
                     if (paused) {
