@@ -5,9 +5,22 @@ plugins {
     alias(libs.plugins.androidx.room)
 }
 
-// scripts/build-release.sh requests one APK per ABI; ordinary debug builds stay
-// a single universal APK.
+// scripts/build-release.sh requests one APK per ABI; scripts/build-dev.sh passes
+// instadm.abis=arm64-v8a for a single-ABI phone APK. Ordinary debug builds stay universal.
+val supportedAbis = listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
 val splitAbis = providers.gradleProperty("instadm.abiSplits").orNull == "true"
+val requestedAbis = providers.gradleProperty("instadm.abis").orNull
+    ?.split(',')
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?.takeIf { it.isNotEmpty() }
+    ?.also { abis ->
+        val unknown = abis - supportedAbis.toSet()
+        require(unknown.isEmpty()) {
+            "instadm.abis contains unsupported ABI(s): ${unknown.joinToString()} " +
+                "(expected: ${supportedAbis.joinToString()})"
+        }
+    }
 
 // CI passes these from the release tag; defaults keep local builds unchanged.
 val appVersionCode = providers.gradleProperty("versionCode").orNull?.let {
@@ -81,6 +94,18 @@ android {
                 enable = true
             }
         }
+        // Release-parity build signed with the local debug key so it installs
+        // side-by-side with the production app without needing the release keystore.
+        create("dev") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            optimization {
+                enable = true
+            }
+        }
         // Offline demo build for screenshots and manual tours. It has its own
         // application ID, so it never shares the real session or database.
         create("demo") {
@@ -91,12 +116,16 @@ android {
             matchingFallbacks += "debug"
         }
     }
-    if (splitAbis) {
+    if (splitAbis || requestedAbis != null) {
         splits {
             abi {
                 isEnable = true
                 reset()
-                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                if (requestedAbis != null) {
+                    include(*requestedAbis.toTypedArray())
+                } else {
+                    include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                }
                 isUniversalApk = false
             }
         }

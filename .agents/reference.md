@@ -27,6 +27,7 @@ adb push ~/.config/instadm/cookies.json \
 ## AAR & release build options
 
 - `./scripts/build-android-aar.sh` supports `ABIS` (subset of ABIs) and `STRIP=0` (keep symbols).
-- Per-ABI release splits use `-Pinstadm.abiSplits=true`.
+- Side-by-side release-parity phone builds use the `dev` build type (`com.goldrift.instadm.dev`, debug-key signed, R8 enabled) via Android Studio or `./scripts/build-dev.sh [--serve|--install|--rebuild-aar]`, passing `-Pinstadm.abis=arm64-v8a` for a single-ABI APK.
+- Per-ABI release splits use `-Pinstadm.abiSplits=true` (all four ABIs) or `-Pinstadm.abis=<abi,...>` (specific subset).
 - Release `versionName` and `versionCode` come from `-PversionName` and `-PversionCode` (`major*10000 + minor*100 + patch`).
 - Demo screenshot tests require `-Pinstadm.testBuildType=demo` (added automatically by `./scripts/demo-screenshots.sh`). AVD is `Medium_Phone_API_37.0`.

@@ -224,6 +224,23 @@ The Android AAR is generated locally and is not committed:
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. The debug APK is a
 single universal build with all four gomobile ABIs and is about 93 MB.
 
+To test a release-optimized build on a phone alongside an installed release, use
+the `dev` build type (`com.goldrift.instadm.dev`, labeled **InstaDM Dev**). It
+uses R8 shrinking like `release` and signs with your local debug keystore, so it
+never replaces `com.goldrift.instadm` or needs the release keystore. Select the
+`dev` build variant in Android Studio and press Run, or build a single-ABI
+`arm64-v8a` APK from the terminal:
+
+```bash
+./scripts/build-dev.sh           # write build/dev/instadm-dev-<sha>-arm64-v8a.apk
+./scripts/build-dev.sh --serve   # build and serve the APK over LAN with a QR code
+./scripts/build-dev.sh --install # build, install over adb, and launch
+```
+
+`scripts/build-dev.sh` reuses `app/libs/igcore.aar` when Go sources have not
+changed, and rebuilds only the requested ABI when they have. Pass `--host` or
+`--port` to override the LAN address or TCP port for `--serve`.
+
 For release, build the per-ABI APKs in one step:
 
 ```bash
