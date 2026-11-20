@@ -93,6 +93,20 @@ func (c *Client) SendMediaBytes(ctx context.Context, threadID, filename, mimeTyp
 	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
 }
 
+// SendMediaFile uploads a local file by path with optional display filename and
+// MIME type overrides, avoiding passing raw bytes across the JNI boundary.
+func (c *Client) SendMediaFile(ctx context.Context, threadID, filePath, filename, mimeType, replyTo, otid string) (*MediaSendResult, error) {
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := readMediaFileWithMetadata(filePath, filename, mimeType)
+	if err != nil {
+		return nil, err
+	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
 func parseMediaThreadID(c *Client, threadID string) (string, int64, error) {
 	if c == nil || c.inner == nil {
 		return "", 0, errors.New("client is not initialized")
@@ -140,6 +154,27 @@ func (c *Client) SendVoiceBytes(ctx context.Context, threadID, filename, mimeTyp
 		return nil, err
 	}
 	file, err := newMediaData(filename, mimeType, data)
+	if err != nil {
+		return nil, err
+	}
+	waveform, err := parseVoiceWaveform(waveformJSON)
+	if err != nil {
+		return nil, err
+	}
+	file.Waveform = waveform
+	if err := prepareVoiceFile(file); err != nil {
+		return nil, err
+	}
+	return c.sendMediaFile(ctx, threadID, threadIDInt, file, replyTo, otid)
+}
+
+// SendVoiceFile uploads a local audio file by path as a voice note.
+func (c *Client) SendVoiceFile(ctx context.Context, threadID, filePath, filename, mimeType, waveformJSON, replyTo, otid string) (*MediaSendResult, error) {
+	threadID, threadIDInt, err := parseMediaThreadID(c, threadID)
+	if err != nil {
+		return nil, err
+	}
+	file, err := readMediaFileWithMetadata(filePath, filename, mimeType)
 	if err != nil {
 		return nil, err
 	}
@@ -282,6 +317,10 @@ func newMediaSendResult(threadID, otid, attachmentFBID string, file *mediaFile, 
 }
 
 func readMediaFile(path string) (*mediaFile, error) {
+	return readMediaFileWithMetadata(path, "", "")
+}
+
+func readMediaFileWithMetadata(path, filename, mimeType string) (*mediaFile, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, errors.New("file path is required")
@@ -306,7 +345,11 @@ func readMediaFile(path string) (*mediaFile, error) {
 		return nil, fmt.Errorf("read media file: %w", err)
 	}
 
-	file, err := newMediaData(filepath.Base(path), "", data)
+	name := strings.TrimSpace(filename)
+	if name == "" {
+		name = filepath.Base(path)
+	}
+	file, err := newMediaData(name, mimeType, data)
 	if err != nil {
 		return nil, err
 	}

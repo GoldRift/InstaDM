@@ -121,7 +121,7 @@ not `debug`:
     RPCs and media transfers without stalling text sends, thread loads,
     reactions, or read receipts.
 
-- [ ] **3.2 Stream media uploads by file path instead of 50+ MiB RAM copies**
+- [x] **3.2 Stream media uploads by file path instead of 50+ MiB RAM copies**
   - Files: `PickedMedia.kt`, `Outbox.kt`, `GoClient.kt`, `ProtocolRepository.kt`,
     `go-core/mobile/mobile.go`.
   - Change: Stream `ContentResolver` directly into `outboxDir` while enforcing

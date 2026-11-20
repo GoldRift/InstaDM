@@ -65,9 +65,9 @@ internal class FakeProtocol(
 
     override suspend fun sendMedia(
         threadId: String,
+        filePath: String,
         fileName: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean,
         waveformJson: String,
@@ -120,9 +120,9 @@ internal object NeverSends : OutboxSender {
 
     override suspend fun sendMedia(
         threadId: String,
+        filePath: String,
         fileName: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean,
         waveformJson: String,

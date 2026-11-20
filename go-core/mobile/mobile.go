@@ -363,6 +363,21 @@ func (c *Client) SendMediaJSON(threadID, filename, mimeType string, data []byte,
 	return encode(result)
 }
 
+func (c *Client) SendMediaPathJSON(threadID, filePath, filename, mimeType, replyTo, otid string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.SendMediaFile(ctx, threadID, filePath, filename, mimeType, replyTo, otid)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 func (c *Client) SendVoiceJSON(threadID, filename, mimeType string, data []byte, waveformJSON, replyTo, otid string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
@@ -372,6 +387,21 @@ func (c *Client) SendVoiceJSON(threadID, filename, mimeType string, data []byte,
 	defer cancel()
 
 	result, err := client.SendVoiceBytes(ctx, threadID, filename, mimeType, data, waveformJSON, replyTo, otid)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
+func (c *Client) SendVoicePathJSON(threadID, filePath, filename, mimeType, waveformJSON, replyTo, otid string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.SendVoiceFile(ctx, threadID, filePath, filename, mimeType, waveformJSON, replyTo, otid)
 	if err != nil {
 		return "", err
 	}

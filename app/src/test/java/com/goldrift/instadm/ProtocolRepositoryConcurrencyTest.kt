@@ -63,7 +63,7 @@ class ProtocolRepositoryConcurrencyTest {
         }
 
         val upload = async {
-            repo.sendMedia("t1", "video.mp4", "video/mp4", byteArrayOf(1, 2, 3), otid = "1")
+            repo.sendMedia("t1", "/tmp/video.mp4", "video.mp4", "video/mp4", otid = "1")
         }
         assertTrue("upload did not start", uploadEntered.await(5, TimeUnit.SECONDS))
 
@@ -214,9 +214,9 @@ class ProtocolRepositoryConcurrencyTest {
             onSendText()
         override fun sendMedia(
             threadId: String,
+            filePath: String,
             filename: String,
             mimeType: String,
-            data: ByteArray,
             otid: String,
             voice: Boolean,
             waveformJson: String,

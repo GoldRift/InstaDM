@@ -638,3 +638,38 @@ func TestDownloadMediaPartRunsConcurrently(t *testing.T) {
 		t.Fatalf("downloadMediaPart: %v", err)
 	}
 }
+
+func TestReadMediaFileWithOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "12345.m4a")
+	if err := os.WriteFile(path, []byte("fake-audio-payload"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	file, err := readMediaFileWithMetadata(path, "voice-note.m4a", "audio/mp4")
+	if err != nil {
+		t.Fatalf("readMediaFileWithMetadata: %v", err)
+	}
+	if file.Filename != "voice-note.m4a" {
+		t.Errorf("Filename = %q, want %q", file.Filename, "voice-note.m4a")
+	}
+	if file.MimeType != "audio/mp4" {
+		t.Errorf("MimeType = %q, want %q", file.MimeType, "audio/mp4")
+	}
+	if file.SizeBytes != int64(len("fake-audio-payload")) {
+		t.Errorf("SizeBytes = %d, want %d", file.SizeBytes, len("fake-audio-payload"))
+	}
+}
+
+func TestSendVoiceFileValidation(t *testing.T) {
+	dir := t.TempDir()
+	pngPath := filepath.Join(dir, "photo.png")
+	if err := os.WriteFile(pngPath, encodeTestPNG(t), 0o600); err != nil {
+		t.Fatalf("write png: %v", err)
+	}
+
+	client := &Client{inner: &instameow.Client{}}
+	if _, err := client.SendVoiceFile(context.Background(), "123", pngPath, "photo.png", "image/png", "", "", ""); err == nil || !strings.Contains(err.Error(), "voice notes must be audio") {
+		t.Errorf("image voice file error = %v", err)
+	}
+}

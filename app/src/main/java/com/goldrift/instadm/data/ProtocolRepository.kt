@@ -36,9 +36,9 @@ internal interface ProtocolBackend : Closeable {
     fun sendText(threadId: String, text: String, replyTo: String, otid: String): JSONObject
     fun sendMedia(
         threadId: String,
+        filePath: String,
         filename: String,
         mimeType: String,
-        data: ByteArray,
         otid: String = "",
         voice: Boolean = false,
         waveformJson: String = "",
@@ -78,17 +78,17 @@ private class GoClientBackend(private val inner: GoClient) : ProtocolBackend {
         inner.sendText(threadId, text, replyTo, otid)
     override fun sendMedia(
         threadId: String,
+        filePath: String,
         filename: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean,
         waveformJson: String,
     ): JSONObject = inner.sendMedia(
         threadId = threadId,
+        filePath = filePath,
         filename = filename,
         mimeType = mimeType,
-        data = data,
         otid = otid,
         voice = voice,
         waveformJson = waveformJson,
@@ -254,18 +254,18 @@ class ProtocolRepository internal constructor(
     /** Uploads one attachment and sends it to an existing thread on the upload lane. */
     override suspend fun sendMedia(
         threadId: String,
+        filePath: String,
         fileName: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean,
         waveformJson: String,
     ): JSONObject = withUploadClient {
         it.sendMedia(
             threadId = threadId,
+            filePath = filePath,
             filename = fileName,
             mimeType = mimeType,
-            data = data,
             otid = otid,
             voice = voice,
             waveformJson = waveformJson,

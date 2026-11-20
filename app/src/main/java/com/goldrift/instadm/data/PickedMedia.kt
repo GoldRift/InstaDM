@@ -9,9 +9,10 @@ import androidx.core.content.FileProvider
 import com.goldrift.instadm.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.util.UUID
 
 /** A picked or captured attachment, described before its bytes are uploaded. */
@@ -36,9 +37,9 @@ data class PickedMedia(
 class MediaPickException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 /**
- * Reads a content URI into the byte array expected by the gomobile API.
+ * Streams a content URI into app-private storage for the outbox.
  *
- * Providers may not report a size, so [read] enforces the limit while
+ * Providers may not report a size, so [copyTo] enforces the limit while
  * streaming instead of trusting `OpenableColumns.SIZE`.
  */
 class MediaReader(context: Context) {
@@ -90,39 +91,35 @@ class MediaReader(context: Context) {
         }
     }
 
-    suspend fun read(picked: PickedMedia): ByteArray = withContext(Dispatchers.IO) {
+    /**
+     * Streams [picked] directly into [target] in bounded chunks while enforcing
+     * [PickedMedia.maxBytes], avoiding buffering multi-megabyte uploads in RAM.
+     */
+    suspend fun copyTo(picked: PickedMedia, target: File): Unit = withContext(Dispatchers.IO) {
         val limit = picked.maxBytes
         try {
             val input = appContext.contentResolver.openInputStream(picked.uri)
                 ?: throw MediaPickException(appContext.getString(R.string.chat_media_unreadable))
 
             input.use { stream ->
-                val output = ByteArrayOutputStream(DEFAULT_BUFFER_BYTES)
-                val buffer = ByteArray(DEFAULT_BUFFER_BYTES)
-                var total = 0L
-                while (true) {
-                    val count = stream.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    if (total > limit) {
-                        throw MediaPickException(
-                            appContext.getString(
-                                R.string.chat_media_too_large,
-                                formatMediaBytes(total),
-                                formatMediaBytes(limit),
-                            ),
-                        )
-                    }
-                    output.write(buffer, 0, count)
+                when (val result = copyStreamWithLimit(stream, target, limit)) {
+                    is StreamCopyResult.Success -> Unit
+                    is StreamCopyResult.Empty -> throw MediaPickException(
+                        appContext.getString(R.string.chat_media_empty),
+                    )
+                    is StreamCopyResult.TooLarge -> throw MediaPickException(
+                        appContext.getString(
+                            R.string.chat_media_too_large,
+                            formatMediaBytes(result.bytesRead),
+                            formatMediaBytes(limit),
+                        ),
+                    )
                 }
-                if (total == 0L) {
-                    throw MediaPickException(appContext.getString(R.string.chat_media_empty))
-                }
-                output.toByteArray()
             }
         } catch (error: MediaPickException) {
             throw error
         } catch (error: Exception) {
+            target.delete()
             throw MediaPickException(
                 appContext.getString(R.string.chat_media_unreadable),
                 error,
@@ -221,10 +218,6 @@ class MediaReader(context: Context) {
         val height: Int = 0,
         val durationMs: Int = 0,
     )
-
-    private companion object {
-        const val DEFAULT_BUFFER_BYTES = 64 * 1024
-    }
 }
 
 /** Camera captures are written here and shared through the app's FileProvider. */
@@ -261,5 +254,43 @@ object CameraCapture {
                     runCatching { file.delete() }
                 }
             }
+    }
+}
+
+internal sealed interface StreamCopyResult {
+    data class Success(val bytesWritten: Long) : StreamCopyResult
+    data object Empty : StreamCopyResult
+    data class TooLarge(val bytesRead: Long) : StreamCopyResult
+}
+
+internal fun copyStreamWithLimit(
+    input: InputStream,
+    target: File,
+    maxBytes: Long,
+    bufferSize: Int = 64 * 1024,
+): StreamCopyResult {
+    target.parentFile?.mkdirs()
+    val buffer = ByteArray(bufferSize)
+    var total = 0L
+    var completed = false
+    try {
+        FileOutputStream(target).use { output ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > maxBytes) {
+                    return StreamCopyResult.TooLarge(total)
+                }
+                output.write(buffer, 0, count)
+            }
+        }
+        if (total == 0L) return StreamCopyResult.Empty
+        completed = true
+        return StreamCopyResult.Success(total)
+    } finally {
+        if (!completed) {
+            target.delete()
+        }
     }
 }

@@ -220,9 +220,9 @@ class OutboxTest {
 
         override suspend fun sendMedia(
             threadId: String,
+            filePath: String,
             fileName: String,
             mimeType: String,
-            data: ByteArray,
             otid: String,
             voice: Boolean,
             waveformJson: String,

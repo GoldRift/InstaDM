@@ -33,9 +33,9 @@ interface OutboxSender {
 
     suspend fun sendMedia(
         threadId: String,
+        filePath: String,
         fileName: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean = false,
         waveformJson: String = "",
@@ -52,18 +52,18 @@ class ProtocolOutboxSender(private val repository: ProtocolApi) : OutboxSender {
 
     override suspend fun sendMedia(
         threadId: String,
+        filePath: String,
         fileName: String,
         mimeType: String,
-        data: ByteArray,
         otid: String,
         voice: Boolean,
         waveformJson: String,
     ): JSONObject = repository.sendMedia(
-        threadId,
-        fileName,
-        mimeType,
-        data,
-        otid,
+        threadId = threadId,
+        filePath = filePath,
+        fileName = fileName,
+        mimeType = mimeType,
+        otid = otid,
         voice = voice,
         waveformJson = waveformJson,
     )
@@ -174,9 +174,10 @@ class Outbox(
         val otid = OfflineThreadingIds.next()
         val extension = extensionFor(picked.mimeType, picked.kind)
         val file = withContext(Dispatchers.IO) {
-            val data = mediaReader.read(picked)
             outboxDir.mkdirs()
-            File(outboxDir, "$otid.$extension").apply { writeBytes(data) }
+            File(outboxDir, "$otid.$extension").also { target ->
+                mediaReader.copyTo(picked, target)
+            }
         }
 
         val now = timestampMs
@@ -388,13 +389,13 @@ class Outbox(
 
             "media" -> {
                 val path = payload.optString("file_path")
-                val file = File(path)
-                if (!file.isFile) error("attachment file is missing")
+                val exists = withContext(Dispatchers.IO) { File(path).isFile }
+                if (!exists) error("attachment file is missing")
                 sender.sendMedia(
                     threadId = entry.threadId,
+                    filePath = path,
                     fileName = payload.optString("file_name"),
                     mimeType = payload.optString("mime_type"),
-                    data = withContext(Dispatchers.IO) { file.readBytes() },
                     otid = entry.otid,
                     voice = payload.optBoolean("voice"),
                     waveformJson = payload.optString("waveform"),
