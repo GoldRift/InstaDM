@@ -26,11 +26,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.EmojiEmotions
@@ -49,19 +51,21 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonSize
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
@@ -77,6 +81,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -156,24 +161,29 @@ fun SettingsScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            MediumFlexibleTopAppBar(
                 title = {
                     Text(
                         text = stringResource(R.string.settings_title),
-                        style = MaterialTheme.typography.titleLargeEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.chat_back),
@@ -188,6 +198,7 @@ fun SettingsScreen(
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
@@ -396,12 +407,10 @@ fun SettingsScreen(
                                     UpdateState.Checking -> LoadingIndicator(
                                         modifier = Modifier.size(24.dp),
                                     )
-                                    else -> Text(
+                                    else -> SettingsTrailingPill(
                                         text = stringResource(
                                             R.string.settings_check_updates_action,
                                         ),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             },
@@ -420,10 +429,8 @@ fun SettingsScreen(
                         supporting = stringResource(R.string.settings_clear_cache_supporting),
                         shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
                         trailing = {
-                            Text(
+                            SettingsTrailingPill(
                                 text = stringResource(R.string.settings_clear_cache_confirm),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         },
                     )
@@ -609,6 +616,17 @@ private fun SettingSwitchRow(
                 checked = checked,
                 onCheckedChange = null,
                 enabled = enabled,
+                thumbContent = if (checked) {
+                    {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(SwitchDefaults.IconSize),
+                        )
+                    }
+                } else {
+                    null
+                },
             )
         },
         supportingContent = { Text(supporting) },
@@ -645,6 +663,21 @@ private fun SettingActionRow(
             )
         },
     )
+}
+
+@Composable
+private fun SettingsTrailingPill(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
 }
 
 @Composable

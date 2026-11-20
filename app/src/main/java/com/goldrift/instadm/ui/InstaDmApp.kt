@@ -617,6 +617,10 @@ private fun MainPane(
                 onSearch = onSearch,
                 onSettings = onSettings,
                 onLogout = onLogout,
+                isTyping = inboxState::isTyping,
+                typingParticipants = inboxState::typingParticipants,
+                onDismissError = inboxState::clearError,
+                onDismissShare = onShareConsumed,
                 listBottomInset = listBottomInset,
             )
             return@BoxWithConstraints
@@ -655,6 +659,10 @@ private fun MainPane(
                 onSearch = onSearch,
                 onSettings = onSettings,
                 onLogout = onLogout,
+                isTyping = inboxState::isTyping,
+                typingParticipants = inboxState::typingParticipants,
+                onDismissError = inboxState::clearError,
+                onDismissShare = onShareConsumed,
                 listBottomInset = listBottomInset,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)

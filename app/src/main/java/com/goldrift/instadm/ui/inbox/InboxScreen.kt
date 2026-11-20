@@ -37,9 +37,14 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -49,10 +54,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,6 +71,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +87,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -100,6 +112,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.goldrift.instadm.R
 import com.goldrift.instadm.ui.chat.Conversation
+import com.goldrift.instadm.ui.chat.ConversationParticipant
 import com.goldrift.instadm.ui.chat.InboxStatus
 import com.goldrift.instadm.ui.chat.formatInboxTime
 import com.goldrift.instadm.ui.chat.initialsOf
@@ -110,6 +123,8 @@ import com.goldrift.instadm.ui.chat.toPreview
 import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
+import com.goldrift.instadm.ui.components.ExpressiveStateBadge
+import com.goldrift.instadm.ui.components.InlineBanner
 import com.goldrift.instadm.ui.components.confirm
 import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.theme.InstaDMTheme
@@ -144,6 +159,10 @@ fun InboxScreen(
     onSearch: () -> Unit = {},
     onSettings: () -> Unit = {},
     onLogout: () -> Unit = {},
+    isTyping: (String) -> Boolean = { false },
+    typingParticipants: (String) -> List<ConversationParticipant> = { emptyList() },
+    onDismissError: (() -> Unit)? = null,
+    onDismissShare: (() -> Unit)? = null,
     /** Space for a player bar floating over the bottom of the list. */
     listBottomInset: Dp = 0.dp,
 ) {
@@ -165,7 +184,10 @@ fun InboxScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = onSearch) {
+                    IconButton(
+                        onClick = onSearch,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Search,
                             contentDescription = stringResource(R.string.inbox_search),
@@ -268,6 +290,10 @@ fun InboxScreen(
 
                     status == InboxStatus.NoSession && conversations.isEmpty() -> {
                         InboxMessage(
+                            badgeShape = MaterialShapes.Cookie7Sided.toShape(),
+                            badgeIcon = Icons.Rounded.Lock,
+                            badgeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            badgeIconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             title = stringResource(R.string.inbox_no_session_title),
                             body = stringResource(R.string.inbox_no_session_body),
                             actionLabel = stringResource(R.string.inbox_login),
@@ -277,6 +303,10 @@ fun InboxScreen(
 
                     status == InboxStatus.Error && conversations.isEmpty() -> {
                         InboxMessage(
+                            badgeShape = MaterialShapes.SoftBurst.toShape(),
+                            badgeIcon = Icons.Rounded.CloudOff,
+                            badgeContainerColor = MaterialTheme.colorScheme.errorContainer,
+                            badgeIconTint = MaterialTheme.colorScheme.onErrorContainer,
                             title = stringResource(R.string.inbox_error_title),
                             body = errorMessage ?: stringResource(R.string.inbox_error_body),
                             actionLabel = stringResource(R.string.inbox_retry),
@@ -288,6 +318,10 @@ fun InboxScreen(
 
                     conversations.isEmpty() -> {
                         InboxMessage(
+                            badgeShape = MaterialShapes.Clover4Leaf.toShape(),
+                            badgeIcon = Icons.Rounded.Forum,
+                            badgeContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            badgeIconTint = MaterialTheme.colorScheme.onSecondaryContainer,
                             title = stringResource(R.string.inbox_empty_title),
                             body = stringResource(R.string.inbox_empty_body),
                             actionLabel = stringResource(R.string.inbox_retry),
@@ -312,21 +346,13 @@ fun InboxScreen(
                                 fadeOut(motion.defaultEffectsSpec()),
                         ) {
                             val hint = shareHint ?: lastShareHint ?: return@AnimatedVisibility
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .semantics { liveRegion = LiveRegionMode.Polite },
-                                color = MaterialTheme.colorScheme.tertiaryContainer,
-                            ) {
-                                Text(
-                                    text = hint,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
+                            InlineBanner(
+                                text = hint,
+                                icon = Icons.Rounded.Share,
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                                onDismiss = onDismissShare,
+                            )
                         }
                         AnimatedVisibility(
                             visible = errorMessage != null,
@@ -337,21 +363,15 @@ fun InboxScreen(
                         ) {
                             val message =
                                 errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
-                            Surface(
-                                modifier = Modifier.semantics {
-                                    liveRegion = LiveRegionMode.Polite
-                                },
-                                color = MaterialTheme.colorScheme.errorContainer,
-                            ) {
-                                Text(
-                                    text = message,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
+                            InlineBanner(
+                                text = message,
+                                icon = Icons.Rounded.ErrorOutline,
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                actionLabel = stringResource(R.string.inbox_retry),
+                                onAction = onRefresh,
+                                onDismiss = onDismissError,
+                            )
                         }
                         val navBarBottom = WindowInsets.navigationBars
                             .asPaddingValues()
@@ -390,15 +410,21 @@ fun InboxScreen(
                             items(
                                 items = conversations,
                                 key = { it.id },
+                                contentType = { "conversation" },
                             ) { conversation ->
                                 ConversationRow(
                                     conversation = conversation,
                                     selected = conversation.id == selectedConversationId,
+                                    typing = isTyping(conversation.id),
+                                    typingSenders = typingParticipants(conversation.id),
                                     onClick = { onConversationClick(conversation.id) },
                                 )
                             }
                             if (hasMoreConversations) {
-                                item(key = "older") {
+                                item(
+                                    key = "older",
+                                    contentType = "footer",
+                                ) {
                                     OlderConversationsFooter(
                                         isLoading = isLoadingMore,
                                         hasError = moreError,
@@ -448,6 +474,10 @@ private fun OlderConversationsFooter(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun InboxMessage(
+    badgeShape: Shape,
+    badgeIcon: ImageVector,
+    badgeContainerColor: Color,
+    badgeIconTint: Color,
     title: String,
     body: String,
     actionLabel: String,
@@ -462,6 +492,13 @@ private fun InboxMessage(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        ExpressiveStateBadge(
+            shape = badgeShape,
+            icon = badgeIcon,
+            containerColor = badgeContainerColor,
+            iconTint = badgeIconTint,
+        )
+        Spacer(Modifier.height(20.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
@@ -475,7 +512,7 @@ private fun InboxMessage(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
         Button(onClick = onAction, shapes = ButtonDefaults.shapes()) {
             Text(actionLabel)
         }
@@ -487,10 +524,13 @@ private fun InboxMessage(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
     selected: Boolean,
+    typing: Boolean,
+    typingSenders: List<ConversationParticipant>,
     onClick: () -> Unit,
 ) {
     val lastMessage = conversation.messages.lastOrNull()
@@ -499,25 +539,41 @@ private fun ConversationRow(
         .label(conversation.isGroup)
         ?.render { id, args -> resources.getString(id, *args.toTypedArray()) })
         ?: stringResource(R.string.inbox_tap_to_open)
+    val typingText = when {
+        !typing -> null
+        !conversation.isGroup || typingSenders.isEmpty() -> stringResource(R.string.chat_typing)
+        typingSenders.size == 1 -> stringResource(
+            R.string.chat_typing_named,
+            typingSenders.first().name,
+        )
+        else -> stringResource(
+            R.string.chat_typing_and_others,
+            typingSenders.first().name,
+        )
+    }
     val timestamp = lastMessage?.timestamp ?: formatInboxTime(conversation.lastActivityMs)
     // Unread rows use the same bold-name, accent-time, badge treatment as the
     // other messengers people already read, so the contrast alone says "new".
     val unread = conversation.hasUnread
+    val motion = MaterialTheme.motionScheme
+    val rowShape = RoundedCornerShape(20.dp)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clip(rowShape)
             .then(
                 if (selected) {
-                    Modifier.background(MaterialTheme.colorScheme.surfaceContainer)
+                    Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
                 } else {
                     Modifier
                 },
             )
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { this.selected = selected }
-            .heightIn(min = 80.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .heightIn(min = 76.dp)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         ConversationAvatar(
@@ -533,24 +589,37 @@ private fun ConversationRow(
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
                 ),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = preview,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (unread) FontWeight.Medium else null,
-                ),
-                color = if (unread) {
-                    MaterialTheme.colorScheme.onSurface
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.onSurface
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(2.dp))
+            AnimatedContent(
+                targetState = (typingText ?: preview) to (typingText != null),
+                transitionSpec = {
+                    fadeIn(motion.fastEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec())
+                },
+                label = "conversation_preview",
+            ) { (lineText, isTypingLine) ->
+                Text(
+                    text = lineText,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = if (isTypingLine || unread) FontWeight.Medium else null,
+                    ),
+                    color = when {
+                        isTypingLine -> MaterialTheme.colorScheme.primary
+                        selected -> MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                        unread -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(
@@ -562,10 +631,10 @@ private fun ConversationRow(
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = if (unread) FontWeight.SemiBold else null,
                 ),
-                color = if (unread) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                color = when {
+                    unread -> MaterialTheme.colorScheme.primary
+                    selected -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
             if (unread) {
@@ -584,7 +653,7 @@ private fun ConversationRow(
  * Profile picture in the top bar. Tapping it opens the account sheet: a
  * signed-in header that identifies the account, then grouped action rows.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AccountMenu(
     viewerName: String,
@@ -604,6 +673,7 @@ private fun AccountMenu(
             onUpdateSeen()
             expanded = true
         },
+        shapes = IconButtonDefaults.shapes(),
         modifier = Modifier.padding(end = 8.dp),
     ) {
         BadgedBox(
@@ -699,6 +769,7 @@ private fun AccountMenu(
 }
 
 /** Sheet body: who is signed in, then the grouped account actions. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AccountSheetContent(
     viewerName: String,
@@ -741,7 +812,12 @@ private fun AccountSheetContent(
             }
         }
         Spacer(Modifier.height(24.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val actionCount = if (pendingUpdate != null) 3 else 2
+        var actionIndex = 0
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+        ) {
             if (pendingUpdate != null) {
                 AccountAction(
                     icon = Icons.Rounded.SystemUpdate,
@@ -752,6 +828,10 @@ private fun AccountSheetContent(
                     supporting = stringResource(R.string.account_update_supporting),
                     iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     iconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shapes = ListItemDefaults.segmentedShapes(
+                        index = actionIndex++,
+                        count = actionCount,
+                    ),
                     onClick = onUpdate,
                 )
             }
@@ -761,6 +841,10 @@ private fun AccountSheetContent(
                 supporting = stringResource(R.string.account_settings_supporting),
                 iconContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 iconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shapes = ListItemDefaults.segmentedShapes(
+                    index = actionIndex++,
+                    count = actionCount,
+                ),
                 onClick = onSettings,
             )
             AccountAction(
@@ -769,6 +853,10 @@ private fun AccountSheetContent(
                 supporting = stringResource(R.string.account_logout_supporting),
                 iconContainerColor = MaterialTheme.colorScheme.errorContainer,
                 iconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+                shapes = ListItemDefaults.segmentedShapes(
+                    index = actionIndex,
+                    count = actionCount,
+                ),
                 onClick = {
                     haptic.confirm()
                     onLogout()
@@ -779,6 +867,7 @@ private fun AccountSheetContent(
 }
 
 /** One grouped action row: start icon, title, and a consequence line. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AccountAction(
     icon: ImageVector,
@@ -786,21 +875,13 @@ private fun AccountAction(
     supporting: String,
     iconContainerColor: Color,
     iconContentColor: Color,
+    shapes: ListItemShapes,
     onClick: () -> Unit,
 ) {
-    Surface(
+    SegmentedListItem(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = MaterialTheme.shapes.largeIncreased,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        shapes = shapes,
+        leadingContent = {
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -815,18 +896,16 @@ private fun AccountAction(
                     modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(text = label, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = supporting,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+        },
+        supportingContent = { Text(supporting) },
+        colors = ListItemDefaults.segmentedColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            supportingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        content = {
+            Text(text = label, style = MaterialTheme.typography.titleMedium)
+        },
+    )
 }
 
 /** The WhatsApp-style count badge: accent circle, count capped at "99+". */
