@@ -17,6 +17,7 @@ import com.goldrift.instadm.ui.chat.canUnsend
 import com.goldrift.instadm.ui.chat.isAdminNotice
 import com.goldrift.instadm.ui.chat.isAdminNoticeKind
 import com.goldrift.instadm.ui.chat.isReactionLog
+import com.goldrift.instadm.ui.chat.messagePopupPlacement
 import com.goldrift.instadm.ui.chat.reactionGroups
 import com.goldrift.instadm.ui.chat.restoreViewerReaction
 import com.goldrift.instadm.ui.chat.toggleViewerReaction
@@ -260,5 +261,64 @@ class MessageActionsTest {
         assertTrue(isAdminNoticeKind("admin-future"))
         assertFalse(isAdminNoticeKind("text"))
         assertFalse(isAdminNoticeKind("reaction-log"))
+    }
+
+    @Test
+    fun popupPlacesBelowBubbleWhenThereIsRoomBelow() {
+        val placement = messagePopupPlacement(
+            anchorTop = 200,
+            anchorBottom = 320,
+            popupHeight = 360,
+            windowHeight = 2000,
+            topMargin = 80,
+            bottomMargin = 80,
+            gap = 12,
+        )
+
+        assertEquals(332, placement.y)
+        assertTrue(placement.belowAnchor)
+    }
+
+    @Test
+    fun popupFlipsAboveBubbleWhenNearBottomEdge() {
+        val placement = messagePopupPlacement(
+            anchorTop = 1520,
+            anchorBottom = 1640,
+            popupHeight = 360,
+            windowHeight = 2000,
+            topMargin = 80,
+            bottomMargin = 80,
+            gap = 12,
+        )
+
+        assertEquals(1148, placement.y)
+        assertFalse(placement.belowAnchor)
+    }
+
+    @Test
+    fun popupClampsToSideWithMoreRoomWhenBubbleFillsViewport() {
+        val moreRoomBelow = messagePopupPlacement(
+            anchorTop = 140,
+            anchorBottom = 1660,
+            popupHeight = 400,
+            windowHeight = 2000,
+            topMargin = 80,
+            bottomMargin = 80,
+            gap = 12,
+        )
+        assertEquals(1520, moreRoomBelow.y)
+        assertTrue(moreRoomBelow.belowAnchor)
+
+        val moreRoomAbove = messagePopupPlacement(
+            anchorTop = 360,
+            anchorBottom = 1880,
+            popupHeight = 400,
+            windowHeight = 2000,
+            topMargin = 80,
+            bottomMargin = 80,
+            gap = 12,
+        )
+        assertEquals(80, moreRoomAbove.y)
+        assertFalse(moreRoomAbove.belowAnchor)
     }
 }

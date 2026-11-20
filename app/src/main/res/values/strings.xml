@@ -10,6 +10,18 @@
     <string name="chat_hide_timestamp">Hide message time</string>
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_scroll_to_bottom">Scroll to latest message</string>
+    <plurals name="chat_scroll_to_bottom_new">
+        <item quantity="one">%d new message. Scroll to latest message</item>
+        <item quantity="other">%d new messages. Scroll to latest message</item>
+    </plurals>
+    <plurals name="chat_new_messages_pill">
+        <item quantity="one">%s new</item>
+        <item quantity="other">%s new</item>
+    </plurals>
+    <plurals name="chat_member_count">
+        <item quantity="one">%d member</item>
+        <item quantity="other">%d members</item>
+    </plurals>
     <string name="chat_activity">Chat activity</string>
     <string name="chat_call_activity">Call activity</string>
     <string name="chat_activity_announcement">Chat activity: %1$s</string>

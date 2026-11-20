@@ -1,5 +1,7 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.ConversationParticipant
+import com.goldrift.instadm.ui.chat.groupMemberCount
 import com.goldrift.instadm.ui.chat.withTypingSender
 import com.goldrift.instadm.ui.chat.withoutTypingSender
 import org.junit.Assert.assertEquals
@@ -26,5 +28,15 @@ class TypingSendersTest {
     @Test
     fun removingAnUnknownSenderLeavesTheListAlone() {
         assertEquals(listOf(222L), listOf(222L).withoutTypingSender(999))
+    }
+
+    @Test
+    fun groupMemberCountIncludesViewerWhenParticipantsAreLoaded() {
+        assertEquals(0, groupMemberCount(emptyList()))
+        val participants = listOf(
+            ConversationParticipant(fbid = 1L, name = "Maya", initials = "M"),
+            ConversationParticipant(fbid = 2L, name = "Dev", initials = "D"),
+        )
+        assertEquals(3, groupMemberCount(participants))
     }
 }

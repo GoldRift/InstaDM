@@ -70,6 +70,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -110,18 +111,22 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconToggleButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButtonShapes
 import androidx.compose.material3.LocalContentColor
@@ -133,7 +138,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -149,6 +153,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -158,9 +163,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -772,6 +775,8 @@ fun ChatScreen(
     val scrolledAwayFromNewest by remember(listState) {
         derivedStateOf { showScrollToBottom(listState.firstVisibleItemIndex) }
     }
+    var unseenWhileScrolledCount by remember(conversation.id) { mutableIntStateOf(0) }
+    var lastSeenNewestId by remember(conversation.id) { mutableStateOf<String?>(null) }
 
     // Follow the newest bubble on first load, on a new message, and when typing
     // starts. Prepending an older page must not move the viewport, so this keys
@@ -779,6 +784,19 @@ fun ChatScreen(
     // scrolls when the newest bubble is already on screen, unless the viewer
     // sent it.
     val newestMessage = transcript.lastOrNull()
+    LaunchedEffect(scrolledAwayFromNewest) {
+        if (!scrolledAwayFromNewest) unseenWhileScrolledCount = 0
+    }
+    LaunchedEffect(newestMessage?.id) {
+        val currentId = newestMessage?.id
+        val arrivals = countNewArrivals(transcript, lastSeenNewestId)
+        lastSeenNewestId = currentId
+        if (newestMessage?.sender == MessageSender.Me) {
+            unseenWhileScrolledCount = 0
+        } else if (scrolledAwayFromNewest && arrivals > 0) {
+            unseenWhileScrolledCount += arrivals
+        }
+    }
     LaunchedEffect(newestMessage?.id, isTyping) {
         if (newestMessage == null) return@LaunchedEffect
         if (listState.firstVisibleItemIndex <= 1 || newestMessage.sender == MessageSender.Me) {
@@ -814,29 +832,33 @@ fun ChatScreen(
         enabled = voiceBackgroundPlayback,
         finished = voicePlayer.finished,
     )
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        topBar = {
-            ChatTopSection(
-                contact = conversation.contact,
-                isGroup = conversation.isGroup,
-                participants = conversation.participants,
-                onBack = onBack,
-            )
-        },
-        bottomBar = {
-            MessageComposer(
-                draft = draft,
-                onSend = ::sendMessage,
-                // Keyboard GIFs and stickers join the strip like a picked image.
-                onCommitMedia = { uri ->
-                    replyTarget = null
-                    stageMedia(listOf(uri))
-                },
-                replyingTo = replyTarget?.toReplySnapshot(),
-                replyingToLabel = replyLabel,
-                onCancelReply = { replyTarget = null },
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            topBar = {
+                ChatTopSection(
+                    contact = conversation.contact,
+                    isGroup = conversation.isGroup,
+                    participants = conversation.participants,
+                    isTyping = isTyping,
+                    typingSenders = typingSenders,
+                    onBack = onBack,
+                )
+            },
+            bottomBar = {
+                MessageComposer(
+                    draft = draft,
+                    onSend = ::sendMessage,
+                    // Keyboard GIFs and stickers join the strip like a picked image.
+                    onCommitMedia = { uri ->
+                        replyTarget = null
+                        stageMedia(listOf(uri))
+                    },
+                    replyingTo = replyTarget?.toReplySnapshot(),
+                    replyingToLabel = replyLabel,
+                    replyingToThumbnail = replyTarget?.replyThumbnail(),
+                    onCancelReply = { replyTarget = null },
                 focusRequester = composerFocus,
                 onCamera = ::takePhoto,
                 attachmentsEnabled = attachmentsEnabled,
@@ -1082,28 +1104,110 @@ fun ChatScreen(
                                 ) + fadeOut(motion.fastEffectsSpec()),
                                 label = "scrollToBottom",
                             ) {
-                                SmallFloatingActionButton(
+                                val hasUnseenPill = unseenWhileScrolledCount > 0
+                                val pillContainer by animateColorAsState(
+                                    targetValue = if (hasUnseenPill) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    },
+                                    animationSpec = motion.fastEffectsSpec(),
+                                    label = "scrollPillContainer",
+                                )
+                                val pillContent by animateColorAsState(
+                                    targetValue = if (hasUnseenPill) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    animationSpec = motion.fastEffectsSpec(),
+                                    label = "scrollPillContent",
+                                )
+                                val scrollDescription = if (hasUnseenPill) {
+                                    pluralStringResource(
+                                        R.plurals.chat_scroll_to_bottom_new,
+                                        unseenWhileScrolledCount,
+                                        unseenWhileScrolledCount,
+                                    )
+                                } else {
+                                    stringResource(R.string.chat_scroll_to_bottom)
+                                }
+                                Surface(
                                     onClick = {
+                                        unseenWhileScrolledCount = 0
                                         haptic.segmentTick()
                                         scope.launch { listState.animateScrollToItem(0) }
                                     },
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    elevation = FloatingActionButtonDefaults.loweredElevation(),
+                                    shape = CircleShape,
+                                    color = pillContainer,
+                                    contentColor = pillContent,
+                                    shadowElevation = 3.dp,
+                                    modifier = Modifier
+                                        .heightIn(min = 44.dp)
+                                        .widthIn(min = 44.dp)
+                                        .animateContentSize(motion.fastSpatialSpec())
+                                        .semantics { contentDescription = scrollDescription },
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ArrowDownward,
-                                        contentDescription = stringResource(
-                                            R.string.chat_scroll_to_bottom,
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            horizontal = if (hasUnseenPill) 14.dp else 10.dp,
+                                            vertical = 10.dp,
                                         ),
-                                        modifier = Modifier.size(24.dp),
-                                    )
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = hasUnseenPill,
+                                            enter = expandHorizontally(motion.fastSpatialSpec()) +
+                                                fadeIn(motion.fastEffectsSpec()),
+                                            exit = shrinkHorizontally(motion.fastSpatialSpec()) +
+                                                fadeOut(motion.fastEffectsSpec()),
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = pluralStringResource(
+                                                        R.plurals.chat_new_messages_pill,
+                                                        unseenWhileScrolledCount,
+                                                        unreadBadgeLabel(unseenWhileScrolledCount),
+                                                    ),
+                                                    style = MaterialTheme.typography.labelLarge.copy(
+                                                        fontFeatureSettings = "tnum",
+                                                    ),
+                                                    maxLines = 1,
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                            }
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Rounded.ArrowDownward,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = actionMessageId != null,
+            enter = fadeIn(motion.fastEffectsSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()),
+        ) {
+            val dismissInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f))
+                    .clickable(
+                        interactionSource = dismissInteraction,
+                        indication = null,
+                    ) { actionMessageId = null },
+            )
         }
     }
 
@@ -1166,14 +1270,41 @@ fun ChatScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChatTopSection(
     contact: Contact,
     isGroup: Boolean,
     participants: List<ConversationParticipant>,
+    isTyping: Boolean,
+    typingSenders: List<ConversationParticipant>,
     onBack: () -> Unit,
 ) {
+    val motion = MaterialTheme.motionScheme
+    val memberCount = groupMemberCount(participants)
+    val typingLabel = when {
+        !isTyping -> null
+        typingSenders.isEmpty() -> stringResource(R.string.chat_typing)
+        typingSenders.size == 1 -> stringResource(
+            R.string.chat_typing_named,
+            typingSenders.first().name,
+        )
+        else -> stringResource(
+            R.string.chat_typing_and_others,
+            typingSenders.first().name,
+        )
+    }
+    val subtitleText = typingLabel ?: if (isGroup && memberCount > 0) {
+        pluralStringResource(R.plurals.chat_member_count, memberCount, memberCount)
+    } else {
+        null
+    }
+    val subtitleState = subtitleText?.let { it to (typingLabel != null) }
+    var lastSubtitleState by remember { mutableStateOf(subtitleState) }
+    if (subtitleState != null && subtitleState != lastSubtitleState) {
+        SideEffect { lastSubtitleState = subtitleState }
+    }
+
     Column(Modifier.fillMaxWidth()) {
         TopAppBar(
             title = {
@@ -1185,17 +1316,51 @@ private fun ChatTopSection(
                         size = 40.dp,
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = contact.name,
-                        style = MaterialTheme.typography.titleLargeEmphasized,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() },
-                    )
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = contact.name,
+                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        AnimatedVisibility(
+                            visible = subtitleState != null,
+                            enter = expandVertically(motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec()),
+                            exit = shrinkVertically(motion.fastSpatialSpec()) +
+                                fadeOut(motion.fastEffectsSpec()),
+                        ) {
+                            val active = subtitleState ?: lastSubtitleState ?: return@AnimatedVisibility
+                            AnimatedContent(
+                                targetState = active,
+                                transitionSpec = {
+                                    fadeIn(motion.fastEffectsSpec()) togetherWith
+                                        fadeOut(motion.fastEffectsSpec())
+                                },
+                                label = "chatHeaderSubtitle",
+                            ) { (label, typingActive) ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (typingActive) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
                 }
             },
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    shapes = IconButtonDefaults.shapes(),
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = stringResource(R.string.chat_back),
@@ -1368,9 +1533,11 @@ private fun MessageList(
                 isGroup && message.sender == MessageSender.Them && !adminNotice
             // Prefer the loaded original (it has the full text) and fall back to
             // the snapshot Instagram embeds when it is outside the page.
+            val quotedOriginal = message.reply?.let { stored -> messagesById[stored.id] }
             val reply = message.reply?.let { stored ->
-                messagesById[stored.id]?.toReplySnapshot() ?: stored
+                quotedOriginal?.toReplySnapshot() ?: stored
             }
+            val replyThumbnail = quotedOriginal?.replyThumbnail()
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
             val showReadReceipt = !adminNotice && message.showsReadReceipt(lastOutgoingId)
             val timestampRevealed = !adminNotice && revealedTimestampMessageId == message.id
@@ -1412,6 +1579,7 @@ private fun MessageList(
                         onLongPress = { if (message.isServerMessage()) onLongPress(message) },
                         reply = reply,
                         replyLabel = replyLabel,
+                        replyThumbnail = replyThumbnail,
                         // A quote jumps to its message, paging back first when
                         // the original is older than the loaded window.
                         onQuoteClick = if (reply != null &&
@@ -1433,6 +1601,7 @@ private fun MessageList(
                         actionsExpanded = actionMessageId == message.id,
                         onDismissActions = onDismissActions,
                         onReact = { emoji -> onReactAt(message.id, emoji) },
+                        likeEmoji = likeEmoji,
                         onLike = { onReactAt(message.id, likeEmoji) },
                         onCopy = { onCopyAt(message.id) },
                         onReplyAt = { onReplyAt(message.id) },
@@ -1561,6 +1730,7 @@ private fun MessageRow(
     onLongPress: () -> Unit,
     reply: ReplySnapshot?,
     replyLabel: String,
+    replyThumbnail: ReplyThumbnail?,
     onQuoteClick: (() -> Unit)?,
     highlighted: Boolean,
     onReply: () -> Unit,
@@ -1570,6 +1740,7 @@ private fun MessageRow(
     actionsExpanded: Boolean,
     onDismissActions: () -> Unit,
     onReact: (String) -> Unit,
+    likeEmoji: String,
     onLike: () -> Unit,
     onCopy: () -> Unit,
     onReplyAt: () -> Unit,
@@ -1610,9 +1781,11 @@ private fun MessageRow(
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "quoteJumpOutline",
     )
-    // A sticker is its own artwork: drawing the message bubble behind it turns
-    // transparent stickers into a colored tile.
+    // A sticker or 1 to 3 standalone emoji renders directly without a bubble container.
     val stickerOnly = message.isStickerOnly()
+    val emojiOnly = message.isJumboEmoji()
+    val transparentBubble = stickerOnly || emojiOnly
+    var reactionBurstToken by remember(message.id) { mutableIntStateOf(0) }
     val canReply = message.canReply()
     val messageStatus = when {
         message.failed -> MessageStatus.Failed
@@ -1696,6 +1869,7 @@ private fun MessageRow(
                     (settledOffset / replyThreshold).coerceIn(0f, 1f)
                 SwipeReplyIcon(
                     progress = dragProgress,
+                    armed = replyArmed,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .then(if (isMine) Modifier.offset(x = (-36).dp) else Modifier),
@@ -1766,6 +1940,7 @@ private fun MessageRow(
                                 // timestamp reveal can absorb that delay.
                                 onDoubleTap = if (message.canReact()) {
                                     {
+                                        reactionBurstToken++
                                         haptic.confirm()
                                         currentOnLike()
                                     }
@@ -1781,7 +1956,7 @@ private fun MessageRow(
                             )
                         },
                     shape = bubbleShape(isMine, clusterPosition),
-                    color = if (stickerOnly) {
+                    color = if (transparentBubble) {
                         Color.Transparent
                     } else if (isMine) {
                         bubbles.outgoing
@@ -1797,6 +1972,8 @@ private fun MessageRow(
                         isVisible = isVisible,
                         reply = reply,
                         replyLabel = replyLabel,
+                        replyThumbnail = replyThumbnail,
+                        emojiOnly = emojiOnly,
                         onQuoteClick = onQuoteClick,
                         onOpenMedia = onOpenMedia,
                         onLongPress = onLongPress,
@@ -1807,6 +1984,14 @@ private fun MessageRow(
                         noteTitle = senderName.ifBlank { contact.name },
                         noteAvatarUrl = senderAvatarUrl.ifBlank { contact.avatarUrl },
                         noteInitials = senderInitials.ifBlank { contact.initials },
+                    )
+                }
+
+                if (reactionBurstToken > 0) {
+                    DoubleTapEmojiBurst(
+                        emoji = likeEmoji,
+                        triggerToken = reactionBurstToken,
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
 
@@ -1979,25 +2164,96 @@ private fun MessageRow(
 @Composable
 private fun SwipeReplyIcon(
     progress: Float,
+    armed: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (progress <= 0f) return
     val bubbles = LocalMessageBubbleColors.current
+    val motion = MaterialTheme.motionScheme
+    val armedScale by animateFloatAsState(
+        targetValue = if (armed) 1.18f else 1f,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "swipeReplyArmedScale",
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (armed) {
+            bubbles.accent
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = motion.fastEffectsSpec(),
+        label = "swipeReplyContainer",
+    )
+    val iconTint by animateColorAsState(
+        targetValue = if (armed) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = motion.fastEffectsSpec(),
+        label = "swipeReplyTint",
+    )
     Box(
         modifier = modifier
             .size(32.dp)
-            .scale(0.8f + 0.2f * progress)
-            .alpha(progress)
+            .graphicsLayer {
+                val scale = (0.8f + 0.2f * progress) * armedScale
+                scaleX = scale
+                scaleY = scale
+                alpha = progress
+            }
             .clip(CircleShape)
-            .background(bubbles.accent),
+            .background(containerColor),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.Reply,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimary,
+            tint = iconTint,
             modifier = Modifier.size(18.dp),
         )
+    }
+}
+
+/** Floating reaction burst played over a bubble on double-tap. */
+@Composable
+private fun DoubleTapEmojiBurst(
+    emoji: String,
+    triggerToken: Int,
+    modifier: Modifier = Modifier,
+) {
+    val motion = MaterialTheme.motionScheme
+    val scale = remember { Animatable(0.4f) }
+    val alpha = remember { Animatable(0f) }
+    val rise = remember { Animatable(0f) }
+    LaunchedEffect(triggerToken) {
+        scale.snapTo(0.4f)
+        alpha.snapTo(1f)
+        rise.snapTo(0f)
+        launch {
+            scale.animateTo(1.35f, motion.fastSpatialSpec())
+            scale.animateTo(1f, motion.fastSpatialSpec())
+        }
+        launch {
+            rise.animateTo(-32f, motion.defaultSpatialSpec())
+        }
+        delay(160)
+        alpha.animateTo(0f, motion.fastEffectsSpec())
+    }
+    Box(
+        modifier = modifier.graphicsLayer {
+            val currentAlpha = alpha.value
+            if (currentAlpha <= 0f) {
+                this.alpha = 0f
+                return@graphicsLayer
+            }
+            translationY = rise.value.dp.toPx()
+            scaleX = scale.value
+            scaleY = scale.value
+            this.alpha = currentAlpha
+        },
+    ) {
+        EmojiGlyph(emoji)
     }
 }
 
@@ -2012,6 +2268,7 @@ private fun SwipeReplyIcon(
 private fun ReplyQuote(
     reply: ReplySnapshot,
     label: String,
+    thumbnail: ReplyThumbnail?,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -2030,7 +2287,7 @@ private fun ReplyQuote(
             color = color,
             contentColor = contentColor,
         ) {
-            ReplyQuoteBody(reply = reply, label = label)
+            ReplyQuoteBody(reply = reply, label = label, thumbnail = thumbnail)
         }
     } else {
         Surface(
@@ -2040,28 +2297,78 @@ private fun ReplyQuote(
             color = color,
             contentColor = contentColor,
         ) {
-            ReplyQuoteBody(reply = reply, label = label)
+            ReplyQuoteBody(reply = reply, label = label, thumbnail = thumbnail)
         }
     }
 }
 
 @Composable
-private fun ReplyQuoteBody(reply: ReplySnapshot, label: String) {
-    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+private fun ReplyQuoteBody(
+    reply: ReplySnapshot,
+    label: String,
+    thumbnail: ReplyThumbnail?,
+) {
+    Row(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (thumbnail != null) {
+            ReplyThumbnailBox(thumbnail = thumbnail, size = 40.dp)
+            Spacer(Modifier.width(10.dp))
+        }
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = replyContent(reply),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReplyThumbnailBox(
+    thumbnail: ReplyThumbnail,
+    size: Dp,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = thumbnail.model,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
         )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = replyContent(reply),
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (thumbnail.isVideo) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.56f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
@@ -2103,6 +2410,8 @@ private fun MessageBubbleContent(
     isVisible: Boolean,
     reply: ReplySnapshot?,
     replyLabel: String,
+    replyThumbnail: ReplyThumbnail?,
+    emojiOnly: Boolean,
     onQuoteClick: (() -> Unit)?,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
@@ -2125,14 +2434,15 @@ private fun MessageBubbleContent(
         unavailable
     Column(
         modifier = Modifier.padding(
-            horizontal = if (hasAttachment) AttachmentInset else 14.dp,
-            vertical = if (hasAttachment) AttachmentInset else 9.dp,
+            horizontal = if (hasAttachment || emojiOnly) AttachmentInset else 14.dp,
+            vertical = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp,
         ),
     ) {
         if (reply != null) {
             ReplyQuote(
                 reply = reply,
                 label = replyLabel,
+                thumbnail = replyThumbnail,
                 onClick = onQuoteClick,
                 modifier = Modifier.padding(
                     start = if (hasAttachment) 6.dp else 0.dp,
@@ -2210,6 +2520,15 @@ private fun MessageBubbleContent(
             UnavailableShareNotice(
                 text = message.text,
                 onLongClick = onLongPress,
+            )
+        } else if (emojiOnly) {
+            Text(
+                text = message.text,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 38.sp,
+                    lineHeight = 44.sp,
+                ),
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
             )
         } else if (message.text.isNotBlank()) {
             Text(
@@ -2369,10 +2688,11 @@ private fun ReactionPill(
 
 private val QuickReactions = listOf("❤️", "😂", "😮", "😢", "😡", "👍")
 
+private class PopupPlacementHolder(var belowAnchor: Boolean = true)
+
 /**
- * Instagram-style actions popup: a floating reaction pill above a menu card,
- * anchored to the long-pressed bubble. The menu starts at the bubble's top
- * edge, so the card overlays the message instead of the composer.
+ * Floating reaction pill and grouped action menu anchored cleanly below or
+ * above the long-pressed bubble so the message text stays uncovered.
  */
 @Composable
 private fun MessageActionsPopup(
@@ -2388,19 +2708,19 @@ private fun MessageActionsPopup(
 ) {
     val density = LocalDensity.current
     val motion = MaterialTheme.motionScheme
-    // Re-created whenever the popup opens, so the entrance plays per open and
-    // the card grows out of the bubble instead of popping over it.
+    // Re-created whenever the popup opens, so the entrance plays per open.
     val appearScale = remember { Animatable(0f) }
     val appearAlpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         launch { appearScale.animateTo(1f, motion.defaultSpatialSpec()) }
         appearAlpha.animateTo(1f, motion.defaultEffectsSpec())
     }
-    val reactionBarHeight = with(density) { 60.dp.roundToPx() }
+    val placementHolder = remember { PopupPlacementHolder() }
     val margin = with(density) { 8.dp.roundToPx() }
     val topMargin = margin + WindowInsets.statusBars.getTop(density)
-    val gap = with(density) { 6.dp.roundToPx() }
-    val positionProvider = remember(isMine, reactionBarHeight, margin, topMargin, gap) {
+    val bottomMargin = margin + WindowInsets.navigationBars.getBottom(density)
+    val gap = with(density) { 8.dp.roundToPx() }
+    val positionProvider = remember(isMine, margin, topMargin, bottomMargin, gap, placementHolder) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -2415,10 +2735,17 @@ private fun MessageActionsPopup(
                 } else {
                     anchorBounds.left.coerceIn(margin, maxX)
                 }
-                val maxY = (windowSize.height - popupContentSize.height - margin)
-                    .coerceAtLeast(margin)
-                val y = (anchorBounds.top - reactionBarHeight - gap).coerceIn(topMargin, maxY)
-                return IntOffset(x, y)
+                val placement = messagePopupPlacement(
+                    anchorTop = anchorBounds.top,
+                    anchorBottom = anchorBounds.bottom,
+                    popupHeight = popupContentSize.height,
+                    windowHeight = windowSize.height,
+                    topMargin = topMargin,
+                    bottomMargin = bottomMargin,
+                    gap = gap,
+                )
+                placementHolder.belowAnchor = placement.belowAnchor
+                return IntOffset(x, placement.y)
             }
         }
     }
@@ -2434,9 +2761,10 @@ private fun MessageActionsPopup(
     ) {
         Column(
             modifier = Modifier.graphicsLayer {
-                // Scale from the bubble's own corner: the card is anchored
-                // under the long-pressed bubble and must not drift sideways.
-                transformOrigin = TransformOrigin(if (isMine) 1f else 0f, 1f)
+                transformOrigin = TransformOrigin(
+                    if (isMine) 1f else 0f,
+                    if (placementHolder.belowAnchor) 0f else 1f,
+                )
                 scaleX = 0.94f + 0.06f * appearScale.value
                 scaleY = 0.94f + 0.06f * appearScale.value
                 alpha = appearAlpha.value
@@ -2559,6 +2887,14 @@ private fun ReactionBar(
     }
 }
 
+private data class MenuActionItem(
+    val icon: ImageVector,
+    val label: Int,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MessageMenu(
     message: ChatMessage,
@@ -2567,83 +2903,90 @@ private fun MessageMenu(
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
 ) {
-    val showReply = message.canReply()
-    val showCopy = message.text.isNotBlank()
-    val showEdit = message.canEdit()
-    val showUnsend = message.canUnsend()
-    if (!showReply && !showCopy && !showEdit && !showUnsend) return
     val haptic = LocalHapticFeedback.current
-
-    Surface(
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 6.dp,
-        modifier = Modifier.widthIn(min = 210.dp, max = 280.dp),
-    ) {
-        Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            if (showReply) {
-                MessageActionRow(
+    val primaryItems = buildList {
+        if (message.canReply()) {
+            add(
+                MenuActionItem(
                     icon = Icons.AutoMirrored.Rounded.Reply,
                     label = R.string.chat_action_reply,
                     onClick = onReply,
-                )
-            }
-            if (showCopy) {
-                MessageActionRow(
+                ),
+            )
+        }
+        if (message.text.isNotBlank()) {
+            add(
+                MenuActionItem(
                     icon = Icons.Rounded.ContentCopy,
                     label = R.string.chat_action_copy,
                     onClick = {
                         haptic.contextClick()
                         onCopy()
                     },
-                )
-            }
-            if (showEdit) {
-                MessageActionRow(
+                ),
+            )
+        }
+        if (message.canEdit()) {
+            add(
+                MenuActionItem(
                     icon = Icons.Rounded.Edit,
                     label = R.string.chat_action_edit,
                     onClick = onEdit,
-                )
-            }
-            if (showUnsend) {
-                MessageActionRow(
+                ),
+            )
+        }
+    }
+    val destructiveItems = buildList {
+        if (message.canUnsend()) {
+            add(
+                MenuActionItem(
                     icon = Icons.Rounded.Delete,
                     label = R.string.chat_action_unsend,
-                    onClick = onUnsend,
                     destructive = true,
-                )
+                    onClick = onUnsend,
+                ),
+            )
+        }
+    }
+    val groups = listOf(primaryItems, destructiveItems).filter { it.isNotEmpty() }
+    if (groups.isEmpty()) return
+
+    Column(
+        modifier = Modifier.widthIn(min = 210.dp, max = 280.dp),
+        verticalArrangement = Arrangement.spacedBy(MenuDefaults.GroupSpacing),
+    ) {
+        groups.forEachIndexed { groupIndex, items ->
+            DropdownMenuGroup(
+                shapes = MenuDefaults.groupShape(groupIndex, groups.size),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 6.dp,
+            ) {
+                items.forEachIndexed { itemIndex, item ->
+                    val colors = if (item.destructive) {
+                        MenuDefaults.itemColors(
+                            textColor = MaterialTheme.colorScheme.error,
+                            leadingIconColor = MaterialTheme.colorScheme.error,
+                        )
+                    } else {
+                        MenuDefaults.itemColors()
+                    }
+                    DropdownMenuItem(
+                        onClick = item.onClick,
+                        text = { Text(stringResource(item.label)) },
+                        shape = MenuDefaults.itemShape(itemIndex, items.size).shape,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                            )
+                        },
+                        colors = colors,
+                    )
+                }
             }
         }
     }
-}
-
-@Composable
-private fun MessageActionRow(
-    icon: ImageVector,
-    label: Int,
-    onClick: () -> Unit,
-    destructive: Boolean = false,
-) {
-    val colors = if (destructive) {
-        MenuDefaults.itemColors(
-            textColor = MaterialTheme.colorScheme.error,
-            leadingIconColor = MaterialTheme.colorScheme.error,
-        )
-    } else {
-        MenuDefaults.itemColors()
-    }
-    DropdownMenuItem(
-        text = { Text(stringResource(label)) },
-        onClick = onClick,
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-            )
-        },
-        colors = colors,
-    )
 }
 
 @Composable
@@ -2956,6 +3299,7 @@ private fun MessageComposer(
     onCommitMedia: (Uri) -> Unit,
     replyingTo: ReplySnapshot?,
     replyingToLabel: String,
+    replyingToThumbnail: ReplyThumbnail?,
     onCancelReply: () -> Unit,
     focusRequester: FocusRequester,
     onCamera: () -> Unit,
@@ -2979,7 +3323,7 @@ private fun MessageComposer(
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
     val motion = MaterialTheme.motionScheme
-    val replyArgs = replyingTo?.let { it to replyingToLabel }
+    val replyArgs = replyingTo?.let { Triple(it, replyingToLabel, replyingToThumbnail) }
     // The bars take non-null arguments, so the last values are kept for the
     // frame the exit animation still draws.
     var shownReply by remember { mutableStateOf(replyArgs) }
@@ -3042,10 +3386,11 @@ private fun MessageComposer(
                             fadeOut(motion.defaultEffectsSpec()),
                     ) {
                         val shown = replyArgs ?: shownReply
-                        val (reply, label) = shown ?: return@AnimatedVisibility
+                        val (reply, label, thumbnail) = shown ?: return@AnimatedVisibility
                         ReplyComposerBar(
                             reply = reply,
                             label = label,
+                            thumbnail = thumbnail,
                             onCancel = onCancelReply,
                         )
                     }
@@ -3542,6 +3887,7 @@ private fun StagedMediaStrip(
 private fun ReplyComposerBar(
     reply: ReplySnapshot,
     label: String,
+    thumbnail: ReplyThumbnail?,
     onCancel: () -> Unit,
 ) {
     val cue = if (reply.isFromViewer) {
@@ -3569,6 +3915,10 @@ private fun ReplyComposerBar(
                     .background(cue),
             )
             Spacer(Modifier.width(10.dp))
+            if (thumbnail != null) {
+                ReplyThumbnailBox(thumbnail = thumbnail, size = 36.dp)
+                Spacer(Modifier.width(10.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = label,
@@ -3617,6 +3967,10 @@ private fun MicButton(
 ) {
     val lockThreshold = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
     val cancelThreshold = with(LocalDensity.current) { CANCEL_DISTANCE.toPx() }
+    var lockProgress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(recording) {
+        if (!recording) lockProgress = 0f
+    }
     val start = rememberUpdatedState(onStart)
     val toggle = rememberUpdatedState(onToggle)
     val move = rememberUpdatedState(onMove)
@@ -3680,9 +4034,11 @@ private fun MicButton(
                         val dx = change.position.x - down.position.x
                         locked = dy < -lockThreshold
                         cancelled = !locked && dx < -cancelThreshold
+                        lockProgress = if (locked) 1f else (-dy / lockThreshold).coerceIn(0f, 1f)
                         move.value(locked, cancelled)
                         if (!change.pressed) break
                     }
+                    lockProgress = 0f
                     release.value(locked, cancelled)
                 }
             }
@@ -3695,6 +4051,61 @@ private fun MicButton(
             .then(interaction),
         contentAlignment = Alignment.Center,
     ) {
+        if (recording) {
+            val popupOffsetY = with(LocalDensity.current) { (-72).dp.roundToPx() }
+            val lockReached = lockProgress >= 1f
+            val pillScale by animateFloatAsState(
+                targetValue = if (lockReached) 1.12f else 1f,
+                animationSpec = motion.fastSpatialSpec(),
+                label = "lockPillScale",
+            )
+            Popup(
+                alignment = Alignment.TopCenter,
+                offset = IntOffset(0, popupOffsetY),
+                properties = PopupProperties(focusable = false, clippingEnabled = false),
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (lockReached) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                    contentColor = if (lockReached) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.graphicsLayer {
+                        translationY = -12.dp.toPx() * lockProgress
+                        scaleX = pillScale
+                        scaleY = pillScale
+                    },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (lockReached) {
+                                Icons.Rounded.Lock
+                            } else {
+                                Icons.Rounded.LockOpen
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowUp,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -3762,7 +4173,7 @@ private fun RecordingStatus(
         Spacer(Modifier.width(8.dp))
         Text(
             text = formatMediaDuration(recorder.elapsedMs.toInt()),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.width(10.dp))
@@ -3836,7 +4247,7 @@ private fun LockedRecordingBar(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = formatMediaDuration(recorder.elapsedMs.toInt()),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(10.dp))

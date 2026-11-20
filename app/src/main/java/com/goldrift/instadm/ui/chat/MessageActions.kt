@@ -158,3 +158,41 @@ fun restoreViewerReaction(
     val withoutViewer = reactions.filterNot { it.isFromViewer }
     return if (original == null) withoutViewer else withoutViewer + original
 }
+
+/** Vertical placement result for the message actions popup relative to the bubble. */
+data class MessagePopupPlacement(
+    val y: Int,
+    val belowAnchor: Boolean,
+)
+
+/**
+ * Places the message actions popup cleanly below the bubble when room permits,
+ * flips it above when near the bottom, and falls back to the side with more
+ * vertical space when the bubble and popup together exceed the viewport.
+ */
+fun messagePopupPlacement(
+    anchorTop: Int,
+    anchorBottom: Int,
+    popupHeight: Int,
+    windowHeight: Int,
+    topMargin: Int,
+    bottomMargin: Int,
+    gap: Int,
+): MessagePopupPlacement {
+    val maxY = (windowHeight - popupHeight - bottomMargin).coerceAtLeast(topMargin)
+    val belowY = anchorBottom + gap
+    val aboveY = anchorTop - popupHeight - gap
+    if (belowY <= maxY) {
+        return MessagePopupPlacement(y = belowY.coerceIn(topMargin, maxY), belowAnchor = true)
+    }
+    if (aboveY >= topMargin) {
+        return MessagePopupPlacement(y = aboveY.coerceIn(topMargin, maxY), belowAnchor = false)
+    }
+    val spaceBelow = windowHeight - bottomMargin - anchorBottom - gap
+    val spaceAbove = anchorTop - topMargin - gap
+    return if (spaceBelow >= spaceAbove) {
+        MessagePopupPlacement(y = belowY.coerceIn(topMargin, maxY), belowAnchor = true)
+    } else {
+        MessagePopupPlacement(y = aboveY.coerceIn(topMargin, maxY), belowAnchor = false)
+    }
+}

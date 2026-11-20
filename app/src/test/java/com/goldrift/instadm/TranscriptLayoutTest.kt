@@ -8,16 +8,23 @@ import com.goldrift.instadm.ui.chat.CLUSTER_GAP_MS
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.ClusterPosition
 import com.goldrift.instadm.ui.chat.MessageSender
+import com.goldrift.instadm.ui.chat.PendingMedia
 import com.goldrift.instadm.ui.chat.TIME_GAP_DIVIDER_MS
 import com.goldrift.instadm.ui.chat.TranscriptDivider
 import com.goldrift.instadm.ui.chat.clusterPosition
+import com.goldrift.instadm.ui.chat.countNewArrivals
 import com.goldrift.instadm.ui.chat.formatRevealedTimestamp
+import com.goldrift.instadm.ui.chat.isJumboEmoji
+import com.goldrift.instadm.ui.chat.isJumboEmojiText
+import com.goldrift.instadm.ui.chat.replyThumbnail
 import com.goldrift.instadm.ui.chat.sameSenderCluster
 import com.goldrift.instadm.ui.chat.transcriptDividerBefore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -41,6 +48,7 @@ class TranscriptLayoutTest {
         senderFbid: Long = 100L,
         media: List<MessageMedia> = emptyList(),
         reply: ReplySnapshot? = null,
+        localMedia: PendingMedia? = null,
     ) = ChatMessage(
         id = id,
         text = text,
@@ -51,6 +59,7 @@ class TranscriptLayoutTest {
         senderFbid = senderFbid,
         media = media,
         reply = reply,
+        localMedia = localMedia,
     )
 
     @Test
@@ -165,5 +174,149 @@ class TranscriptLayoutTest {
         assertFalse(sameSenderCluster(m1, jumboEmoji, zone))
         assertEquals(ClusterPosition.Solo, clusterPosition(m1, sticker, sameSoon, zone))
         assertEquals(ClusterPosition.Solo, clusterPosition(m1, jumboEmoji, sameSoon, zone))
+    }
+
+    @Test
+    fun recognizesUpToThreeStandaloneEmojisAsJumbo() {
+        val valid = listOf("❤️", "✨", "😂🔥", "👍🏽", "👨‍👩‍👧‍👦", "🇺🇸", "1️⃣", "❤️ 😂 🔥")
+        for (sample in valid) {
+            assertTrue("expected jumbo for $sample", isJumboEmojiText(sample))
+        }
+
+        val invalid = listOf("", "   ", "hi", "123", "#1", "that's the one ✨", "🔥🔥🔥🔥", "❤️!")
+        for (sample in invalid) {
+            assertFalse("expected non-jumbo for $sample", isJumboEmojiText(sample))
+        }
+    }
+
+    @Test
+    fun repliesAttachmentsAndNoticesDisableJumboEmoji() {
+        val emojiReply = message(text = "❤️", reply = ReplySnapshot(id = "mid.0", text = "hi"))
+        val emojiWithMedia = message(
+            text = "❤️",
+            media = listOf(MessageMedia(type = "image", url = "https://example.com/a.jpg")),
+        )
+        val emojiWithLocal = message(
+            text = "❤️",
+            localMedia = PendingMedia(uri = "content://img/1", kind = "image", fileName = "a.jpg"),
+        )
+        val emojiNotice = message(text = "❤️", kind = ADMIN_KIND)
+
+        assertFalse(emojiReply.isJumboEmoji())
+        assertFalse(emojiWithMedia.isJumboEmoji())
+        assertFalse(emojiWithLocal.isJumboEmoji())
+        assertFalse(emojiNotice.isJumboEmoji())
+        assertTrue(message(text = "❤️ 😂").isJumboEmoji())
+    }
+
+    @Test
+    fun extractsReplyThumbnailsAndSkipsNonVisualMedia() {
+        val tempFile = File.createTempFile("reply-thumb", ".jpg").apply {
+            writeBytes(byteArrayOf(1, 2, 3))
+            deleteOnExit()
+        }
+
+        val photo = message(
+            media = listOf(MessageMedia(type = "image", url = "https://example.com/p.jpg")),
+        ).replyThumbnail()
+        assertEquals("https://example.com/p.jpg", photo?.model)
+        assertFalse(photo?.isVideo ?: true)
+
+        val localPhoto = message(
+            media = listOf(
+                MessageMedia(
+                    type = "image",
+                    url = "https://example.com/p.jpg",
+                    localPath = tempFile.absolutePath,
+                ),
+            ),
+        ).replyThumbnail()
+        assertEquals(tempFile, localPhoto?.model)
+        assertFalse(localPhoto?.isVideo ?: true)
+
+        val video = message(
+            media = listOf(
+                MessageMedia(
+                    type = "video",
+                    url = "https://example.com/v.mp4",
+                    previewUrl = "https://example.com/v.jpg",
+                ),
+            ),
+        ).replyThumbnail()
+        assertEquals("https://example.com/v.jpg", video?.model)
+        assertTrue(video?.isVideo ?: false)
+
+        val reel = message(
+            media = listOf(
+                MessageMedia(
+                    type = "reel",
+                    url = "",
+                    previewUrl = "https://example.com/reel.jpg",
+                ),
+            ),
+        ).replyThumbnail()
+        assertEquals("https://example.com/reel.jpg", reel?.model)
+        assertTrue(reel?.isVideo ?: false)
+
+        val link = message(
+            media = listOf(
+                MessageMedia(
+                    type = "link",
+                    url = "https://example.com/post",
+                    previewUrl = "https://example.com/link.jpg",
+                ),
+            ),
+        ).replyThumbnail()
+        assertEquals("https://example.com/link.jpg", link?.model)
+        assertFalse(link?.isVideo ?: true)
+
+        val sticker = message(
+            media = listOf(
+                MessageMedia(type = "sticker", url = "https://example.com/s.webp"),
+            ),
+        ).replyThumbnail()
+        assertEquals("https://example.com/s.webp", sticker?.model)
+        assertFalse(sticker?.isVideo ?: true)
+
+        val pending = message(
+            localMedia = PendingMedia(uri = "content://media/1", kind = "image", fileName = "1.jpg"),
+        ).replyThumbnail()
+        assertEquals("content://media/1", pending?.model)
+        assertFalse(pending?.isVideo ?: true)
+
+        assertNull(
+            message(
+                media = listOf(MessageMedia(type = "image", url = "https://example.com/1.jpg", viewOnce = true)),
+            ).replyThumbnail(),
+        )
+        assertNull(
+            message(
+                media = listOf(MessageMedia(type = "audio", url = "https://example.com/voice.m4a")),
+            ).replyThumbnail(),
+        )
+        assertNull(message(text = "plain text").replyThumbnail())
+    }
+
+    @Test
+    fun countsOnlyIncomingNonAdminArrivalsAfterPreviousNewest() {
+        val m1 = message(id = "mid.1", sender = MessageSender.Them)
+        val m2 = message(id = "mid.2", sender = MessageSender.Me)
+        val m3 = message(id = "mid.3", sender = MessageSender.Them)
+        val m4 = message(id = "mid.4", sender = MessageSender.Them, kind = ADMIN_KIND)
+        val m5 = message(id = "mid.5", sender = MessageSender.Me)
+        val m6 = message(id = "mid.6", sender = MessageSender.Them)
+        val transcript = listOf(m1, m2, m3, m4, m5, m6)
+
+        assertEquals(0, countNewArrivals(transcript, previousNewestId = null))
+        assertEquals(0, countNewArrivals(listOf(m1, m2), previousNewestId = "mid.2"))
+        assertEquals(
+            0,
+            countNewArrivals(
+                listOf(message(id = "mid.0", sender = MessageSender.Them), m1, m2),
+                previousNewestId = "mid.2",
+            ),
+        )
+        assertEquals(2, countNewArrivals(transcript, previousNewestId = "mid.2"))
+        assertEquals(0, countNewArrivals(transcript, previousNewestId = "mid.6"))
     }
 }

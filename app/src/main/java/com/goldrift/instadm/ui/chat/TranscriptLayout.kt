@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -236,3 +237,60 @@ private fun isEmojiBase(cp: Int): Boolean = when (cp) {
     0x3030, 0x303D, 0x3297, 0x3299 -> true
     else -> false
 }
+
+/** Visual thumbnail shown in a reply quote or composer reply bar. */
+data class ReplyThumbnail(
+    val model: Any,
+    val isVideo: Boolean = false,
+)
+
+/**
+ * Extracts a preview image model for replies targeting photos, videos, reels,
+ * link previews, stickers, or pending image uploads.
+ */
+fun ChatMessage.replyThumbnail(): ReplyThumbnail? {
+    for (item in media) {
+        if (item.viewOnce || item.isAudio) continue
+        val isVideoMedia = item.isVideo && item.type != "gif"
+        if (!item.isVideo && !item.isLink && item.localPath.isNotBlank()) {
+            val localFile = File(item.localPath)
+            if (localFile.isFile) {
+                return ReplyThumbnail(model = localFile, isVideo = false)
+            }
+        }
+        val url = if (item.isSticker) item.stickerUrl else item.thumbnailUrl
+        if (url.isNotBlank()) {
+            return ReplyThumbnail(model = url, isVideo = isVideoMedia)
+        }
+    }
+    val pending = localMedia
+    if (pending != null && pending.kind == "image" && pending.uri.isNotBlank()) {
+        return ReplyThumbnail(model = pending.uri, isVideo = false)
+    }
+    return null
+}
+
+/**
+ * Counts incoming non-admin messages appended after [previousNewestId].
+ * Prepending older pages leaves the newest item at the end, so it yields 0.
+ */
+fun countNewArrivals(
+    transcript: List<ChatMessage>,
+    previousNewestId: String?,
+): Int {
+    if (previousNewestId.isNullOrBlank() || transcript.isEmpty()) return 0
+    val index = transcript.indexOfLast { it.id == previousNewestId }
+    if (index < 0 || index >= transcript.lastIndex) return 0
+    var arrivals = 0
+    for (i in (index + 1)..transcript.lastIndex) {
+        val message = transcript[i]
+        if (message.sender == MessageSender.Them && !message.isAdminNotice()) {
+            arrivals++
+        }
+    }
+    return arrivals
+}
+
+/** Total member count for a group header, including the viewer. */
+fun groupMemberCount(participants: List<ConversationParticipant>): Int =
+    if (participants.isEmpty()) 0 else participants.size + 1
