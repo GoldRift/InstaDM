@@ -23,6 +23,90 @@ enum class CameraFlashMode {
     }
 }
 
+internal enum class ResolvedPhotoFlash {
+    Off,
+    Auto,
+    HardwareOn,
+    ScreenOn,
+}
+
+internal fun shouldShowFlashControl(
+    mode: CameraCaptureMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+): Boolean = hasFlashUnit || (mode == CameraCaptureMode.Photo && isFrontCamera)
+
+internal fun effectiveCameraFlashMode(
+    mode: CameraCaptureMode,
+    flashMode: CameraFlashMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+): CameraFlashMode {
+    if (!shouldShowFlashControl(mode, isFrontCamera, hasFlashUnit)) {
+        return CameraFlashMode.Off
+    }
+    return when {
+        mode == CameraCaptureMode.Video || isFrontCamera ->
+            if (flashMode == CameraFlashMode.On) CameraFlashMode.On else CameraFlashMode.Off
+        else -> flashMode
+    }
+}
+
+internal fun nextCameraFlashMode(
+    mode: CameraCaptureMode,
+    flashMode: CameraFlashMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+): CameraFlashMode {
+    if (!shouldShowFlashControl(mode, isFrontCamera, hasFlashUnit)) {
+        return CameraFlashMode.Off
+    }
+    val current = effectiveCameraFlashMode(mode, flashMode, isFrontCamera, hasFlashUnit)
+    return if (mode == CameraCaptureMode.Photo && !isFrontCamera) {
+        current.next()
+    } else if (current == CameraFlashMode.On) {
+        CameraFlashMode.Off
+    } else {
+        CameraFlashMode.On
+    }
+}
+
+internal fun shouldEnableCameraTorch(
+    mode: CameraCaptureMode,
+    flashMode: CameraFlashMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+    isLivePreview: Boolean,
+): Boolean = isLivePreview &&
+    mode == CameraCaptureMode.Video &&
+    effectiveCameraFlashMode(mode, flashMode, isFrontCamera, hasFlashUnit) == CameraFlashMode.On &&
+    hasFlashUnit
+
+internal fun resolvePhotoFlash(
+    mode: CameraCaptureMode,
+    flashMode: CameraFlashMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+    hasScreenFlash: Boolean,
+): ResolvedPhotoFlash {
+    if (mode != CameraCaptureMode.Photo) return ResolvedPhotoFlash.Off
+    val effective = effectiveCameraFlashMode(mode, flashMode, isFrontCamera, hasFlashUnit)
+    if (isFrontCamera) {
+        return when {
+            effective != CameraFlashMode.On -> ResolvedPhotoFlash.Off
+            hasScreenFlash -> ResolvedPhotoFlash.ScreenOn
+            hasFlashUnit -> ResolvedPhotoFlash.HardwareOn
+            else -> ResolvedPhotoFlash.Off
+        }
+    }
+    if (!hasFlashUnit) return ResolvedPhotoFlash.Off
+    return when (effective) {
+        CameraFlashMode.Auto -> ResolvedPhotoFlash.Auto
+        CameraFlashMode.On -> ResolvedPhotoFlash.HardwareOn
+        CameraFlashMode.Off -> ResolvedPhotoFlash.Off
+    }
+}
+
 /**
  * Returns up to three discrete zoom buttons supported by the active lens, or an
  * empty list when the lens does not support zooming.

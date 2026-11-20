@@ -314,6 +314,7 @@ private fun CameraCaptureContent(
     var mode by remember { mutableStateOf(CameraCaptureMode.Photo) }
     var flashMode by remember { mutableStateOf(CameraFlashMode.Auto) }
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
+    var boundLensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
     var lensSpinTarget by remember { mutableFloatStateOf(0f) }
     var hasBackCamera by remember { mutableStateOf(true) }
     var hasFrontCamera by remember { mutableStateOf(false) }
@@ -324,12 +325,34 @@ private fun CameraCaptureContent(
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var viewfinderScreenFlash by remember { mutableStateOf<ImageCapture.ScreenFlash?>(null) }
+    var screenFlashActive by remember { mutableStateOf(false) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var activeVideoTarget by remember { mutableStateOf<CaptureTarget?>(null) }
     var recordingDurationMs by remember { mutableLongStateOf(0L) }
     var takingPhoto by remember { mutableStateOf(false) }
     var shutterBlinkAlpha by remember { mutableFloatStateOf(0f) }
     var captured by remember { mutableStateOf<CapturedPreview?>(null) }
+
+    // Wraps CameraXViewfinder's ScreenFlash so we hide dark chrome while the screen illuminates.
+    val activeScreenFlash = remember(viewfinderScreenFlash) {
+        viewfinderScreenFlash?.let { delegate ->
+            object : ImageCapture.ScreenFlash {
+                override fun apply(
+                    expirationTimeMillis: Long,
+                    screenFlashListener: ImageCapture.ScreenFlashListener,
+                ) {
+                    screenFlashActive = true
+                    delegate.apply(expirationTimeMillis, screenFlashListener)
+                }
+
+                override fun clear() {
+                    screenFlashActive = false
+                    delegate.clear()
+                }
+            }
+        }
+    }
 
     var zoomRatio by remember { mutableFloatStateOf(1f) }
     var minZoomRatio by remember { mutableFloatStateOf(1f) }
@@ -354,6 +377,12 @@ private fun CameraCaptureContent(
     fun closeOverlay(openPickerAfter: Boolean = false) {
         if (dismissing) return
         dismissing = true
+        screenFlashActive = false
+        boundCamera?.let { cam ->
+            if (cam.cameraInfo.hasFlashUnit()) {
+                cam.cameraControl.enableTorch(false)
+            }
+        }
         activeRecording?.stop()
         activeRecording = null
         discardCaptured()
@@ -443,30 +472,28 @@ private fun CameraCaptureContent(
         takingPhoto = true
         haptic.confirm()
         val target = CameraCapture.newTarget(context)
-        val isFront = lensFacing == CameraSelector.LENS_FACING_FRONT
-        capture.flashMode = if (isFront) {
-            if (flashMode == CameraFlashMode.On && capture.screenFlash != null) {
-                ImageCapture.FLASH_MODE_SCREEN
-            } else {
-                ImageCapture.FLASH_MODE_OFF
-            }
-        } else {
-            when (flashMode) {
-                CameraFlashMode.Auto -> ImageCapture.FLASH_MODE_AUTO
-                CameraFlashMode.On -> ImageCapture.FLASH_MODE_ON
-                CameraFlashMode.Off -> ImageCapture.FLASH_MODE_OFF
-            }
-        }
+        val isFront = boundLensFacing == CameraSelector.LENS_FACING_FRONT
+        capture.screenFlash = activeScreenFlash
+        val resolvedFlash = resolvePhotoFlash(
+            mode = CameraCaptureMode.Photo,
+            flashMode = flashMode,
+            isFrontCamera = isFront,
+            hasFlashUnit = hasFlashUnit,
+            hasScreenFlash = activeScreenFlash != null,
+        )
+        capture.flashMode = resolvedFlash.toCameraXFlashMode()
         val metadata = ImageCapture.Metadata().apply {
             isReversedHorizontal = isFront
         }
         val outputOptions = ImageCapture.OutputFileOptions.Builder(target.file)
             .setMetadata(metadata)
             .build()
-        scope.launch {
-            shutterBlinkAlpha = 0.85f
-            delay(80L)
-            shutterBlinkAlpha = 0f
+        if (resolvedFlash != ResolvedPhotoFlash.ScreenOn) {
+            scope.launch {
+                shutterBlinkAlpha = 0.85f
+                delay(80L)
+                shutterBlinkAlpha = 0f
+            }
         }
         capture.takePicture(
             outputOptions,
@@ -483,6 +510,7 @@ private fun CameraCaptureContent(
 
                 override fun onError(exception: ImageCaptureException) {
                     takingPhoto = false
+                    screenFlashActive = false
                     runCatching { target.file.delete() }
                     Toast.makeText(
                         context,
@@ -499,9 +527,18 @@ private fun CameraCaptureContent(
     val bindModeKey = if (singleUseCaseFallback) mode else CameraCaptureMode.Photo
 
     LaunchedEffect(hasCameraPermission, lensFacing, captured == null, bindModeKey) {
+        boundCamera?.let { cam ->
+            if (cam.cameraInfo.hasFlashUnit()) {
+                cam.cameraControl.enableTorch(false)
+            }
+        }
+        screenFlashActive = false
         if (!hasCameraPermission || captured != null) {
             surfaceRequest = null
             boundCamera = null
+            imageCapture = null
+            videoCapture = null
+            runCatching { ProcessCameraProvider.awaitInstance(context).unbindAll() }
             return@LaunchedEffect
         }
         cameraError = false
@@ -551,6 +588,10 @@ private fun CameraCaptureContent(
             .build()
         val vidCapture = VideoCapture.withOutput(recorder)
 
+        // Clear stale use-case refs before unbinding so flash/torch effects never target the previous lens.
+        boundCamera = null
+        imageCapture = null
+        videoCapture = null
         provider.unbindAll()
         val camera = try {
             if (!singleUseCaseFallback) {
@@ -579,10 +620,60 @@ private fun CameraCaptureContent(
             cameraError = true
             return@LaunchedEffect
         }
+        val cameraHasFlash = camera.cameraInfo.hasFlashUnit()
+        val isFront = resolvedFacing == CameraSelector.LENS_FACING_FRONT
+        imgCapture.screenFlash = activeScreenFlash
+        imgCapture.flashMode = resolvePhotoFlash(
+            mode = mode,
+            flashMode = flashMode,
+            isFrontCamera = isFront,
+            hasFlashUnit = cameraHasFlash,
+            hasScreenFlash = activeScreenFlash != null,
+        ).toCameraXFlashMode()
+        boundLensFacing = resolvedFacing
+        hasFlashUnit = cameraHasFlash
         boundCamera = camera
         imageCapture = imgCapture
         videoCapture = vidCapture
-        hasFlashUnit = camera.cameraInfo.hasFlashUnit()
+    }
+
+    // Keep ImageCapture flash mode and video torch synced with CameraX so AE
+    // metering sees AUTO/ON ahead of capture and ScreenFlash survives lens switches.
+    LaunchedEffect(
+        boundCamera,
+        imageCapture,
+        boundLensFacing,
+        activeScreenFlash,
+        mode,
+        flashMode,
+        hasFlashUnit,
+        captured == null,
+    ) {
+        val isFront = boundLensFacing == CameraSelector.LENS_FACING_FRONT
+        val isLive = captured == null
+        imageCapture?.let { capture ->
+            capture.screenFlash = activeScreenFlash
+            capture.flashMode = resolvePhotoFlash(
+                mode = mode,
+                flashMode = flashMode,
+                isFrontCamera = isFront,
+                hasFlashUnit = hasFlashUnit,
+                hasScreenFlash = activeScreenFlash != null,
+            ).toCameraXFlashMode()
+        }
+        boundCamera?.let { camera ->
+            if (camera.cameraInfo.hasFlashUnit()) {
+                camera.cameraControl.enableTorch(
+                    shouldEnableCameraTorch(
+                        mode = mode,
+                        flashMode = flashMode,
+                        isFrontCamera = isFront,
+                        hasFlashUnit = hasFlashUnit,
+                        isLivePreview = isLive,
+                    ),
+                )
+            }
+        }
     }
 
     DisposableEffect(boundCamera) {
@@ -602,6 +693,11 @@ private fun CameraCaptureContent(
 
     DisposableEffect(Unit) {
         onDispose {
+            boundCamera?.let { cam ->
+                if (cam.cameraInfo.hasFlashUnit()) {
+                    cam.cameraControl.enableTorch(false)
+                }
+            }
             activeRecording?.stop()
             activeRecording = null
             runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
@@ -779,19 +875,30 @@ private fun CameraCaptureContent(
                         onClose = { closeOverlay() },
                     )
                 } else {
+                    val isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT
+                    val effectiveFlash = effectiveCameraFlashMode(
+                        mode = mode,
+                        flashMode = flashMode,
+                        isFrontCamera = isFrontCamera,
+                        hasFlashUnit = hasFlashUnit,
+                    )
                     CameraLiveStage(
                         surfaceRequest = surfaceRequest,
                         cameraError = cameraError,
                         mode = mode,
-                        flashMode = flashMode,
-                        isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT,
-                        showFlashButton = hasFlashUnit || lensFacing == CameraSelector.LENS_FACING_FRONT,
+                        flashMode = effectiveFlash,
+                        showFlashButton = shouldShowFlashControl(
+                            mode = mode,
+                            isFrontCamera = isFrontCamera,
+                            hasFlashUnit = hasFlashUnit,
+                        ),
                         showSwitchLens = hasBackCamera && hasFrontCamera && !isRecording,
                         lensSpinTarget = lensSpinTarget,
                         isRecording = isRecording,
                         recordingDurationMs = recordingDurationMs,
                         takingPhoto = takingPhoto,
                         shutterBlinkAlpha = shutterBlinkAlpha,
+                        screenFlashActive = screenFlashActive,
                         zoomRatio = zoomRatio,
                         minZoomRatio = minZoomRatio,
                         maxZoomRatio = maxZoomRatio,
@@ -801,12 +908,20 @@ private fun CameraCaptureContent(
                             closeOverlay()
                         },
                         onCycleFlash = {
-                            flashMode = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
-                                if (flashMode == CameraFlashMode.On) CameraFlashMode.Off else CameraFlashMode.On
-                            } else {
-                                flashMode.next()
-                            }
-                            haptic.toggle(flashMode != CameraFlashMode.Off)
+                            val nextFlash = nextCameraFlashMode(
+                                mode = mode,
+                                flashMode = flashMode,
+                                isFrontCamera = isFrontCamera,
+                                hasFlashUnit = hasFlashUnit,
+                            )
+                            flashMode = nextFlash
+                            val nextEffective = effectiveCameraFlashMode(
+                                mode = mode,
+                                flashMode = nextFlash,
+                                isFrontCamera = isFrontCamera,
+                                hasFlashUnit = hasFlashUnit,
+                            )
+                            haptic.toggle(nextEffective != CameraFlashMode.Off)
                         },
                         onSelectMode = { nextMode ->
                             if (!isRecording && mode != nextMode) {
@@ -862,9 +977,11 @@ private fun CameraCaptureContent(
                             }
                         },
                         onScreenFlashReady = { screenFlash ->
-                            imageCapture?.screenFlash = screenFlash
+                            viewfinderScreenFlash = screenFlash
                         },
                         onViewfinderRelease = {
+                            viewfinderScreenFlash = null
+                            screenFlashActive = false
                             imageCapture?.screenFlash = null
                         },
                     )
@@ -881,7 +998,6 @@ private fun CameraLiveStage(
     cameraError: Boolean,
     mode: CameraCaptureMode,
     flashMode: CameraFlashMode,
-    isFrontCamera: Boolean,
     showFlashButton: Boolean,
     showSwitchLens: Boolean,
     lensSpinTarget: Float,
@@ -889,6 +1005,7 @@ private fun CameraLiveStage(
     recordingDurationMs: Long,
     takingPhoto: Boolean,
     shutterBlinkAlpha: Float,
+    screenFlashActive: Boolean,
     zoomRatio: Float,
     minZoomRatio: Float,
     maxZoomRatio: Float,
@@ -923,6 +1040,11 @@ private fun CameraLiveStage(
         targetValue = shutterBlinkAlpha,
         animationSpec = motion.fastEffectsSpec(),
         label = "shutterBlink",
+    )
+    val chromeAlpha by animateFloatAsState(
+        targetValue = if (screenFlashActive) 0f else 1f,
+        animationSpec = motion.fastEffectsSpec(),
+        label = "cameraChromeAlpha",
     )
 
     Box(Modifier.fillMaxSize()) {
@@ -1001,6 +1123,7 @@ private fun CameraLiveStage(
                 .fillMaxWidth()
                 .height(128.dp)
                 .align(Alignment.TopCenter)
+                .graphicsLayer { alpha = chromeAlpha }
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Black.copy(alpha = 0.56f), Color.Transparent),
@@ -1012,6 +1135,7 @@ private fun CameraLiveStage(
                 .fillMaxWidth()
                 .height(240.dp)
                 .align(Alignment.BottomCenter)
+                .graphicsLayer { alpha = chromeAlpha }
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)),
@@ -1024,6 +1148,7 @@ private fun CameraLiveStage(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                .graphicsLayer { alpha = chromeAlpha }
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1060,12 +1185,10 @@ private fun CameraLiveStage(
 
             if (showFlashButton) {
                 val flashActive = flashMode != CameraFlashMode.Off
-                val flashDescription = when {
-                    isFrontCamera && flashActive -> stringResource(R.string.camera_flash_on)
-                    isFrontCamera -> stringResource(R.string.camera_flash_off)
-                    flashMode == CameraFlashMode.Auto -> stringResource(R.string.camera_flash_auto)
-                    flashMode == CameraFlashMode.On -> stringResource(R.string.camera_flash_on)
-                    else -> stringResource(R.string.camera_flash_off)
+                val flashDescription = when (flashMode) {
+                    CameraFlashMode.Auto -> stringResource(R.string.camera_flash_auto)
+                    CameraFlashMode.On -> stringResource(R.string.camera_flash_on)
+                    CameraFlashMode.Off -> stringResource(R.string.camera_flash_off)
                 }
                 FilledTonalIconToggleButton(
                     checked = flashActive,
@@ -1084,11 +1207,7 @@ private fun CameraLiveStage(
                     modifier = Modifier.size(48.dp),
                 ) {
                     AnimatedContent(
-                        targetState = if (isFrontCamera && flashMode == CameraFlashMode.Auto) {
-                            CameraFlashMode.Off
-                        } else {
-                            flashMode
-                        },
+                        targetState = flashMode,
                         transitionSpec = {
                             (fadeIn(motion.fastEffectsSpec()) + scaleIn(
                                 initialScale = 0.8f,
@@ -1120,6 +1239,7 @@ private fun CameraLiveStage(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .graphicsLayer { alpha = chromeAlpha }
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1713,6 +1833,13 @@ private fun CameraReviewStage(
             }
         }
     }
+}
+
+private fun ResolvedPhotoFlash.toCameraXFlashMode(): Int = when (this) {
+    ResolvedPhotoFlash.Auto -> ImageCapture.FLASH_MODE_AUTO
+    ResolvedPhotoFlash.HardwareOn -> ImageCapture.FLASH_MODE_ON
+    ResolvedPhotoFlash.ScreenOn -> ImageCapture.FLASH_MODE_SCREEN
+    ResolvedPhotoFlash.Off -> ImageCapture.FLASH_MODE_OFF
 }
 
 private fun Context.findCameraActivity(): Activity? {

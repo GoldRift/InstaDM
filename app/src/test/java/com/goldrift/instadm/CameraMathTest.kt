@@ -1,12 +1,20 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.CameraCaptureMode
 import com.goldrift.instadm.ui.chat.CameraFlashMode
+import com.goldrift.instadm.ui.chat.ResolvedPhotoFlash
+import com.goldrift.instadm.ui.chat.effectiveCameraFlashMode
 import com.goldrift.instadm.ui.chat.formatRecordingDuration
 import com.goldrift.instadm.ui.chat.formatZoomRatio
 import com.goldrift.instadm.ui.chat.nearestZoomPresetIndex
+import com.goldrift.instadm.ui.chat.nextCameraFlashMode
 import com.goldrift.instadm.ui.chat.normalizePhotoPickerAccentColor
+import com.goldrift.instadm.ui.chat.resolvePhotoFlash
+import com.goldrift.instadm.ui.chat.shouldEnableCameraTorch
+import com.goldrift.instadm.ui.chat.shouldShowFlashControl
 import com.goldrift.instadm.ui.chat.zoomPresets
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +24,180 @@ class CameraMathTest {
         assertEquals(CameraFlashMode.On, CameraFlashMode.Auto.next())
         assertEquals(CameraFlashMode.Off, CameraFlashMode.On.next())
         assertEquals(CameraFlashMode.Auto, CameraFlashMode.Off.next())
+    }
+
+    @Test
+    fun showFlashControlMatchesLensAndModeCapabilities() {
+        assertTrue(shouldShowFlashControl(CameraCaptureMode.Photo, isFrontCamera = false, hasFlashUnit = true))
+        assertFalse(shouldShowFlashControl(CameraCaptureMode.Photo, isFrontCamera = false, hasFlashUnit = false))
+        assertTrue(shouldShowFlashControl(CameraCaptureMode.Photo, isFrontCamera = true, hasFlashUnit = false))
+        assertTrue(shouldShowFlashControl(CameraCaptureMode.Video, isFrontCamera = false, hasFlashUnit = true))
+        assertFalse(shouldShowFlashControl(CameraCaptureMode.Video, isFrontCamera = false, hasFlashUnit = false))
+        assertFalse(shouldShowFlashControl(CameraCaptureMode.Video, isFrontCamera = true, hasFlashUnit = false))
+        assertTrue(shouldShowFlashControl(CameraCaptureMode.Video, isFrontCamera = true, hasFlashUnit = true))
+    }
+
+    @Test
+    fun effectiveFlashModeCollapsesAutoToOffForFrontAndVideo() {
+        assertEquals(
+            CameraFlashMode.Auto,
+            effectiveCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.Auto, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            effectiveCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.Auto, isFrontCamera = true, hasFlashUnit = false),
+        )
+        assertEquals(
+            CameraFlashMode.On,
+            effectiveCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.On, isFrontCamera = true, hasFlashUnit = false),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            effectiveCameraFlashMode(CameraCaptureMode.Video, CameraFlashMode.Auto, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.On,
+            effectiveCameraFlashMode(CameraCaptureMode.Video, CameraFlashMode.On, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            effectiveCameraFlashMode(CameraCaptureMode.Video, CameraFlashMode.On, isFrontCamera = true, hasFlashUnit = false),
+        )
+    }
+
+    @Test
+    fun nextFlashModeTogglesBinaryForFrontPhotoAndVideoTorch() {
+        assertEquals(
+            CameraFlashMode.On,
+            nextCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.Auto, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            nextCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.On, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.Auto,
+            nextCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.Off, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.On,
+            nextCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.Auto, isFrontCamera = true, hasFlashUnit = false),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            nextCameraFlashMode(CameraCaptureMode.Photo, CameraFlashMode.On, isFrontCamera = true, hasFlashUnit = false),
+        )
+        assertEquals(
+            CameraFlashMode.On,
+            nextCameraFlashMode(CameraCaptureMode.Video, CameraFlashMode.Auto, isFrontCamera = false, hasFlashUnit = true),
+        )
+        assertEquals(
+            CameraFlashMode.Off,
+            nextCameraFlashMode(CameraCaptureMode.Video, CameraFlashMode.On, isFrontCamera = false, hasFlashUnit = true),
+        )
+    }
+
+    @Test
+    fun torchOnlyEnablesInLiveVideoModeWhenFlashIsOn() {
+        assertTrue(
+            shouldEnableCameraTorch(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+            ),
+        )
+        assertFalse(
+            shouldEnableCameraTorch(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.Auto,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+            ),
+        )
+        assertFalse(
+            shouldEnableCameraTorch(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = false,
+            ),
+        )
+        assertFalse(
+            shouldEnableCameraTorch(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+            ),
+        )
+        assertFalse(
+            shouldEnableCameraTorch(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = true,
+                hasFlashUnit = false,
+                isLivePreview = true,
+            ),
+        )
+    }
+
+    @Test
+    fun resolvePhotoFlashMapsHardwareAndScreenFlashCleanly() {
+        assertEquals(
+            ResolvedPhotoFlash.Auto,
+            resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.Auto,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                hasScreenFlash = true,
+            ),
+        )
+        assertEquals(
+            ResolvedPhotoFlash.HardwareOn,
+            resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                hasScreenFlash = true,
+            ),
+        )
+        assertEquals(
+            ResolvedPhotoFlash.ScreenOn,
+            resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = true,
+                hasFlashUnit = false,
+                hasScreenFlash = true,
+            ),
+        )
+        assertEquals(
+            ResolvedPhotoFlash.Off,
+            resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = true,
+                hasFlashUnit = false,
+                hasScreenFlash = false,
+            ),
+        )
+        assertEquals(
+            ResolvedPhotoFlash.Off,
+            resolvePhotoFlash(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                hasScreenFlash = true,
+            ),
+        )
     }
 
     @Test
