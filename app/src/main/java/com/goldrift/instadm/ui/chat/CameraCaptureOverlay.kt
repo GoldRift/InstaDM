@@ -57,6 +57,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -70,6 +71,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -102,6 +104,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.ToggleButtonShapes
+import androidx.compose.material3.ToggleButtonSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1325,64 +1328,16 @@ private fun CameraLiveStage(
                 }
             }
 
-            // Photo / Video expressive mode switcher.
-            val photoLabel = stringResource(R.string.camera_mode_photo)
-            val videoLabel = stringResource(R.string.camera_mode_video)
+            // Photo / Video mode switcher.
             AnimatedVisibility(
                 visible = !isRecording,
                 enter = fadeIn(motion.fastEffectsSpec()),
                 exit = fadeOut(motion.fastEffectsSpec()),
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                ) {
-                    ButtonGroup(
-                        overflowIndicator = {},
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(4.dp),
-                    ) {
-                        listOf(
-                            CameraCaptureMode.Photo to photoLabel,
-                            CameraCaptureMode.Video to videoLabel,
-                        ).forEach { (itemMode, label) ->
-                            val selected = mode == itemMode
-                            customItem(
-                                buttonGroupContent = {
-                                    val interaction = remember { MutableInteractionSource() }
-                                    ToggleButton(
-                                        checked = selected,
-                                        onCheckedChange = { onSelectMode(itemMode) },
-                                        interactionSource = interaction,
-                                        shapes = ToggleButtonShapes(
-                                            shape = CircleShape,
-                                            pressedShape = RoundedCornerShape(12.dp),
-                                            checkedShape = CircleShape,
-                                        ),
-                                        colors = ToggleButtonDefaults.colors(
-                                            containerColor = Color.Transparent,
-                                            contentColor = Color.White.copy(alpha = 0.82f),
-                                            checkedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            checkedContentColor = MaterialTheme.colorScheme.onSurface,
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
-                                        modifier = Modifier
-                                            .animateWidth(interaction)
-                                            .height(36.dp),
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                        )
-                                    }
-                                },
-                                menuContent = {},
-                            )
-                        }
-                    }
-                }
+                CameraModeSwitcher(
+                    mode = mode,
+                    onSelectMode = onSelectMode,
+                )
             }
 
             // Capture bar: Gallery shortcut, morphing shutter button, and Flip camera.
@@ -1437,6 +1392,89 @@ private fun CameraLiveStage(
                     }
                 } else {
                     Spacer(Modifier.size(54.dp))
+                }
+            }
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun CameraModeSwitcher(
+    mode: CameraCaptureMode,
+    onSelectMode: (CameraCaptureMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val motion = MaterialTheme.motionScheme
+    val photoLabel = stringResource(R.string.camera_mode_photo)
+    val videoLabel = stringResource(R.string.camera_mode_video)
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.48f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+    ) {
+        // Equal-width segments without ButtonGroup's press-to-expand animation keep
+        // Photo and Video labels stationary instead of squishing or reflowing on tap.
+        Row(
+            modifier = Modifier
+                .padding(4.dp)
+                .width(IntrinsicSize.Max)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                CameraCaptureMode.Photo to photoLabel,
+                CameraCaptureMode.Video to videoLabel,
+            ).forEach { (itemMode, label) ->
+                val selected = mode == itemMode
+                val containerColor by animateColorAsState(
+                    targetValue = if (selected) {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    } else {
+                        Color.Transparent
+                    },
+                    animationSpec = motion.fastEffectsSpec(),
+                    label = "cameraModeContainer_${itemMode.name}",
+                )
+                val contentColor by animateColorAsState(
+                    targetValue = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        Color.White.copy(alpha = 0.82f)
+                    },
+                    animationSpec = motion.fastEffectsSpec(),
+                    label = "cameraModeContent_${itemMode.name}",
+                )
+                ToggleButton(
+                    checked = selected,
+                    onCheckedChange = { onSelectMode(itemMode) },
+                    buttonSize = ToggleButtonSize.ExtraSmall,
+                    shapes = ToggleButtonShapes(
+                        shape = CircleShape,
+                        pressedShape = RoundedCornerShape(12.dp),
+                        checkedShape = CircleShape,
+                    ),
+                    colors = ToggleButtonDefaults.colors(
+                        containerColor = containerColor,
+                        contentColor = contentColor,
+                        checkedContainerColor = containerColor,
+                        checkedContentColor = contentColor,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .semantics { role = Role.RadioButton },
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
             }
         }
