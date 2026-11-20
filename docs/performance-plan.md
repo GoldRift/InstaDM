@@ -81,7 +81,7 @@ not `debug`:
 
 ## Phase 2: State Architecture, Background Mapping, and Room Scaling
 
-- [ ] **2.1 Decouple open-thread messages from `InboxState.items`**
+- [x] **2.1 Decouple open-thread messages from `InboxState.items`**
   - Files: `InboxState.kt`, `InstaDmApp.kt`, `ThreadDao.kt`.
   - Problem: `items` (`SnapshotStateList<Conversation>`) embeds open-thread
     messages, so message updates invalidate the inbox and inbox/unread

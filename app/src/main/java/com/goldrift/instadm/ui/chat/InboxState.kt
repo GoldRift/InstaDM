@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -31,8 +30,8 @@ import com.goldrift.instadm.service.suppressesNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -40,6 +39,26 @@ import java.io.File
 import java.util.Collections
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
+
+/** Active chat transcript state, isolated from inbox summary rows. */
+@Stable
+data class ActiveThreadState(
+    val threadId: String = "",
+    val messages: List<ChatMessage> = emptyList(),
+    val loaded: Boolean = false,
+    val isLoadingOlder: Boolean = false,
+    val olderError: Boolean = false,
+) {
+    fun mergeInto(conversation: Conversation): Conversation {
+        if (threadId != conversation.id) return conversation
+        return conversation.copy(
+            messages = messages,
+            messagesLoaded = loaded,
+            isLoadingOlder = isLoadingOlder,
+            olderError = olderError,
+        )
+    }
+}
 
 /** A message that arrived in another chat while the reader was in one. */
 data class ChatBanner(
@@ -95,7 +114,7 @@ class InboxState(
     private val mediaReader: MediaReader,
     private val appContext: Context,
 ) {
-    private val items = mutableStateListOf<Conversation>()
+    private var conversationsById: Map<String, Conversation> = emptyMap()
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
     private val markedRead = mutableMapOf<String, String>()
     private val readJobs = mutableMapOf<String, Job>()
@@ -109,6 +128,10 @@ class InboxState(
     private var openThreadId: String? = null
     private var messageCollector: Job? = null
     private var refreshInFlight = false
+
+    var conversations by mutableStateOf<List<Conversation>>(emptyList())
+        private set
+    private var activeThread by mutableStateOf(ActiveThreadState())
 
     var status by mutableStateOf(InboxStatus.Loading)
         private set
@@ -150,16 +173,13 @@ class InboxState(
             // incoming message (or an accepted read receipt) re-emits one of
             // these before the row shows the other.
             combine(
-                chatStore.observeInbox(),
-                chatStore.observeUnreadCounts(),
+                chatStore.observeInbox().distinctUntilChanged(),
+                chatStore.observeUnreadCounts().distinctUntilChanged(),
             ) { rows, counts ->
                 rows to counts.associate { it.threadId to it.unreadCount }
             }.collect { (rows, counts) -> applyInboxRows(rows, counts) }
         }
     }
-
-    val conversations: List<Conversation>
-        get() = items
 
     /**
      * A chat opened from search that has no thread yet. It is deliberately not
@@ -169,7 +189,14 @@ class InboxState(
     private var draftThread: Conversation? by mutableStateOf(null)
 
     fun conversation(threadId: String): Conversation? =
-        items.firstOrNull { it.id == threadId } ?: draftThread?.takeIf { it.id == threadId }
+        conversationsById[threadId] ?: draftThread?.takeIf { it.id == threadId }
+
+    /** Combines a summary conversation with the open thread's messages. */
+    fun withActiveMessages(conversation: Conversation): Conversation =
+        activeThread.mergeInto(conversation)
+
+    private fun messagesFor(threadId: String): List<ChatMessage> =
+        if (activeThread.threadId == threadId) activeThread.messages else emptyList()
 
     fun isLoading(threadId: String): Boolean = loadingThreads[threadId] == true
 
@@ -221,7 +248,7 @@ class InboxState(
 
     /** The inbox conversation that already contains the account, if any. */
     fun conversationForRecipient(recipientFbid: String, igId: String = ""): Conversation? =
-        items.firstOrNull { conversation ->
+        conversations.firstOrNull { conversation ->
             conversation.participants.any { participant ->
                 (recipientFbid.isNotBlank() && participant.fbid.toString() == recipientFbid) ||
                     (igId.isNotBlank() && participant.igId == igId)
@@ -249,7 +276,7 @@ class InboxState(
 
     /** Loads the inbox once per process; rotations reuse the retained state. */
     fun refreshIfNeeded() {
-        if (status == InboxStatus.Loading && items.isEmpty()) refresh()
+        if (status == InboxStatus.Loading && conversations.isEmpty()) refresh()
     }
 
     /**
@@ -338,7 +365,9 @@ class InboxState(
                         outbox.clear()
                         repository.clearMediaCache()
                     }
-                    items.clear()
+                    conversations = emptyList()
+                    conversationsById = emptyMap()
+                    activeThread = ActiveThreadState()
                     waveformRequested.clear()
                     waveformExtracting.clear()
                     hasMoreConversations = false
@@ -357,7 +386,7 @@ class InboxState(
                     }
                     .onFailure { error ->
                         errorMessage = describeError(error)
-                        status = if (items.isEmpty()) InboxStatus.Error else InboxStatus.Ready
+                        status = if (conversations.isEmpty()) InboxStatus.Error else InboxStatus.Ready
                     }
             } finally {
                 refreshInFlight = false
@@ -380,22 +409,23 @@ class InboxState(
                 }
                 .onFailure { error ->
                     errorMessage = describeError(error)
-                    status = if (items.isEmpty()) InboxStatus.Error else InboxStatus.Ready
+                    status = if (conversations.isEmpty()) InboxStatus.Error else InboxStatus.Ready
                 }
         }
     }
 
-    /** Rebuilds the inbox list from the database, keeping in-memory messages. */
+    /** Rebuilds the inbox summary list from the database without open-thread messages. */
     private fun applyInboxRows(
         rows: List<ThreadWithParticipants>,
         unreadCounts: Map<String, Int>,
     ) {
-        val existing = items.associateBy { it.id }
         val mapped = rows.map { row ->
-            row.toConversation(existing[row.thread.id], unreadCounts[row.thread.id] ?: 0)
+            row.toConversation(previous = null, unreadCount = unreadCounts[row.thread.id] ?: 0)
         }
-        items.clear()
-        items.addAll(mapped)
+        if (mapped != conversations) {
+            conversations = mapped
+            conversationsById = mapped.associateBy { it.id }
+        }
         if (mapped.isNotEmpty() && status == InboxStatus.Loading) {
             status = InboxStatus.Ready
         }
@@ -418,8 +448,8 @@ class InboxState(
                     errorMessage = describeError(error)
                     // Cached messages stay visible; only a thread with nothing
                     // to show falls back to the empty/loading state.
-                    if (conversation(threadId)?.messages.isNullOrEmpty()) {
-                        update(threadId) { it.copy(messagesLoaded = false) }
+                    if (messagesFor(threadId).isEmpty()) {
+                        updateActiveThread(threadId) { it.copy(loaded = false) }
                     }
                 }
             loadingThreads.remove(threadId)
@@ -435,6 +465,9 @@ class InboxState(
         if (openThreadId == threadId && messageCollector?.isActive == true) return
         messageCollector?.cancel()
         openThreadId = threadId
+        if (activeThread.threadId != threadId) {
+            activeThread = ActiveThreadState(threadId = threadId)
+        }
         messageCollector = scope.launch {
             chatStore.observeThread(threadId).collect { rows ->
                 applyThreadMessages(threadId, rows)
@@ -448,6 +481,9 @@ class InboxState(
         openThreadId = null
         messageCollector?.cancel()
         messageCollector = null
+        if (activeThread.threadId == threadId) {
+            activeThread = ActiveThreadState()
+        }
     }
 
     /**
@@ -455,11 +491,11 @@ class InboxState(
      * memory-only until the outbox lands, so they are carried over here.
      */
     private fun applyThreadMessages(threadId: String, rows: List<MessageWithMedia>) {
-        update(threadId) { current ->
-            val stored = rows.map { it.toChatMessage() }
+        val stored = rows.map { it.toChatMessage() }
+        updateActiveThread(threadId) { current ->
             current.copy(
                 messages = stored,
-                messagesLoaded = stored.isNotEmpty() || current.messagesLoaded,
+                loaded = stored.isNotEmpty() || current.loaded,
             )
         }
     }
@@ -471,11 +507,12 @@ class InboxState(
      */
     fun loadOlder(threadId: String) {
         val conversation = conversation(threadId) ?: return
-        if (!conversation.messagesLoaded || conversation.isLoadingOlder) return
+        val threadState = activeThread.takeIf { it.threadId == threadId } ?: return
+        if (!threadState.loaded || threadState.isLoadingOlder) return
         if (!conversation.hasMoreOlder || conversation.oldestCursor.isBlank()) return
 
         val cursor = conversation.oldestCursor
-        update(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
+        updateActiveThread(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
         scope.launch {
             runCatching {
                 val json = repository.loadOlder(threadId, cursor)
@@ -485,25 +522,23 @@ class InboxState(
                 // list re-arms as soon as it clears, and a stale cursor would
                 // request the same page again.
                 if (page != null && page.added == 0) delay(OVERLAP_PAGE_DELAY_MS)
-                update(threadId) { current ->
+                updateConversation(threadId) { current ->
                     current.copy(
-                        isLoadingOlder = false,
                         oldestCursor = page?.oldestCursor ?: current.oldestCursor,
                         hasMoreOlder = page?.hasMoreOlder ?: false,
                     )
                 }
+                updateActiveThread(threadId) { it.copy(isLoadingOlder = false) }
             }.onFailure { error ->
                 errorMessage = describeError(error)
-                update(threadId) { current ->
-                    current.copy(isLoadingOlder = false, olderError = true)
-                }
+                updateActiveThread(threadId) { it.copy(isLoadingOlder = false, olderError = true) }
             }
         }
     }
 
     /** Retries a failed older page; automatic paging stays paused until then. */
     fun retryOlder(threadId: String) {
-        update(threadId) { it.copy(olderError = false) }
+        updateActiveThread(threadId) { it.copy(olderError = false) }
         loadOlder(threadId)
     }
 
@@ -654,9 +689,8 @@ class InboxState(
      * reaction per sender, so choosing a different emoji replaces the old one.
      */
     fun react(threadId: String, messageId: String, emoji: String) {
-        val message = conversation(threadId)
-            ?.messages
-            ?.firstOrNull { it.id == messageId }
+        val message = messagesFor(threadId)
+            .firstOrNull { it.id == messageId }
             ?: return
         if (!message.canReact()) return
 
@@ -664,7 +698,7 @@ class InboxState(
         val (optimistic, remove) = toggleViewerReaction(message, emoji)
         if (optimistic === message.reactions) return
 
-        updateMessage(threadId, messageId) { it.copy(reactions = optimistic) }
+        updateActiveMessage(threadId, messageId) { it.copy(reactions = optimistic) }
         errorMessage = null
 
         scope.launch {
@@ -678,7 +712,7 @@ class InboxState(
                     }
                 }
                 .onFailure { error ->
-                    updateMessage(threadId, messageId) { current ->
+                    updateActiveMessage(threadId, messageId) { current ->
                         current.copy(
                             reactions = restoreViewerReaction(current.reactions, original),
                         )
@@ -693,25 +727,24 @@ class InboxState(
         val text = rawText.trim()
         if (text.isEmpty()) return
 
-        val message = conversation(threadId)
-            ?.messages
-            ?.firstOrNull { it.id == messageId }
+        val message = messagesFor(threadId)
+            .firstOrNull { it.id == messageId }
             ?: return
         if (!message.canEdit() || message.text == text) return
 
         val originalText = message.text
-        updateMessage(threadId, messageId) { it.copy(text = text) }
+        updateActiveMessage(threadId, messageId) { it.copy(text = text) }
         errorMessage = null
 
         scope.launch {
             runCatching { repository.edit(threadId, messageId, text) }
                 .onSuccess { result ->
                     val serverText = result.optString("text").ifBlank { text }
-                    updateMessage(threadId, messageId) { it.copy(text = serverText) }
+                    updateActiveMessage(threadId, messageId) { it.copy(text = serverText) }
                     chatStore.editMessageText(messageId, serverText)
                 }
                 .onFailure { error ->
-                    updateMessage(threadId, messageId) { current ->
+                    updateActiveMessage(threadId, messageId) { current ->
                         if (current.text == text) current.copy(text = originalText) else current
                     }
                     errorMessage = describeError(error)
@@ -724,22 +757,22 @@ class InboxState(
      * disappears immediately and is restored at its old position on failure.
      */
     fun unsend(threadId: String, messageId: String) {
-        val conversation = conversation(threadId) ?: return
-        val index = conversation.messages.indexOfFirst { it.id == messageId }
+        val currentMessages = messagesFor(threadId)
+        val index = currentMessages.indexOfFirst { it.id == messageId }
         if (index < 0) return
 
-        val message = conversation.messages[index]
+        val message = currentMessages[index]
         if (!message.canUnsend()) return
 
-        val remaining = conversation.messages.filterNot { it.id == messageId }
-        update(threadId) { it.copy(messages = remaining) }
+        val remaining = currentMessages.filterNot { it.id == messageId }
+        updateActiveThread(threadId) { it.copy(messages = remaining) }
         errorMessage = null
 
         scope.launch {
             runCatching { repository.unsend(threadId, messageId) }
                 .onSuccess { chatStore.tombstoneMessage(messageId) }
                 .onFailure { error ->
-                    update(threadId) { current ->
+                    updateActiveThread(threadId) { current ->
                         if (current.messages.any { it.id == messageId }) {
                             current
                         } else {
@@ -771,19 +804,20 @@ class InboxState(
         if (conversation.systemFolder in READ_REQUEST_FOLDERS) {
             // Instagram rejects a viewer receipt until the request is accepted,
             // but the message has still been seen; clear the local badge.
-            markLocallyRead(threadId, conversation)
+            markLocallyRead(threadId)
             return
         }
         if (!shouldPublishReadReceipt(settings.current.sendReadReceipts, fromSend)) {
-            markLocallyRead(threadId, conversation)
+            markLocallyRead(threadId)
             return
         }
 
+        val currentMessages = messagesFor(threadId)
         val explicit = messageId.trim()
         val targetMessage = if (explicit.isNotBlank()) {
-            conversation.messages.firstOrNull { it.id == explicit }
+            currentMessages.firstOrNull { it.id == explicit }
         } else {
-            conversation.messages.lastOrNull { it.canMarkRead() }
+            currentMessages.lastOrNull { it.canMarkRead() }
         }
         val target = targetMessage?.id?.takeIf { it.isNotBlank() } ?: explicit
         if (target.isBlank() || markedRead[threadId] == target) return
@@ -807,7 +841,7 @@ class InboxState(
                 }
 
                 val current = conversation(threadId) ?: return@launch
-                val currentTarget = current.messages.firstOrNull { it.id == target }
+                val currentTarget = messagesFor(threadId).firstOrNull { it.id == target }
                 val targetTimestamp = currentTarget?.timestampMs ?: 0L
                 lastReadAt[threadId] = System.currentTimeMillis()
                 sent = true
@@ -844,8 +878,8 @@ class InboxState(
     }
 
     /** Clears the inbox badge without asking Instagram to publish a receipt. */
-    private fun markLocallyRead(threadId: String, conversation: Conversation) {
-        val watermark = requestReadWatermark(conversation.messages)
+    private fun markLocallyRead(threadId: String) {
+        val watermark = requestReadWatermark(messagesFor(threadId))
         if (watermark > 0) {
             scope.launch { chatStore.markThreadRead(threadId, watermark) }
         }
@@ -857,7 +891,7 @@ class InboxState(
      * so each sender expires on its own.
      */
     private fun applyTyping(event: RealtimeEvent) {
-        val threadId = items
+        val threadId = conversations
             .firstOrNull { conversation ->
                 (event.threadId.isNotBlank() && conversation.id == event.threadId) ||
                     (event.longThreadId.isNotBlank() &&
@@ -989,37 +1023,46 @@ class InboxState(
         }
     }
 
-    private fun indexOfThread(threadId: String): Int {
-        if (threadId.isBlank()) return -1
-        return items.indexOfFirst { conversation ->
-            conversation.id == threadId ||
-                (conversation.threadFbid.isNotBlank() && conversation.threadFbid == threadId)
+    private fun updateConversation(threadId: String, transform: (Conversation) -> Conversation) {
+        val current = conversations
+        val index = current.indexOfFirst { it.id == threadId }
+        if (index < 0) return
+        val updated = transform(current[index])
+        if (updated == current[index]) return
+        val next = current.toMutableList()
+        next[index] = updated
+        conversations = next
+        conversationsById = next.associateBy { it.id }
+    }
+
+    private fun updateActiveThread(
+        threadId: String,
+        transform: (ActiveThreadState) -> ActiveThreadState,
+    ) {
+        val current = activeThread
+        if (current.threadId != threadId) return
+        val updated = transform(current)
+        if (updated != current) {
+            activeThread = updated
         }
     }
 
-    private fun update(threadId: String, transform: (Conversation) -> Conversation) {
-        val index = items.indexOfFirst { it.id == threadId }
-        if (index >= 0) {
-            items[index] = transform(items[index])
-        }
-    }
-
-    private fun updateMessage(
+    private fun updateActiveMessage(
         threadId: String,
         messageId: String,
         transform: (ChatMessage) -> ChatMessage,
     ) {
-        update(threadId) { conversation ->
-            val index = conversation.messages.indexOfFirst { it.id == messageId }
-            if (index < 0) return@update conversation
+        updateActiveThread(threadId) { current ->
+            val index = current.messages.indexOfFirst { it.id == messageId }
+            if (index < 0) return@updateActiveThread current
 
-            val message = conversation.messages[index]
+            val message = current.messages[index]
             val updated = transform(message)
-            if (updated == message) return@update conversation
+            if (updated == message) return@updateActiveThread current
 
-            val messages = conversation.messages.toMutableList()
+            val messages = current.messages.toMutableList()
             messages[index] = updated
-            conversation.copy(messages = messages)
+            current.copy(messages = messages)
         }
     }
 

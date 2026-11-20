@@ -895,8 +895,9 @@ private fun ChatDestination(
         if (!isDraft) inboxState.openThread(threadId)
         onDispose { if (!isDraft) inboxState.closeThread(threadId) }
     }
+    val activeConversation = inboxState.withActiveMessages(conversation)
     ChatScreen(
-        conversation = conversation,
+        conversation = activeConversation,
         sharedContent = sharedContent,
         onSharedContentConsumed = onSharedContentConsumed,
         onSend = { text, reply ->
