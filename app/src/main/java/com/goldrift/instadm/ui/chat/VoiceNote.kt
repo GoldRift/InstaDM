@@ -116,6 +116,63 @@ data class NowPlaying(
     val waveform: List<Float> = emptyList(),
 )
 
+internal sealed interface PrepareAction {
+    data object Stale : PrepareAction
+    data class Ready(val startPlayback: Boolean, val seekToMs: Int?) : PrepareAction
+}
+
+/**
+ * Coordinates [MediaPlayer.prepareAsync] with user pauses, seeks, and
+ * stop/switch invalidation so stale callbacks never start audio or invoke
+ * playback calls before preparation finishes.
+ */
+internal class VoicePrepareGate {
+    private var generation = 0L
+    private var shouldPlayOnReady = false
+    private var pendingSeekMs: Int? = null
+
+    var isPrepared: Boolean = false
+        private set
+
+    fun beginPrepare(): Long {
+        generation++
+        isPrepared = false
+        shouldPlayOnReady = true
+        pendingSeekMs = null
+        return generation
+    }
+
+    fun onPause() {
+        shouldPlayOnReady = false
+    }
+
+    fun onResume() {
+        shouldPlayOnReady = true
+    }
+
+    fun onSeek(positionMs: Int) {
+        pendingSeekMs = positionMs
+    }
+
+    fun onPrepared(prepareGeneration: Long): PrepareAction {
+        if (prepareGeneration != generation) return PrepareAction.Stale
+        isPrepared = true
+        val action = PrepareAction.Ready(
+            startPlayback = shouldPlayOnReady,
+            seekToMs = pendingSeekMs,
+        )
+        pendingSeekMs = null
+        return action
+    }
+
+    fun invalidate() {
+        generation++
+        isPrepared = false
+        shouldPlayOnReady = false
+        pendingSeekMs = null
+    }
+}
+
 /**
  * Plays one voice note at a time through the speaker. Compose state lets every
  * bubble react to the shared position; starting another note stops the first.
@@ -128,6 +185,7 @@ class VoicePlayer(context: Context) {
     private val audioManager =
         appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
+    private val prepareGate = VoicePrepareGate()
     private var player: MediaPlayer? = null
     private var ticker: Job? = null
     private var focusRequest: AudioFocusRequest? = null
@@ -172,7 +230,63 @@ class VoicePlayer(context: Context) {
 
         stopInternal()
         if (!requestFocus()) return
+        val generation = prepareGate.beginPrepare()
         val mediaPlayer = MediaPlayer()
+        player = mediaPlayer
+        activeId = messageId
+        nowPlaying = note
+        durationMs = fallbackDurationMs
+        positionMs = 0
+        playing = true
+
+        mediaPlayer.setOnPreparedListener { ready ->
+            when (val action = prepareGate.onPrepared(generation)) {
+                PrepareAction.Stale -> releasePlayerAsync(ready)
+                is PrepareAction.Ready -> {
+                    if (player !== ready) {
+                        releasePlayerAsync(ready)
+                        return@setOnPreparedListener
+                    }
+                    durationMs = runCatching { ready.duration }
+                        .getOrDefault(0)
+                        .takeIf { it > 0 } ?: fallbackDurationMs
+                    action.seekToMs?.let { seekTarget ->
+                        runCatching { ready.seekTo(seekTarget) }
+                        positionMs = seekTarget
+                    }
+                    if (action.startPlayback) {
+                        if (runCatching { ready.start() }.isSuccess) {
+                            if (playbackSpeed != 1f) {
+                                applyPlaybackSpeed(ready)
+                            }
+                            playing = true
+                            startTicker()
+                        } else {
+                            stopInternal()
+                        }
+                    } else {
+                        playing = false
+                    }
+                }
+            }
+        }
+        mediaPlayer.setOnCompletionListener { completed ->
+            if (player !== completed) return@setOnCompletionListener
+            playing = false
+            positionMs = durationMs
+            ticker?.cancel()
+            ticker = null
+            VoicePlaybackNotifier.hide(appContext)
+        }
+        mediaPlayer.setOnErrorListener { errored, _, _ ->
+            if (player === errored) {
+                stopInternal()
+            } else {
+                releasePlayerAsync(errored)
+            }
+            true
+        }
+
         try {
             mediaPlayer.setAudioAttributes(
                 AudioAttributes.Builder()
@@ -181,35 +295,20 @@ class VoicePlayer(context: Context) {
                     .build(),
             )
             mediaPlayer.setDataSource(file.absolutePath)
-            mediaPlayer.prepare()
-            mediaPlayer.setOnCompletionListener {
-                playing = false
-                positionMs = durationMs
-                VoicePlaybackNotifier.hide(appContext)
-            }
-            mediaPlayer.start()
-            if (playbackSpeed != 1f) {
-                applyPlaybackSpeed(mediaPlayer)
-            }
+            mediaPlayer.prepareAsync()
         } catch (error: Exception) {
-            runCatching { mediaPlayer.release() }
-            abandonFocus()
-            return
+            stopInternal()
         }
-        player = mediaPlayer
-        activeId = messageId
-        nowPlaying = note
-        durationMs = mediaPlayer.duration.takeIf { it > 0 } ?: fallbackDurationMs
-        positionMs = 0
-        playing = true
-        startTicker()
     }
 
     fun pause() {
         val current = player ?: return
         if (!playing) return
-        runCatching { current.pause() }
-        positionMs = runCatching { current.currentPosition }.getOrDefault(positionMs)
+        prepareGate.onPause()
+        if (prepareGate.isPrepared) {
+            runCatching { current.pause() }
+            positionMs = runCatching { current.currentPosition }.getOrDefault(positionMs)
+        }
         playing = false
         ticker?.cancel()
         ticker = null
@@ -223,7 +322,7 @@ class VoicePlayer(context: Context) {
 
     fun cycleSpeed() {
         playbackSpeed = nextPlaybackSpeed(playbackSpeed, VoicePlaybackSpeeds)
-        if (playing) {
+        if (playing && prepareGate.isPrepared) {
             player?.let(::applyPlaybackSpeed)
         }
     }
@@ -232,6 +331,11 @@ class VoicePlayer(context: Context) {
         val current = player ?: return
         if (playing) return
         if (!requestFocus()) return
+        prepareGate.onResume()
+        if (!prepareGate.isPrepared) {
+            playing = true
+            return
+        }
         val resumeAt = if (positionMs >= durationMs - COMPLETION_TOLERANCE_MS) 0 else positionMs
         runCatching { current.seekTo(resumeAt) }
         if (runCatching { current.start() }.isSuccess) {
@@ -253,10 +357,15 @@ class VoicePlayer(context: Context) {
     /** Seeks the active note to [fraction] (0..1). */
     fun seek(fraction: Float) {
         val current = player ?: return
-        val total = durationMs.takeIf { it > 0 } ?: current.duration
+        val total = durationMs.takeIf { it > 0 }
+            ?: if (prepareGate.isPrepared) runCatching { current.duration }.getOrDefault(0) else 0
         if (total <= 0) return
         val target = (total * fraction.coerceIn(0f, 1f)).roundToInt()
-        runCatching { current.seekTo(target) }
+        if (prepareGate.isPrepared) {
+            runCatching { current.seekTo(target) }
+        } else {
+            prepareGate.onSeek(target)
+        }
         positionMs = target
     }
 
@@ -281,10 +390,10 @@ class VoicePlayer(context: Context) {
     }
 
     private fun stopInternal() {
+        prepareGate.invalidate()
         ticker?.cancel()
         ticker = null
-        runCatching { player?.stop() }
-        runCatching { player?.release() }
+        val old = player
         player = null
         activeId = null
         nowPlaying = null
@@ -293,6 +402,15 @@ class VoicePlayer(context: Context) {
         positionMs = 0
         durationMs = 0
         abandonFocus()
+        releasePlayerAsync(old)
+    }
+
+    private fun releasePlayerAsync(mediaPlayer: MediaPlayer?) {
+        if (mediaPlayer == null) return
+        scope.launch(Dispatchers.IO) {
+            runCatching { mediaPlayer.stop() }
+            runCatching { mediaPlayer.release() }
+        }
     }
 
     private fun startTicker() {
@@ -300,6 +418,7 @@ class VoicePlayer(context: Context) {
         ticker = scope.launch {
             while (isActive) {
                 val current = player ?: break
+                if (!prepareGate.isPrepared) break
                 positionMs = runCatching { current.currentPosition }.getOrDefault(positionMs)
                 if (!playing) break
                 delay(PROGRESS_INTERVAL_MS)
@@ -823,14 +942,16 @@ fun RecordingWaveform(
         val barWidth = 2.5.dp.toPx()
         val gap = 2.dp.toPx()
         val count = ((size.width + gap) / (barWidth + gap)).toInt().coerceIn(1, 48)
-        val visible = amplitudes.takeLast(count)
+        val total = amplitudes.size
+        val start = (total - count).coerceAtLeast(0)
+        val visibleCount = total - start
         for (index in 0 until count) {
-            val amplitude = visible.getOrElse(index) { 0.25f }
+            val amplitude = if (index < visibleCount) amplitudes[start + index] else 0.25f
             val height = (size.height * (0.14f + 0.86f * amplitude.coerceIn(0f, 1f)))
                 .coerceIn(3.dp.toPx(), size.height)
             val left = index * (barWidth + gap)
             drawRoundRect(
-                color = contentColor.copy(alpha = if (index < visible.size) 0.95f else 0.25f),
+                color = contentColor.copy(alpha = if (index < visibleCount) 0.95f else 0.25f),
                 topLeft = Offset(left, (size.height - height) / 2f),
                 size = Size(barWidth, height),
                 cornerRadius = CornerRadius(barWidth / 2, barWidth / 2),

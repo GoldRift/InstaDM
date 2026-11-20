@@ -255,10 +255,10 @@ class Outbox(
      * evict; the copy is what survives process death and retries.
      */
     suspend fun enqueueVoiceNote(threadId: String, recording: RecordedVoice): String {
-        if (!recording.file.isFile) error("recording file is missing")
         val otid = OfflineThreadingIds.next()
         val extension = extensionFor(recording.mimeType, "audio")
         val file = withContext(Dispatchers.IO) {
+            if (!recording.file.isFile) error("recording file is missing")
             if (recording.file.length() > MediaPolicy.MAX_MEDIA_BYTES) {
                 error("recording is larger than the voice-note limit")
             }
@@ -430,7 +430,9 @@ class Outbox(
                 durationMs = payload.optLong("duration_ms"),
                 waveform = payload.optString("waveform"),
             )
-            pruneMediaCache(mediaCacheDir, MEDIA_CACHE_MAX_BYTES, keep = File(localPath))
+            withContext(Dispatchers.IO) {
+                pruneMediaCache(mediaCacheDir, MEDIA_CACHE_MAX_BYTES, keep = File(localPath))
+            }
         }
     }
 

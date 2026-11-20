@@ -128,7 +128,7 @@ not `debug`:
     size limits, and pass file paths across gomobile (`SendMediaPathJSON` /
     `SendVoicePathJSON`) instead of `ByteArray`.
 
-- [ ] **3.3 Move remaining main-thread disk I/O and media lifecycle off UI thread**
+- [x] **3.3 Move remaining main-thread disk I/O and media lifecycle off UI thread**
   - Files: `Outbox.kt`, `VoiceNote.kt`, `VoiceRecorder.kt`.
   - Changes:
     - Wrap `pruneMediaCache` and `File.isFile` checks in `Outbox` with

@@ -676,21 +676,27 @@ fun ChatScreen(
         replyTarget = null
         recordingLocked = false
         recordingCancel = false
-        if (!voiceRecorder.isRecording && voiceRecorder.start()) {
-            haptic.longPress()
+        if (!voiceRecorder.isRecording) {
+            scope.launch {
+                if (voiceRecorder.startAsync()) {
+                    haptic.longPress()
+                }
+            }
         }
     }
 
     fun finishRecording() {
-        val recorded = voiceRecorder.stop()
         recordingLocked = false
         recordingCancel = false
-        if (recorded != null) {
-            replyTarget = null
-            haptic.confirm()
-            onSendVoice(recorded)
-        } else if (voiceRecorder.errorMessage == null) {
-            Toast.makeText(context, R.string.chat_recording_too_short, Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val recorded = voiceRecorder.stopAsync()
+            if (recorded != null) {
+                replyTarget = null
+                haptic.confirm()
+                onSendVoice(recorded)
+            } else if (voiceRecorder.errorMessage == null) {
+                Toast.makeText(context, R.string.chat_recording_too_short, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -4285,6 +4291,18 @@ private fun RecordingDot(paused: Boolean) {
 }
 
 @Composable
+private fun RecordingDurationText(recorder: VoiceRecorder) {
+    val label by remember(recorder) {
+        derivedStateOf { formatMediaDuration(((recorder.elapsedMs / 1_000L) * 1_000L).toInt()) }
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+@Composable
 private fun RecordingStatus(
     recorder: VoiceRecorder,
     cancelCandidate: Boolean,
@@ -4297,11 +4315,7 @@ private fun RecordingStatus(
     ) {
         RecordingDot(paused = paused)
         Spacer(Modifier.width(8.dp))
-        Text(
-            text = formatMediaDuration(recorder.elapsedMs.toInt()),
-            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        RecordingDurationText(recorder)
         Spacer(Modifier.width(10.dp))
         RecordingWaveform(
             amplitudes = recorder.waveform,
@@ -4371,11 +4385,7 @@ private fun LockedRecordingBar(
             ) {
                 RecordingDot(paused = paused)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = formatMediaDuration(recorder.elapsedMs.toInt()),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                RecordingDurationText(recorder)
                 Spacer(Modifier.width(10.dp))
                 RecordingWaveform(
                     amplitudes = recorder.waveform,

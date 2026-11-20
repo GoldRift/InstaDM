@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.goldrift.instadm.R
@@ -18,6 +19,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -45,11 +47,14 @@ class VoiceRecorder(context: Context) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private var sessionGeneration = 0L
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
     private var ticker: Job? = null
     private var segmentStartedAt = 0L
     private var elapsedBeforePause = 0L
+
+    private val _waveform = mutableStateListOf<Float>()
 
     var state by mutableStateOf(VoiceRecordingState.Idle)
         private set
@@ -59,8 +64,7 @@ class VoiceRecorder(context: Context) {
         private set
 
     /** Amplitudes in 0..1, one per [SAMPLE_INTERVAL_MS] of active recording. */
-    var waveform by mutableStateOf<List<Float>>(emptyList())
-        private set
+    val waveform: List<Float> = _waveform
 
     /** Set when recording stopped on its own, e.g. for the byte cap. */
     var errorMessage by mutableStateOf<String?>(null)
@@ -73,49 +77,58 @@ class VoiceRecorder(context: Context) {
     val isRecording: Boolean
         get() = state != VoiceRecordingState.Idle
 
-    @Suppress("DEPRECATION")
+    /** Starts recording off the main thread so hardware prepare never drops frames. */
+    suspend fun startAsync(): Boolean {
+        if (isRecording) return true
+        errorMessage = null
+        _waveform.clear()
+        elapsedMs = 0
+        elapsedBeforePause = 0
+        val generation = ++sessionGeneration
+        state = VoiceRecordingState.Recording
+
+        val prepared = withContext(Dispatchers.IO) { prepareAndStartHardware() }
+        if (prepared == null) {
+            if (generation == sessionGeneration) {
+                state = VoiceRecordingState.Idle
+                errorMessage = appContext.getString(R.string.chat_recording_failed)
+            }
+            return false
+        }
+        val (active, file) = prepared
+        if (generation != sessionGeneration) {
+            teardownAsync(active, file, stopRecorder = true)
+            return false
+        }
+        recorder = active
+        outputFile = file
+        segmentStartedAt = SystemClock.elapsedRealtime()
+        startTicker(file)
+        return true
+    }
+
+    /** Synchronous variant kept for instrumentation tests. */
     fun start(): Boolean {
         if (isRecording) return true
         errorMessage = null
-        waveform = emptyList()
+        _waveform.clear()
         elapsedMs = 0
         elapsedBeforePause = 0
+        sessionGeneration++
 
-        val directory = File(appContext.cacheDir, RECORDING_DIR).apply { mkdirs() }
-        prune(directory)
-        val file = File(directory, "voice-${UUID.randomUUID()}.m4a")
-
-        val active = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(appContext)
-        } else {
-            MediaRecorder()
-        }
-        return try {
-            active.setAudioSource(MediaRecorder.AudioSource.MIC)
-            active.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            active.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            active.setAudioEncodingBitRate(AUDIO_BIT_RATE)
-            active.setAudioSamplingRate(AUDIO_SAMPLE_RATE)
-            active.setAudioChannels(1)
-            active.setOutputFile(file.absolutePath)
-            active.prepare()
-            active.start()
-            recorder = active
-            outputFile = file
-            state = VoiceRecordingState.Recording
-            segmentStartedAt = SystemClock.elapsedRealtime()
-            startTicker(file)
-            true
-        } catch (error: Exception) {
-            runCatching { active.reset() }
-            runCatching { active.release() }
-            runCatching { file.delete() }
-            recorder = null
-            outputFile = null
+        val prepared = prepareAndStartHardware()
+        if (prepared == null) {
             state = VoiceRecordingState.Idle
             errorMessage = appContext.getString(R.string.chat_recording_failed)
-            false
+            return false
         }
+        val (active, file) = prepared
+        recorder = active
+        outputFile = file
+        state = VoiceRecordingState.Recording
+        segmentStartedAt = SystemClock.elapsedRealtime()
+        startTicker(file)
+        return true
     }
 
     fun pause() {
@@ -136,27 +149,104 @@ class VoiceRecorder(context: Context) {
         }
     }
 
+    /** Stops and finalizes the recording off the main thread. */
+    suspend fun stopAsync(): RecordedVoice? {
+        if (!isRecording) return null
+        sessionGeneration++
+        val active = recorder
+        val file = outputFile
+        val duration = activeElapsedMs().toInt()
+        val amplitudes = _waveform.toList()
+        resetUiState()
+        if (active == null || file == null) return null
+
+        return withContext(Dispatchers.IO) {
+            finalizeRecording(active, file, duration, amplitudes)
+        }
+    }
+
     /**
      * Stops and returns the recording, or null when it was too short or empty.
      * The caller owns the returned file until the outbox copies it.
      */
     fun stop(): RecordedVoice? {
         if (!isRecording) return null
-        val active = recorder ?: return null
+        sessionGeneration++
+        val active = recorder
         val file = outputFile
         val duration = activeElapsedMs().toInt()
-        val amplitudes = waveform
-        val mimeType = "audio/mp4"
-        val fileName = file?.name ?: "voice.m4a"
+        val amplitudes = _waveform.toList()
+        resetUiState()
+        if (active == null || file == null) return null
+        return finalizeRecording(active, file, duration, amplitudes)
+    }
 
+    /** Stops and deletes the current recording without blocking the UI thread. */
+    fun cancel() {
+        sessionGeneration++
+        val active = recorder
+        val file = outputFile
+        val wasRecording = isRecording
+        resetUiState()
+        if (active != null || file != null) {
+            teardownAsync(active, file, stopRecorder = wasRecording)
+        }
+    }
+
+    /** Releases the recorder when the screen goes away. */
+    fun release() {
+        cancel()
+        scope.cancel()
+    }
+
+    private fun resetUiState() {
         recorder = null
         outputFile = null
         ticker?.cancel()
         ticker = null
         state = VoiceRecordingState.Idle
         elapsedMs = 0
-        waveform = emptyList()
+        elapsedBeforePause = 0
+        segmentStartedAt = 0L
+        _waveform.clear()
+    }
 
+    @Suppress("DEPRECATION")
+    private fun prepareAndStartHardware(): Pair<MediaRecorder, File>? {
+        val directory = File(appContext.cacheDir, RECORDING_DIR).apply { mkdirs() }
+        prune(directory)
+        val file = File(directory, "voice-${UUID.randomUUID()}.m4a")
+
+        val active = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(appContext)
+        } else {
+            MediaRecorder()
+        }
+        return try {
+            active.setAudioSource(MediaRecorder.AudioSource.MIC)
+            active.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            active.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            active.setAudioEncodingBitRate(AUDIO_BIT_RATE)
+            active.setAudioSamplingRate(AUDIO_SAMPLE_RATE)
+            active.setAudioChannels(1)
+            active.setOutputFile(file.absolutePath)
+            active.prepare()
+            active.start()
+            active to file
+        } catch (error: Exception) {
+            runCatching { active.reset() }
+            runCatching { active.release() }
+            runCatching { file.delete() }
+            null
+        }
+    }
+
+    private fun finalizeRecording(
+        active: MediaRecorder,
+        file: File,
+        duration: Int,
+        amplitudes: List<Float>,
+    ): RecordedVoice? {
         val stoppedCleanly = try {
             active.stop()
             true
@@ -167,8 +257,8 @@ class VoiceRecorder(context: Context) {
             runCatching { active.release() }
         }
 
-        if (!stoppedCleanly || file == null || !file.isFile || file.length() <= 0) {
-            file?.let { runCatching { it.delete() } }
+        if (!stoppedCleanly || !file.isFile || file.length() <= 0) {
+            runCatching { file.delete() }
             return null
         }
         if (duration < MIN_VOICE_MS) {
@@ -177,37 +267,11 @@ class VoiceRecorder(context: Context) {
         }
         return RecordedVoice(
             file = file,
-            fileName = fileName,
-            mimeType = mimeType,
+            fileName = file.name.ifBlank { "voice.m4a" },
+            mimeType = "audio/mp4",
             durationMs = duration,
             waveform = amplitudes,
         )
-    }
-
-    /** Stops and deletes the current recording. */
-    fun cancel() {
-        val active = recorder
-        val file = outputFile
-        val wasRecording = isRecording
-        recorder = null
-        outputFile = null
-        ticker?.cancel()
-        ticker = null
-        state = VoiceRecordingState.Idle
-        elapsedMs = 0
-        waveform = emptyList()
-        if (wasRecording) {
-            runCatching { active?.stop() }
-        }
-        runCatching { active?.reset() }
-        runCatching { active?.release() }
-        file?.let { runCatching { it.delete() } }
-    }
-
-    /** Releases the recorder when the screen goes away. */
-    fun release() {
-        cancel()
-        scope.cancel()
     }
 
     private fun startTicker(file: File) {
@@ -215,6 +279,7 @@ class VoiceRecorder(context: Context) {
         val maxBytes = MediaPolicy.MAX_MEDIA_BYTES
         ticker = scope.launch {
             var nextSampleAt = SystemClock.elapsedRealtime() + SAMPLE_INTERVAL_MS
+            var ticksSinceSizeCheck = 0
             while (isActive && isRecording) {
                 if (state == VoiceRecordingState.Recording) {
                     elapsedMs = activeElapsedMs()
@@ -223,9 +288,13 @@ class VoiceRecorder(context: Context) {
                     nextSampleAt = SystemClock.elapsedRealtime() + SAMPLE_INTERVAL_MS
                     if (state == VoiceRecordingState.Recording) sampleAmplitude()
                 }
-                if (file.length() >= maxBytes) {
-                    stopForLimit(file)
-                    break
+                if (++ticksSinceSizeCheck >= SIZE_CHECK_TICKS) {
+                    ticksSinceSizeCheck = 0
+                    val size = withContext(Dispatchers.IO) { file.length() }
+                    if (size >= maxBytes) {
+                        stopForLimit(file, size)
+                        break
+                    }
                 }
                 delay(TICK_MS)
             }
@@ -233,26 +302,17 @@ class VoiceRecorder(context: Context) {
     }
 
     private fun sampleAmplitude() {
-        if (waveform.size >= MAX_WAVEFORM_SAMPLES) return
+        if (_waveform.size >= MAX_WAVEFORM_SAMPLES) return
         val amplitude = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
         val normalized = (amplitude / MAX_AMPLITUDE).coerceIn(0f, 1f)
-        waveform = waveform + normalized
+        _waveform.add(normalized)
     }
 
-    private fun stopForLimit(file: File) {
+    private fun stopForLimit(file: File, size: Long) {
+        sessionGeneration++
         val active = recorder
-        val size = file.length()
-        recorder = null
-        outputFile = null
-        ticker?.cancel()
-        ticker = null
-        state = VoiceRecordingState.Idle
-        elapsedMs = 0
-        waveform = emptyList()
-        runCatching { active?.stop() }
-        runCatching { active?.reset() }
-        runCatching { active?.release() }
-        runCatching { file.delete() }
+        resetUiState()
+        teardownAsync(active, file, stopRecorder = true)
         errorMessage = appContext.getString(
             R.string.chat_media_too_large,
             formatMediaBytes(size),
@@ -278,12 +338,28 @@ class VoiceRecorder(context: Context) {
     }
 
     private companion object {
+        // Detached IO scope so hardware teardown finishes even if the screen's
+        // VoiceRecorder scope is cancelled immediately on dispose.
+        val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        fun teardownAsync(active: MediaRecorder?, file: File?, stopRecorder: Boolean) {
+            cleanupScope.launch {
+                if (stopRecorder) {
+                    runCatching { active?.stop() }
+                }
+                runCatching { active?.reset() }
+                runCatching { active?.release() }
+                file?.let { runCatching { it.delete() } }
+            }
+        }
+
         const val RECORDING_DIR = "voice"
         const val AUDIO_BIT_RATE = 64_000
         const val AUDIO_SAMPLE_RATE = 44_100
         const val BARS_PER_SECOND = 9
         const val SAMPLE_INTERVAL_MS = 1000L / BARS_PER_SECOND
         const val TICK_MS = 50L
+        const val SIZE_CHECK_TICKS = 10
         const val MIN_VOICE_MS = 300
         const val MAX_AMPLITUDE = 32_767f
         const val MAX_WAVEFORM_SAMPLES = 2_000
