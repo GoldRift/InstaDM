@@ -54,13 +54,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -206,8 +206,10 @@ private fun EmbeddedMediaPickerSheet(
             .build()
     }
 
+    // Keep the embedded picker in expanded mode at all sheet heights: Android's
+    // embedded Photo Picker disables touch scrolling in collapsed mode on U Ext <= 22.
     val pickerState = rememberEmbeddedPhotoPickerState(
-        initialExpandedValue = false,
+        initialExpandedValue = true,
         onSessionError = {
             if (!fallingBack) {
                 fallingBack = true
@@ -230,10 +232,6 @@ private fun EmbeddedMediaPickerSheet(
             onDismiss()
         },
     )
-
-    LaunchedEffect(expanded) {
-        pickerState.isExpanded = expanded
-    }
 
     val navEventState = rememberNavigationEventState(NavigationEventInfo.None)
     NavigationBackHandler(
@@ -307,46 +305,59 @@ private fun EmbeddedMediaPickerSheet(
                     .fillMaxSize()
                     .navigationBarsPadding(),
             ) {
+                    val currentExpanded by rememberUpdatedState(expanded)
+
                     // Header sits strictly above EmbeddedPhotoPicker's SurfaceView
                     // so setZOrderOnTop(true) never obscures any Compose control.
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .pointerInput(expanded) {
+                            .pointerInput(Unit) {
                                 val velocityTracker = VelocityTracker()
-                                var armed = false
+                                var dragState = MediaPickerDragState(sheetExpanded = currentExpanded)
                                 detectVerticalDragGestures(
                                     onDragStart = {
-                                        armed = false
+                                        dragState = MediaPickerDragState(sheetExpanded = currentExpanded)
                                         velocityTracker.resetTracking()
                                     },
                                     onVerticalDrag = { change, dragAmount ->
                                         change.consume()
                                         velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                        val next = dragOffsetY.value + dragAmount
-                                        if (!expanded && next < -expandThresholdPx) {
+                                        val previousOffsetY = dragState.dragOffsetY
+                                        val result = applyMediaPickerHeaderDrag(
+                                            current = dragState,
+                                            dragDeltaY = dragAmount,
+                                            expandThresholdPx = expandThresholdPx,
+                                            dismissThresholdPx = dismissThresholdPx,
+                                        )
+                                        dragState = result.state
+                                        if (result.expandedNow) {
                                             expanded = true
                                             haptic.segmentTick()
-                                            scope.launch { dragOffsetY.animateTo(0f, motion.fastSpatialSpec()) }
-                                        } else if (next >= 0f) {
-                                            if (!armed && !expanded && next >= dismissThresholdPx) {
-                                                armed = true
+                                            scope.launch {
+                                                dragOffsetY.animateTo(0f, motion.fastSpatialSpec())
+                                            }
+                                        } else {
+                                            if (result.armedDismissNow) {
                                                 haptic.thresholdActivated()
                                             }
-                                            scope.launch { dragOffsetY.snapTo(next) }
+                                            if (dragState.dragOffsetY != previousOffsetY) {
+                                                val offsetY = dragState.dragOffsetY
+                                                scope.launch { dragOffsetY.snapTo(offsetY) }
+                                            }
                                         }
                                     },
                                     onDragEnd = {
                                         val velocityY = velocityTracker.calculateVelocity().y
                                         if (
                                             shouldDismissDownward(
-                                                offsetPx = dragOffsetY.value,
+                                                offsetPx = dragState.dragOffsetY,
                                                 velocityPxPerSec = velocityY,
                                                 thresholdPx = dismissThresholdPx,
                                                 flingVelocityPxPerSec = dismissVelocityPx,
                                             )
                                         ) {
-                                            if (expanded) {
+                                            if (dragState.sheetExpanded) {
                                                 expanded = false
                                                 haptic.segmentTick()
                                                 scope.launch {
