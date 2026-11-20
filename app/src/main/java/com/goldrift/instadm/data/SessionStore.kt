@@ -49,40 +49,21 @@ class SessionStore(context: Context) : SessionBacking {
     private val isDebuggable =
         appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
-    @Volatile
-    private var cachedCookies: String? = null
+    private val cookieCache = SessionCookieCache(
+        isDebuggable = isDebuggable,
+        hasEncryptedFile = { sessionFile.isFile },
+        decryptEncryptedFile = { readEncryptedSession() },
+        deleteEncryptedFile = { sessionFile.delete() },
+        legacyFileLastModified = { cookieFile.takeIf { it.isFile }?.lastModified() },
+        readLegacyFile = { cookieFile.takeIf { it.isFile }?.readText() },
+    )
 
-    /** Cheap check for MainActivity before deciding whether to start realtime. */
+    /** Cheap check for startup routing and realtime start without touching Keystore. */
     fun hasStoredSession(): Boolean =
         sessionFile.isFile || (isDebuggable && cookieFile.isFile)
 
     @Synchronized
-    override fun readCookies(): String? {
-        cachedCookies?.let { return it }
-
-        val decrypted = runCatching { readEncryptedSession() }
-            .onFailure { sessionFile.delete() }
-            .getOrNull()
-        if (decrypted != null) {
-            cachedCookies = decrypted
-            return decrypted
-        }
-
-        if (isDebuggable) {
-            val legacy = runCatching {
-                cookieFile
-                    .takeIf { it.isFile }
-                    ?.readText()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-            }.getOrNull()
-            if (legacy != null) {
-                cachedCookies = legacy
-                return legacy
-            }
-        }
-        return null
-    }
+    override fun readCookies(): String? = cookieCache.read()
 
     @Synchronized
     override fun saveCookies(cookiesJson: String) {
@@ -99,13 +80,13 @@ class SessionStore(context: Context) : SessionBacking {
             sessionFile.writeBytes(payload)
             temp.delete()
         }
-        cachedCookies = plaintext
+        cookieCache.recordEncrypted(plaintext)
     }
 
     /** Deletes the encrypted session and the legacy debug cookie file. */
     @Synchronized
     override fun clearCookies() {
-        cachedCookies = null
+        cookieCache.clear()
         sessionFile.delete()
         cookieFile.delete()
     }
@@ -114,6 +95,80 @@ class SessionStore(context: Context) : SessionBacking {
         if (!sessionFile.isFile) return null
         val plaintext = SessionCipher.decrypt(sessionFile.readBytes())
         return plaintext.toString(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+    }
+}
+
+internal class SessionCookieCache(
+    private val isDebuggable: Boolean,
+    private val hasEncryptedFile: () -> Boolean,
+    private val decryptEncryptedFile: () -> String?,
+    private val deleteEncryptedFile: () -> Unit,
+    private val legacyFileLastModified: () -> Long?,
+    private val readLegacyFile: () -> String?,
+) {
+    private var cached: String? = null
+    private var fromLegacyFile: Boolean = false
+    private var legacyLastModified: Long = -1L
+
+    @Synchronized
+    fun read(): String? {
+        val existing = cached
+        if (existing != null) {
+            if (!fromLegacyFile) return existing
+            // In debuggable builds an adb-pushed cookies.json can change
+            // out-of-band; reload if its mtime changed or an encrypted session
+            // superseded it.
+            val currentMtime = legacyFileLastModified()
+            if (!hasEncryptedFile() && currentMtime != null && currentMtime == legacyLastModified) {
+                return existing
+            }
+            cached = null
+            fromLegacyFile = false
+            legacyLastModified = -1L
+        }
+
+        if (hasEncryptedFile()) {
+            val decrypted = runCatching { decryptEncryptedFile() }
+                .onFailure { deleteEncryptedFile() }
+                .getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            if (decrypted != null) {
+                cached = decrypted
+                fromLegacyFile = false
+                legacyLastModified = -1L
+                return decrypted
+            }
+        }
+
+        if (isDebuggable) {
+            val mtime = legacyFileLastModified() ?: return null
+            val legacy = runCatching { readLegacyFile() }
+                .getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            if (legacy != null) {
+                cached = legacy
+                fromLegacyFile = true
+                legacyLastModified = mtime
+                return legacy
+            }
+        }
+        return null
+    }
+
+    @Synchronized
+    fun recordEncrypted(cookiesJson: String) {
+        cached = cookiesJson
+        fromLegacyFile = false
+        legacyLastModified = -1L
+    }
+
+    @Synchronized
+    fun clear() {
+        cached = null
+        fromLegacyFile = false
+        legacyLastModified = -1L
     }
 }
 

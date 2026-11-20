@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.MainActivity
 import com.goldrift.instadm.R
 import com.goldrift.instadm.core.mobile.WatchCallback
@@ -138,7 +139,7 @@ class RealtimeService : Service() {
                     delay(50)
                 }
 
-                val cookies = SessionStore(this@RealtimeService).readCookies()
+                val cookies = sharedSessionStore().readCookies()
                 if (cookies == null) {
                     stopWatch()
                     keepStatusOnDestroy = true
@@ -162,6 +163,9 @@ class RealtimeService : Service() {
         }
     }
 
+    private fun sharedSessionStore(): SessionStore =
+        (application as? InstaDmApplication)?.sessionStore ?: SessionStore(this)
+
     private fun startWatch() {
         if (destroyed) return
 
@@ -169,7 +173,7 @@ class RealtimeService : Service() {
         RealtimeBus.setStatus(RealtimeStatus.Connecting)
         updateForeground(getString(R.string.realtime_connecting))
 
-        val cookies = SessionStore(this).readCookies()
+        val cookies = sharedSessionStore().readCookies()
         if (cookies == null) {
             keepStatusOnDestroy = true
             RealtimeBus.setStatus(RealtimeStatus.NoSession)

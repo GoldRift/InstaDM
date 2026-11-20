@@ -35,7 +35,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -127,6 +126,9 @@ private object Routes {
     fun chat(threadId: String): String = "$Chat/${Uri.encode(threadId)}"
 }
 
+internal fun resolveStartRoute(hasInitialSession: Boolean): String =
+    if (hasInitialSession) Routes.Inbox else Routes.Login
+
 /** Expanded-width breakpoint for the side-by-side inbox and chat panes. */
 private val TwoPaneMinWidth = 840.dp
 private val InboxPaneWidth = 380.dp
@@ -149,7 +151,9 @@ fun InstaDmApp(
     val updateState = updates.state
     val hasUpdateBadge = showUpdateBadge(updates.pendingUpdate, updates.badgeSeenVersionCode)
     val navController = rememberNavController()
-    var startRoute by remember { mutableStateOf<String?>(null) }
+    val startRoute = remember(application) {
+        resolveStartRoute(hasInitialSession = application.hasInitialSession())
+    }
     // The two-pane detail selection lives here so the player bar can tell which
     // chat is on screen and open the one it belongs to.
     var selectedChatId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -180,23 +184,8 @@ fun InstaDmApp(
     var shownBanner by remember { mutableStateOf<ChatBanner?>(null) }
     LaunchedEffect(banner) { if (banner != null) shownBanner = banner }
 
-    LaunchedEffect(application.repository) {
-        startRoute = if (application.repository.hasCookies()) Routes.Inbox else Routes.Login
-    }
-
     LaunchedEffect(inboxState) {
         inboxState.refreshIfNeeded()
-    }
-
-    val resolvedStart = startRoute
-    if (resolvedStart == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            val loading = stringResource(R.string.app_loading)
-            LoadingIndicator(
-                modifier = Modifier.semantics { contentDescription = loading },
-            )
-        }
-        return
     }
 
     val motion = MaterialTheme.motionScheme
@@ -262,7 +251,7 @@ fun InstaDmApp(
         }
         NavHost(
             navController = navController,
-            startDestination = resolvedStart,
+            startDestination = startRoute,
             enterTransition = {
                 fadeIn(motion.defaultEffectsSpec<Float>()) +
                     slideInHorizontally(motion.defaultSpatialSpec<IntOffset>()) { it / 10 }

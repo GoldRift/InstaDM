@@ -43,6 +43,12 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
 
     /** The demo build has no notification permission prompt. */
     open val requestsNotificationPermission: Boolean = true
+
+    /**
+     * Fast synchronous session check for the first NavHost destination so cold
+     * start does not stall on a blank spinner frame while Keystore decrypts.
+     */
+    open fun hasInitialSession(): Boolean = sessionStore.hasStoredSession()
     val mediaReader by lazy { MediaReader(this) }
     val database by lazy { InstaDmDatabase.build(this) }
     val chatStore by lazy { ChatStore(database) }

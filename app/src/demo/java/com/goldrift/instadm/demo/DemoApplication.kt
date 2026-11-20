@@ -22,6 +22,8 @@ class DemoApplication : InstaDmApplication() {
 
     override val requestsNotificationPermission: Boolean = false
 
+    override fun hasInitialSession(): Boolean = true
+
     override fun onCreate() {
         super.onCreate()
         demoScope.launch {

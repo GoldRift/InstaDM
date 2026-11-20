@@ -145,16 +145,21 @@ not `debug`:
     creating players during fast scroll, and cap active concurrent inline GIF
     players to 2–3 visible items.
 
-- [ ] **3.5 Trim cold-start work**
-  - Files: `InstaDmApp.kt`, `RealtimeService.kt`, `ProtocolRepository.kt`.
+- [x] **3.5 Trim cold-start work**
+  - Files: `InstaDmApp.kt`, `InstaDmApplication.kt`, `DemoApplication.kt`,
+    `RealtimeService.kt`, `SessionStore.kt`.
   - Changes:
     - Initialize `startRoute` synchronously from
-      `application.sessionStore.hasStoredSession()` to avoid the initial
-      spinner frame.
+      `application.hasInitialSession()` (backed by `SessionStore.hasStoredSession()`,
+      overridden to `true` in `DemoApplication`) to remove the initial spinner frame.
     - Reuse `application.sessionStore` inside `RealtimeService` instead of
-      creating a new `SessionStore(this)` that re-decrypts Keystore cookies.
-    - Evaluate sharing one bootstrapped `GoClient` between `ProtocolRepository`
-      and `RealtimeService`.
+      creating a new `SessionStore(this)` that re-decrypts Keystore cookies,
+      while keeping debug `cookies.json` mtime reload detection in `SessionCookieCache`.
+    - Evaluated sharing one `GoClient` between `ProtocolRepository` and
+      `RealtimeService`: intentionally kept separate because pinned
+      `mautrix-meta`'s `instameow.Client.LoadIndex` calls `makeNewSocket()`,
+      which disconnects the active DGW and typing sockets on every inbox refresh
+      and mutates `configs`/`seqID` concurrently with `Connect()`.
 
 ---
 
