@@ -1,101 +1,24 @@
 ---
 name: mobile-android-design
-description: Master Material Design 3 and Jetpack Compose patterns for building native Android apps. Use when designing Android interfaces, implementing Compose UI, or following Google's Material Design guidelines.
+description: Material Design 3 and Jetpack Compose design patterns for building new Android screens, Material 3 theming/expressive surfaces, adaptive layouts, or Navigation Compose architecture. Do not load for minor UI tweaks or bug fixes.
 ---
 
 # Android Mobile Design
 
-Master Material Design 3 (Material You) and Jetpack Compose to build modern, adaptive Android applications that integrate seamlessly with the Android ecosystem.
+Reference for designing new Material Design 3 screens, theming systems, adaptive layouts, and Navigation Compose flows.
 
-## When to Use This Skill
+## Core principles
 
-- Designing Android app interfaces following Material Design 3
-- Building Jetpack Compose UI and layouts
-- Implementing Android navigation patterns (Navigation Compose)
-- Creating adaptive layouts for phones, tablets, and foldables
-- Using Material 3 theming with dynamic colors
-- Building accessible Android interfaces
-- Implementing Android-specific gestures and interactions
-- Designing for different screen configurations
+- **Material Theme**: read colors, typography, and shapes from `MaterialTheme` (`colorScheme`, `typography`, `shapes`) so dark mode and dynamic color (Android 12+) work automatically.
+- **Adaptive layouts**: use `WindowSizeClass` for phones, tablets, and foldables.
+- **Accessibility**: minimum 48dp touch targets; set `contentDescription` on interactive icons/images (`null` for purely decorative ones).
+- **State hoisting & previews**: hoist state out of reusable components; use `rememberSaveable` for state that survives configuration changes; add `@Preview` for key states/themes.
 
-## Detailed section: Core Concepts
+## On-demand references
 
-Originally a 9201-byte section in this SKILL.md. Moved to `references/details.md` to fit Codex's 8 KB skill body cap.
+Read only the specific file needed for the task:
 
-## Quick Start Component
-
-```kotlin
-@Composable
-fun ItemListCard(
-    item: Item,
-    onItemClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        onClick = onItemClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = item.subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-```
-
-## Best Practices
-
-1. **Use Material Theme**: Access colors via `MaterialTheme.colorScheme` for automatic dark mode support
-2. **Support Dynamic Color**: Enable dynamic color on Android 12+ for personalization
-3. **Adaptive Layouts**: Use `WindowSizeClass` for responsive designs
-4. **Content Descriptions**: Add `contentDescription` to all interactive elements
-5. **Touch Targets**: Minimum 48dp touch targets for accessibility
-6. **State Hoisting**: Hoist state to make components reusable and testable
-7. **Remember Properly**: Use `remember` and `rememberSaveable` appropriately
-8. **Preview Annotations**: Add `@Preview` with different configurations
-
-## Common Issues
-
-- **Recomposition Issues**: Avoid passing unstable lambdas; use `remember`
-- **State Loss**: Use `rememberSaveable` for configuration changes
-- **Performance**: Use `LazyColumn` instead of `Column` for long lists
-- **Theme Leaks**: Ensure `MaterialTheme` wraps all composables
-- **Navigation Crashes**: Handle back press and deep links properly
-- **Memory Leaks**: Cancel coroutines in `DisposableEffect`
+- `references/material3-theming.md`: Color system, typography, shape system, elevation/shadows, responsive design.
+- `references/compose-components.md`: Lists/collections, forms/input, dialogs/bottom sheets, loading states, animations.
+- `references/android-navigation.md`: Navigation Compose basics, bottom nav, drawer, rail, deep linking, nested graphs, state, transitions.
+- `references/details.md`: Core Material 3 & Compose architecture concepts.
