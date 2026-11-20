@@ -15,7 +15,6 @@ import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
 import com.goldrift.instadm.ui.chat.isDecoderFailureCode
 import com.goldrift.instadm.ui.chat.mediaDismissTransform
 import com.goldrift.instadm.ui.chat.nextPlaybackSpeed
-import com.goldrift.instadm.ui.chat.pageIndicatorWindow
 import com.goldrift.instadm.ui.chat.shouldAutoHidePlayerChrome
 import com.goldrift.instadm.ui.chat.shouldDismissDownward
 import com.goldrift.instadm.ui.chat.shouldDismissMedia
@@ -450,32 +449,5 @@ class MediaPlayerMathTest {
         assertEquals("mid.solo", request.items.first().messageId)
         assertEquals("Maya Chen", request.items.first().senderName)
         assertEquals("", request.items.first().timestamp)
-    }
-
-    @Test
-    fun pageIndicatorWindowBoundsLargeGalleriesAndSignalsOverflow() {
-        val small = pageIndicatorWindow(currentPage = 2, pageCount = 4, maxVisible = 7)
-        assertEquals(0, small.startIndex)
-        assertEquals(3, small.endIndex)
-        assertFalse(small.hasLeadingOverflow)
-        assertFalse(small.hasTrailingOverflow)
-
-        val start = pageIndicatorWindow(currentPage = 0, pageCount = 12, maxVisible = 7)
-        assertEquals(0, start.startIndex)
-        assertEquals(6, start.endIndex)
-        assertFalse(start.hasLeadingOverflow)
-        assertTrue(start.hasTrailingOverflow)
-
-        val middle = pageIndicatorWindow(currentPage = 6, pageCount = 12, maxVisible = 7)
-        assertEquals(3, middle.startIndex)
-        assertEquals(9, middle.endIndex)
-        assertTrue(middle.hasLeadingOverflow)
-        assertTrue(middle.hasTrailingOverflow)
-
-        val end = pageIndicatorWindow(currentPage = 11, pageCount = 12, maxVisible = 7)
-        assertEquals(5, end.startIndex)
-        assertEquals(11, end.endIndex)
-        assertTrue(end.hasLeadingOverflow)
-        assertFalse(end.hasTrailingOverflow)
     }
 }

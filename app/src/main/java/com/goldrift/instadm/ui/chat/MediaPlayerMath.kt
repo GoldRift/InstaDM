@@ -22,13 +22,6 @@ data class MediaViewerRequest(
     val initialIndex: Int = 0,
 )
 
-internal data class PageIndicatorWindow(
-    val startIndex: Int,
-    val endIndex: Int,
-    val hasLeadingOverflow: Boolean,
-    val hasTrailingOverflow: Boolean,
-)
-
 internal fun isViewableChatMedia(media: MessageMedia): Boolean =
     !media.viewOnce && (media.isVisual || media.isReel)
 
@@ -100,38 +93,6 @@ internal fun buildChatMediaViewerRequest(
             ),
         ),
         initialIndex = 0,
-    )
-}
-
-internal fun pageIndicatorWindow(
-    currentPage: Int,
-    pageCount: Int,
-    maxVisible: Int = MAX_VISIBLE_PAGE_DOTS,
-): PageIndicatorWindow {
-    if (pageCount <= 0 || maxVisible <= 0) {
-        return PageIndicatorWindow(
-            startIndex = 0,
-            endIndex = -1,
-            hasLeadingOverflow = false,
-            hasTrailingOverflow = false,
-        )
-    }
-    val clampedPage = currentPage.coerceIn(0, pageCount - 1)
-    if (pageCount <= maxVisible) {
-        return PageIndicatorWindow(
-            startIndex = 0,
-            endIndex = pageCount - 1,
-            hasLeadingOverflow = false,
-            hasTrailingOverflow = false,
-        )
-    }
-    val start = (clampedPage - maxVisible / 2).coerceIn(0, pageCount - maxVisible)
-    val end = start + maxVisible - 1
-    return PageIndicatorWindow(
-        startIndex = start,
-        endIndex = end,
-        hasLeadingOverflow = start > 0,
-        hasTrailingOverflow = end < pageCount - 1,
     )
 }
 
@@ -265,7 +226,6 @@ internal fun shouldAutoHidePlayerChrome(
     isBuffering: Boolean,
 ): Boolean = chromeVisible && isVideo && isPlaying && !isScrubbing && !isBuffering
 
-private const val MAX_VISIBLE_PAGE_DOTS = 7
 private const val ZOOM_DISMISS_EPSILON = 1.01f
 private const val DISMISS_TRAVEL_FRACTION = 0.5f
 private const val MIN_DISMISS_SCALE = 0.8f

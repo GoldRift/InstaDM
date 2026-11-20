@@ -99,7 +99,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -469,8 +468,6 @@ private fun MediaViewerContent(
                             readyFiles.remove(item.key)
                         }
                     },
-                    pageCount = request.items.size,
-                    pageIndex = pageIndex,
                 )
             }
         }
@@ -492,8 +489,6 @@ private fun MediaViewerContent(
                 senderName = currentItem.senderName,
                 timestamp = currentItem.timestamp,
                 media = currentItem.media,
-                pageIndex = pagerState.currentPage,
-                pageCount = request.items.size,
                 readyFile = currentReadyFile,
                 onClose = onDismiss,
                 onShare = { file -> shareMediaFile(context, file, currentItem.media) },
@@ -508,8 +503,6 @@ private fun ViewerTopBar(
     senderName: String,
     timestamp: String,
     media: MessageMedia,
-    pageIndex: Int,
-    pageCount: Int,
     readyFile: File?,
     onClose: () -> Unit,
     onShare: (File) -> Unit,
@@ -601,23 +594,6 @@ private fun ViewerTopBar(
                             )
                         }
                     }
-                    if (pageCount > 1) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ) {
-                            Text(
-                                text = stringResource(
-                                    R.string.media_viewer_page,
-                                    pageIndex + 1,
-                                    pageCount,
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
                 }
             }
 
@@ -682,8 +658,6 @@ private fun MediaViewerPage(
     onSetChromeVisible: (Boolean) -> Unit,
     onZoomChange: (Float) -> Unit,
     onReadyFile: (File?) -> Unit,
-    pageCount: Int,
-    pageIndex: Int,
 ) {
     var retryToken by remember(messageId, media.partIndex) { mutableIntStateOf(0) }
     var state by remember(messageId, media.partIndex) {
@@ -743,10 +717,6 @@ private fun MediaViewerPage(
                         file = current.file,
                         media = media,
                         isActivePage = isActivePage,
-                        chromeVisible = chromeVisible,
-                        chromeAlpha = chromeAlpha,
-                        pageIndex = pageIndex,
-                        pageCount = pageCount,
                         onToggleChrome = onToggleChrome,
                         onZoomChange = onZoomChange,
                     )
@@ -839,10 +809,6 @@ private fun ZoomableImagePage(
     file: File,
     media: MessageMedia,
     isActivePage: Boolean,
-    chromeVisible: Boolean,
-    chromeAlpha: Float,
-    pageIndex: Int,
-    pageCount: Int,
     onToggleChrome: () -> Unit,
     onZoomChange: (Float) -> Unit,
 ) {
@@ -981,65 +947,6 @@ private fun ZoomableImagePage(
                 }
             },
         )
-
-        if (pageCount > 1) {
-            AnimatedVisibility(
-                visible = chromeVisible,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 20.dp)
-                    .alpha(chromeAlpha),
-                enter = fadeIn(motion.fastEffectsSpec()) +
-                    slideInVertically(motion.fastSpatialSpec()) { it / 2 },
-                exit = fadeOut(motion.fastEffectsSpec()) +
-                    slideOutVertically(motion.fastSpatialSpec()) { it / 2 },
-                label = "viewerPageDots",
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.88f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val window = pageIndicatorWindow(
-                            currentPage = pageIndex,
-                            pageCount = pageCount,
-                        )
-                        for (index in window.startIndex..window.endIndex) {
-                            val selected = index == pageIndex
-                            val isOverflowEdge =
-                                (index == window.startIndex && window.hasLeadingOverflow) ||
-                                    (index == window.endIndex && window.hasTrailingOverflow)
-                            val dotHeight = if (isOverflowEdge && !selected) 4.dp else 6.dp
-                            val dotWidth = when {
-                                selected -> 18.dp
-                                isOverflowEdge -> 4.dp
-                                else -> 6.dp
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(width = dotWidth, height = dotHeight)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (selected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = if (isOverflowEdge) 0.3f else 0.45f,
-                                            )
-                                        },
-                                    ),
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

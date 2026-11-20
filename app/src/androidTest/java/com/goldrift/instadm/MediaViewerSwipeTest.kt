@@ -64,19 +64,19 @@ class MediaViewerSwipeTest {
 
         compose.onNodeWithText("You").assertExists()
         compose.onNodeWithText("1:00 PM").assertExists()
-        compose.onNodeWithText("1 / 2").assertExists()
+        compose.onNodeWithText("1 / 2").assertDoesNotExist()
 
         compose.onRoot().performTouchInput { swipeLeft() }
         compose.waitForIdle()
 
         compose.onNodeWithText("Dev Patel").assertExists()
         compose.onNodeWithText("1:05 PM").assertExists()
-        compose.onNodeWithText("2 / 2").assertExists()
+        compose.onNodeWithText("2 / 2").assertDoesNotExist()
 
         compose.onRoot().performTouchInput { swipeRight() }
         compose.waitForIdle()
 
         compose.onNodeWithText("You").assertExists()
-        compose.onNodeWithText("1 / 2").assertExists()
+        compose.onNodeWithText("1:00 PM").assertExists()
     }
 }
