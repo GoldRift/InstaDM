@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.androidx.baselineprofile)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
@@ -149,6 +150,12 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+baselineProfile {
+    mergeIntoMain = true
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+}
+
 dependencies {
     implementation(files("libs/igcore.aar"))
     implementation(platform(libs.androidx.compose.bom))
@@ -171,6 +178,8 @@ dependencies {
     implementation(libs.androidx.media3.ui.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.navigationevent.compose)
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.androidx.room.runtime)

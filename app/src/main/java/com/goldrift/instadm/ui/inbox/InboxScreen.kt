@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.inbox
 
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -92,6 +93,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -265,6 +267,7 @@ fun InboxScreen(
                     if (step.fireHaptic) haptic.thresholdActivated()
                 }
             }
+            ReportDrawnWhen { status != InboxStatus.Loading || conversations.isNotEmpty() }
             PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = onRefresh,
@@ -401,7 +404,7 @@ fun InboxScreen(
                         }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().testTag("inbox_list"),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
                                 bottom = navBarBottom + 8.dp + listBottomInset,
@@ -561,6 +564,7 @@ private fun ConversationRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("conversation_row")
             .padding(horizontal = 8.dp, vertical = 2.dp)
             .clip(rowShape)
             .then(

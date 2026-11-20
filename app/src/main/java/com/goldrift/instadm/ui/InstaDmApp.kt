@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -210,7 +211,7 @@ fun InstaDmApp(
     }
 
     val wide = LocalWindowInfo.current.containerDpSize.width >= TwoPaneMinWidth
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         // The bar floats over the screens so the surface shows around it: the
         // inbox keeps its own colour and the note sits on top like a player.
         // Only the detail pane of a wide inbox counts as "reading" a chat.

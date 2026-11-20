@@ -165,10 +165,15 @@ not `debug`:
 
 ## Phase 4: Build and Runtime Optimizations
 
-- [ ] **4.1 Add Baseline Profiles (`androidx.profileinstaller` + `:baselineprofile`)**
-  - Files: `gradle/libs.versions.toml`, `app/build.gradle.kts`, new
-    `baselineprofile/` module.
-  - Cover cold start, inbox scroll, opening a thread, and transcript scroll.
+- [x] **4.1 Add Baseline Profiles (`androidx.profileinstaller` + `:baselineprofile`)**
+  - Files: `gradle/libs.versions.toml`, `settings.gradle.kts`, `build.gradle.kts`,
+    `app/build.gradle.kts`, `baselineprofile/`, `InstaDmApp.kt`, `InboxScreen.kt`,
+    `ChatScreen.kt`.
+  - Cover cold start, inbox scroll, opening a thread, and transcript scroll,
+    with `ReportDrawnWhen` in `InboxScreen`.
+  - Follow-up on device: run `./gradlew :app:generateBaselineProfile` on a
+    connected API 33+ device (or rooted API 28+ emulator) and commit the
+    generated `app/src/main/generated/baselineProfiles/` rules.
 
 - [ ] **4.2 Tune Coil caching**
   - Files: `InstaDmApplication.kt`.

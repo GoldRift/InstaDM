@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "InstaDM"
 include(":app")
+include(":baselineprofile")
  

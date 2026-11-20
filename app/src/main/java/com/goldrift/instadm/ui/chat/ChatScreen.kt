@@ -188,6 +188,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -1525,7 +1526,7 @@ private fun MessageList(
         LazyColumn(
             state = listState,
             reverseLayout = true,
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier.fillMaxSize().testTag("message_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
