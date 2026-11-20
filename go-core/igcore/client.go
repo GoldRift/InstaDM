@@ -33,6 +33,10 @@ type Client struct {
 	onEvent func(Event)
 
 	mu           sync.Mutex
+	// rpcMu serializes calls into instameow's HTTPClient, whose request counter
+	// and refreshed configs are not concurrency-safe. CDN media downloads bypass
+	// instameow and run without holding rpcMu.
+	rpcMu        sync.Mutex
 	bootstrapped bool
 	ownFBID      int64
 
@@ -111,7 +115,13 @@ func (c *Client) LoadMailbox(ctx context.Context, limit int) (*MailboxView, erro
 		return nil, errors.New("client is not initialized")
 	}
 
+	c.rpcMu.Lock()
 	viewer, mailbox, err := c.inner.LoadIndex(ctx)
+	var ownFBID int64
+	if err == nil && validViewer(viewer) && mailbox != nil {
+		ownFBID = c.recordViewer(viewer)
+	}
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +132,6 @@ func (c *Client) LoadMailbox(ctx context.Context, limit int) (*MailboxView, erro
 		return nil, errors.New("Instagram returned an empty mailbox")
 	}
 
-	ownFBID := c.recordViewer(viewer)
 	return newMailboxView(viewer, mailbox, ownFBID, limit), nil
 }
 
@@ -152,7 +161,9 @@ func (c *Client) LoadMailboxPage(ctx context.Context, cursor string, limit int) 
 
 	request := slidetypes.MakePaginateMailboxRequest(ownFBID, cursor, "INBOX", nil)
 	request.Count = limit
+	c.rpcMu.Lock()
 	response, err := c.inner.PaginateMailbox(ctx, request)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +201,9 @@ func (c *Client) LoadThread(ctx context.Context, threadID string, limit int) (*T
 	request := slidetypes.MakeGetThreadInfoRequest(threadID)
 	request.InitialMessagePageCount = limit
 
+	c.rpcMu.Lock()
 	response, err := c.inner.GetThread(ctx, request)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +249,9 @@ func (c *Client) LoadOlderMessages(ctx context.Context, threadID, afterCursor st
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.PaginateMessages(ctx, buildPaginateMessagesRequest(threadID, afterCursor, limit))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +286,17 @@ func buildPaginateMessagesRequest(threadID, afterCursor string, limit int) *slid
 // LoadMailbox does this implicitly; LoadThread calls it so a standalone thread
 // command does not rely on empty bootstrap configs.
 func (c *Client) bootstrap(ctx context.Context) (int64, error) {
+	c.mu.Lock()
+	if c.bootstrapped {
+		ownFBID := c.ownFBID
+		c.mu.Unlock()
+		return ownFBID, nil
+	}
+	c.mu.Unlock()
+
+	c.rpcMu.Lock()
+	defer c.rpcMu.Unlock()
+
 	c.mu.Lock()
 	if c.bootstrapped {
 		ownFBID := c.ownFBID
@@ -477,7 +503,9 @@ func (c *Client) SendText(ctx context.Context, threadID, text, replyTo, otid str
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.SendMessage(ctx, request)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

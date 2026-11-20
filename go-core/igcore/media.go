@@ -202,7 +202,9 @@ func (c *Client) sendMediaFile(ctx context.Context, threadID string, threadIDInt
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	upload, err := c.inner.GetHTTP().SendMercuryUploadRequest(ctx, threadIDInt, newMercuryUpload(file))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +217,9 @@ func (c *Client) sendMediaFile(ctx context.Context, threadID string, threadIDInt
 	}
 	attachmentID := strconv.FormatInt(attachmentFBID, 10)
 
+	c.rpcMu.Lock()
 	response, err := c.inner.SendMedia(ctx, buildSendMediaRequest(threadID, attachmentID, replyTo, otid))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +554,9 @@ func (c *Client) resolveSharedMedia(ctx context.Context, mediaID, shortcode stri
 	if _, err := c.bootstrap(ctx); err != nil {
 		return nil, err
 	}
+	c.rpcMu.Lock()
 	response, err := c.inner.FetchMedia(ctx, mediaID, strings.TrimSpace(shortcode))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("resolve shared reel: %w", err)
 	}

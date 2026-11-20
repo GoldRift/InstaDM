@@ -39,7 +39,9 @@ func (c *Client) SendNewDM(ctx context.Context, recipientFBID, text, otid string
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.SendMessage(ctx, request)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

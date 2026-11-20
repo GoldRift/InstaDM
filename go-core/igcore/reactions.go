@@ -43,7 +43,9 @@ func (c *Client) SendReaction(ctx context.Context, threadID, messageID, emoji st
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.SendReaction(ctx, buildReactionRequest(threadID, messageID, emoji, remove))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

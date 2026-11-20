@@ -44,7 +44,9 @@ func (c *Client) SearchUsers(ctx context.Context, query string) (*SearchView, er
 	if _, err := c.bootstrap(ctx); err != nil {
 		return nil, err
 	}
+	c.rpcMu.Lock()
 	response, err := c.inner.SearchUsers(ctx, query)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

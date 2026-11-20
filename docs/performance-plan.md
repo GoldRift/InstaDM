@@ -115,7 +115,7 @@ not `debug`:
 
 ## Phase 3: Concurrency, Memory, Media, and Startup
 
-- [ ] **3.1 Unblock interactive RPCs from media downloads/uploads in `ProtocolRepository`**
+- [x] **3.1 Unblock interactive RPCs from media downloads/uploads in `ProtocolRepository`**
   - Files: `ProtocolRepository.kt` (and verify `igcore` / `mautrix-meta` concurrency).
   - Change: Check `cachedMedia` before acquiring locks. Allow concurrent HTTP
     RPCs and media transfers without stalling text sends, thread loads,

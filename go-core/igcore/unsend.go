@@ -42,7 +42,9 @@ func (c *Client) UnsendMessage(ctx context.Context, threadID, messageID string) 
 		return nil, errors.New("Instagram did not return a long thread ID")
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.UnsendMessage(ctx, buildUnsendMessageRequest(messageID, longThreadID))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -583,5 +584,57 @@ func TestNewMediaSendResultVoice(t *testing.T) {
 	result := newMediaSendResult("thread-id", "otid-1", "attachment-id", file, slidetypes.SentMessage{})
 	if !result.Voice || !result.Waveform {
 		t.Errorf("result voice/waveform = %v/%v, want true/true", result.Voice, result.Waveform)
+	}
+}
+
+func TestDownloadMediaPartRunsConcurrently(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-release
+		w.Header().Set("Content-Type", "audio/mp4")
+		_, _ = w.Write([]byte("audio-bytes"))
+	}))
+	defer server.Close()
+
+	client := &Client{cache: newThreadCache()}
+	loader := func(_ context.Context, _ string, messageID string) (*MessageView, error) {
+		return &MessageView{
+			ID: messageID,
+			Media: []MediaView{
+				{Type: "audio", URL: server.URL + "/" + messageID},
+			},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, id := range []string{"m1", "m2"} {
+		wg.Add(1)
+		go func(messageID string) {
+			defer wg.Done()
+			dest := filepath.Join(dir, messageID+".m4a")
+			_, err := client.downloadMediaPart(context.Background(), "t1", messageID, 0, dest, loader, nil)
+			if err != nil {
+				errs <- err
+			}
+		}(id)
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			close(release)
+			t.Fatal("concurrent media downloads were serialized")
+		}
+	}
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("downloadMediaPart: %v", err)
 	}
 }

@@ -35,7 +35,9 @@ func (c *Client) EditText(ctx context.Context, threadID, messageID, text, otid s
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.EditMessage(ctx, request)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

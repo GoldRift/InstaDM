@@ -45,7 +45,9 @@ func (c *Client) SetMuted(ctx context.Context, threadID string, muteSeconds int)
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.MuteThread(ctx, buildMuteThreadRequest(threadID, muteSeconds, otid))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +89,9 @@ func (c *Client) SetPinned(ctx context.Context, threadID string, pin bool) (*Pin
 		return nil, err
 	}
 
+	c.rpcMu.Lock()
 	response, err := c.inner.PinThread(ctx, buildPinThreadRequest(threadID, pin))
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

@@ -95,10 +95,13 @@ func (c *Client) markThreadReadAt(ctx context.Context, threadID, longThreadID, m
 	}
 
 	first, validation := buildMarkReadRequests(longThreadID, messageID, timestampMS)
-	if _, err := c.inner.MarkRead(ctx, first); err != nil {
-		return nil, err
+	c.rpcMu.Lock()
+	_, err := c.inner.MarkRead(ctx, first)
+	var validationResponse *slidetypes.MarkReadValidationResponse
+	if err == nil {
+		validationResponse, err = c.inner.MarkReadValidation(ctx, validation)
 	}
-	validationResponse, err := c.inner.MarkReadValidation(ctx, validation)
+	c.rpcMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

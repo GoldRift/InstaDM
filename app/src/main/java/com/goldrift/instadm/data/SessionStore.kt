@@ -25,14 +25,17 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * The encrypted session wins when both exist. Cookie values are never logged.
  */
-class SessionStore(context: Context) {
+class SessionStore(context: Context) : SessionBacking {
     private val appContext = context.applicationContext
 
     val cookieFile: File
         get() = File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "cookies.json")
 
+    override val cookieLocation: String
+        get() = cookieFile.absolutePath
+
     /** App-private cache for downloaded media. Safe to clear at any time. */
-    val mediaCacheDir: File
+    override val mediaCacheDir: File
         get() = File(appContext.cacheDir, "media").apply { mkdirs() }
 
     /**
@@ -54,7 +57,7 @@ class SessionStore(context: Context) {
         sessionFile.isFile || (isDebuggable && cookieFile.isFile)
 
     @Synchronized
-    fun readCookies(): String? {
+    override fun readCookies(): String? {
         cachedCookies?.let { return it }
 
         val decrypted = runCatching { readEncryptedSession() }
@@ -82,7 +85,7 @@ class SessionStore(context: Context) {
     }
 
     @Synchronized
-    fun saveCookies(cookiesJson: String) {
+    override fun saveCookies(cookiesJson: String) {
         val plaintext = cookiesJson.trim()
         require(plaintext.isNotEmpty()) { "cookies are empty" }
 
@@ -101,7 +104,7 @@ class SessionStore(context: Context) {
 
     /** Deletes the encrypted session and the legacy debug cookie file. */
     @Synchronized
-    fun clearCookies() {
+    override fun clearCookies() {
         cachedCookies = null
         sessionFile.delete()
         cookieFile.delete()
