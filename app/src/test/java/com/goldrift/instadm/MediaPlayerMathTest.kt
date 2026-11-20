@@ -10,6 +10,7 @@ import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
 import com.goldrift.instadm.ui.chat.mediaDismissTransform
 import com.goldrift.instadm.ui.chat.nextPlaybackSpeed
 import com.goldrift.instadm.ui.chat.shouldAutoHidePlayerChrome
+import com.goldrift.instadm.ui.chat.shouldDismissDownward
 import com.goldrift.instadm.ui.chat.shouldDismissMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,6 +59,51 @@ class MediaPlayerMathTest {
                 velocityPxPerSec = 400f,
                 thresholdPx = 200f,
                 flingVelocityPxPerSec = 1_200f,
+            ),
+        )
+    }
+
+    @Test
+    fun downwardDismissIgnoresUpwardFlingAndAcceptsQuickDownwardFlick() {
+        assertTrue(
+            shouldDismissDownward(
+                offsetPx = 80f,
+                velocityPxPerSec = 0f,
+                thresholdPx = 70f,
+                flingVelocityPxPerSec = 900f,
+            ),
+        )
+        assertTrue(
+            shouldDismissDownward(
+                offsetPx = 18f,
+                velocityPxPerSec = 1_100f,
+                thresholdPx = 70f,
+                flingVelocityPxPerSec = 900f,
+            ),
+        )
+        // Upward flicks at rest or mid-pull must never dismiss a downward-only bar.
+        assertFalse(
+            shouldDismissDownward(
+                offsetPx = 0f,
+                velocityPxPerSec = -1_400f,
+                thresholdPx = 70f,
+                flingVelocityPxPerSec = 900f,
+            ),
+        )
+        assertFalse(
+            shouldDismissDownward(
+                offsetPx = 24f,
+                velocityPxPerSec = -1_400f,
+                thresholdPx = 70f,
+                flingVelocityPxPerSec = 900f,
+            ),
+        )
+        assertFalse(
+            shouldDismissDownward(
+                offsetPx = 24f,
+                velocityPxPerSec = 300f,
+                thresholdPx = 70f,
+                flingVelocityPxPerSec = 900f,
             ),
         )
     }

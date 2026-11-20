@@ -17,11 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -32,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
@@ -215,43 +214,30 @@ private fun ReelCover(
 
         Box(
             modifier = Modifier
-                .size(54.dp)
-                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.PlayArrow,
-                contentDescription = stringResource(R.string.chat_reel_play),
-                tint = Color.White,
-                modifier = Modifier.size(32.dp),
-            )
-        }
-        Text(
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(72.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.36f)),
+                    ),
+                ),
+        )
+        MediaPlayBadge(
+            contentDescription = stringResource(R.string.chat_reel_play),
+        )
+        MediaOverlayPill(
             text = stringResource(R.string.chat_reel_badge),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(8.dp)
-                .background(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = MaterialTheme.shapes.extraSmall,
-                )
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(8.dp),
         )
         if (media.durationMs > 0) {
-            Text(
+            MediaOverlayPill(
                 text = formatMediaDuration(media.durationMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .background(
-                        color = Color.Black.copy(alpha = 0.6f),
-                        shape = MaterialTheme.shapes.extraSmall,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(8.dp),
             )
         }
     }

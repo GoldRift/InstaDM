@@ -3,6 +3,7 @@ package com.goldrift.instadm.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,8 +16,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -29,17 +34,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
 import com.goldrift.instadm.ui.chat.NowPlaying
@@ -47,6 +56,8 @@ import com.goldrift.instadm.ui.chat.VoicePlayPauseIcon
 import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.chat.WaveformBars
 import com.goldrift.instadm.ui.chat.formatMediaDuration
+import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
+import com.goldrift.instadm.ui.chat.shouldDismissDownward
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -105,6 +116,10 @@ fun MiniVoicePlayer(
         animationSpec = motion.fastEffectsSpec(),
         label = "miniControlFill",
     )
+    val speedLabel = formatPlaybackSpeed(player.playbackSpeed)
+    val speedDescription = stringResource(R.string.chat_voice_speed, speedLabel)
+    val closeLabel = stringResource(R.string.mini_player_close)
+    val flingVelocityPx = with(LocalDensity.current) { 800.dp.toPx() }
     // The bar rides the finger down and then leaves, rather than blinking out.
     val pull = remember { Animatable(0f) }
     var heightPx by remember { mutableIntStateOf(0) }
@@ -120,15 +135,21 @@ fun MiniVoicePlayer(
                 alpha = 1f - (pull.value / (heightPx * 1.05f).coerceAtLeast(1f)).coerceIn(0f, 1f)
             }
             .onSizeChanged { heightPx = it.height }
-            .pointerInput(player) {
-                // Pulling down closes the player; pulling up does nothing.
+            .pointerInput(player, flingVelocityPx) {
+                // Pulling down or flicking down closes the player; pulling up does nothing.
                 fun release() = scope.launch { pull.animateTo(0f, motion.defaultSpatialSpec()) }
+                val velocityTracker = VelocityTracker()
                 var armed = false
                 detectVerticalDragGestures(
-                    onDragStart = { armed = false },
+                    onDragStart = {
+                        armed = false
+                        velocityTracker.resetTracking()
+                    },
                     onVerticalDrag = { change, delta ->
                         change.consume()
                         val next = (pull.value + delta).coerceAtLeast(0f)
+                        // Track the unshifted pull offset because .offset runs before pointerInput.
+                        velocityTracker.addPosition(change.uptimeMillis, Offset(0f, next))
                         // One tick when the pull first passes the dismiss point,
                         // not one per dragged pixel past it.
                         if (!armed && next > heightPx * 0.4f) {
@@ -141,7 +162,15 @@ fun MiniVoicePlayer(
                     },
                     onDragEnd = {
                         armed = false
-                        if (pull.value > heightPx * 0.4f) {
+                        val velocityY = velocityTracker.calculateVelocity().y
+                        if (
+                            shouldDismissDownward(
+                                offsetPx = pull.value,
+                                velocityPxPerSec = velocityY,
+                                thresholdPx = heightPx * 0.4f,
+                                flingVelocityPxPerSec = flingVelocityPx,
+                            )
+                        ) {
                             scope.launch {
                                 pull.animateTo(
                                     targetValue = heightPx * 1.05f,
@@ -169,7 +198,7 @@ fun MiniVoicePlayer(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .padding(start = 10.dp, end = 4.dp),
+                .padding(start = 10.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 44 dp in a 64 dp row leaves 10 dp above and below, matching the
@@ -180,7 +209,7 @@ fun MiniVoicePlayer(
                 imageUrl = note.avatarUrl,
                 colorSeed = note.threadId,
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
@@ -196,35 +225,54 @@ fun MiniVoicePlayer(
                         R.string.mini_player_subtitle,
                         formatMediaDuration(remaining),
                     ),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             if (note.waveform.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 WaveformBars(
                     amplitudes = note.waveform,
                     progress = progress,
                     modifier = Modifier
-                        .width(64.dp)
+                        .width(44.dp)
                         .height(22.dp),
                 )
             }
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .clickable(role = Role.Button) {
+                        haptic.segmentTick()
+                        player.cycleSpeed()
+                    }
+                    .semantics { contentDescription = speedDescription }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = speedLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.width(2.dp))
             IconButton(
                 onClick = {
                     haptic.toggle(!playing)
                     player.toggle()
                 },
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(44.dp)
                     .semantics { contentDescription = controlLabel },
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .clip(RoundedCornerShape(percent = controlCorner.roundToInt()))
                         .background(LocalContentColor.current.copy(alpha = controlFill)),
                     contentAlignment = Alignment.Center,
@@ -234,9 +282,25 @@ fun MiniVoicePlayer(
                         loading = false,
                         failed = false,
                         tint = LocalContentColor.current,
-                        iconSize = 24.dp,
+                        iconSize = 22.dp,
                     )
                 }
+            }
+            IconButton(
+                onClick = {
+                    haptic.toggle(false)
+                    player.stop()
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .semantics { contentDescription = closeLabel },
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

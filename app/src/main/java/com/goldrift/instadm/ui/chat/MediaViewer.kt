@@ -1,9 +1,8 @@
 package com.goldrift.instadm.ui.chat
 
 import android.net.Uri
-import android.widget.VideoView
 import androidx.annotation.StringRes
-import androidx.core.net.toUri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -12,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -30,8 +32,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -48,7 +53,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.goldrift.instadm.R
@@ -109,63 +124,40 @@ fun MediaThumbnail(
                 loadMedia = loadMedia,
                 modifier = Modifier.fillMaxSize(),
             )
-            // Keep taps above the VideoView so they reach the viewer.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .combinedClickable(
-                        onLongClickLabel = longClickLabel,
-                        onLongClick = onLongClick,
-                        onClick = onClick,
-                    ),
-            )
         } else {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
 
             if (media.isVideo) {
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = stringResource(
-                            if (media.isReel) R.string.chat_reel_play else R.string.chat_video_play,
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.36f)),
+                            ),
                         ),
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
+                )
+                MediaPlayBadge(
+                    contentDescription = stringResource(
+                        if (media.isReel) R.string.chat_reel_play else R.string.chat_video_play,
+                    ),
+                )
                 if (media.isReel) {
-                    Text(
+                    MediaOverlayPill(
                         text = stringResource(R.string.chat_reel_badge),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(8.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.6f),
-                                shape = MaterialTheme.shapes.extraSmall,
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(8.dp),
                     )
                 }
                 if (media.durationMs > 0) {
-                    Text(
+                    MediaOverlayPill(
                         text = formatMediaDuration(media.durationMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.6f),
-                                shape = MaterialTheme.shapes.extraSmall,
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(8.dp),
                     )
                 }
             }
@@ -278,35 +270,96 @@ private fun InlineGif(
     }
 }
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun LoopingVideo(
     file: File,
     active: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val activeState = rememberUpdatedState(active)
-    AndroidView(
-        factory = { viewContext ->
-            VideoView(viewContext).apply {
-                setVideoURI(Uri.fromFile(file))
-                setOnPreparedListener { player ->
-                    player.isLooping = true
-                    if (activeState.value) start()
-                }
-                isClickable = false
-                isFocusable = false
+    val exoPlayer = remember(file) {
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus = */ false)
+            .build()
+            .apply {
+                volume = 0f
+                repeatMode = Player.REPEAT_MODE_ONE
+                setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+                prepare()
             }
-        },
-        update = { view ->
-            if (active) {
-                if (!view.isPlaying) view.start()
-            } else if (view.isPlaying) {
-                view.pause()
+    }
+
+    LaunchedEffect(exoPlayer, active) {
+        exoPlayer.playWhenReady = active
+    }
+
+    DisposableEffect(exoPlayer, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> exoPlayer.playWhenReady = false
+                Lifecycle.Event.ON_START -> exoPlayer.playWhenReady = activeState.value
+                else -> Unit
             }
-        },
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayer.release()
+        }
+    }
+
+    ContentFrame(
+        player = exoPlayer,
         modifier = modifier,
-        onRelease = { view -> view.stopPlayback() },
+        surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+        contentScale = ContentScale.Crop,
     )
+}
+
+@Composable
+internal fun MediaPlayBadge(
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.size(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xCC141318),
+        contentColor = Color.White,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+        shadowElevation = 4.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(30.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun MediaOverlayPill(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = Color(0xB8141318),
+        contentColor = Color.White,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -478,32 +531,15 @@ private fun LocalVisualThumbnail(
                     .background(Color.Black.copy(alpha = 0.35f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = stringResource(R.string.chat_video_play),
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
+                MediaPlayBadge(
+                    contentDescription = stringResource(R.string.chat_video_play),
+                )
                 if (media.durationMs > 0) {
-                    Text(
+                    MediaOverlayPill(
                         text = formatMediaDuration(media.durationMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.6f),
-                                shape = MaterialTheme.shapes.extraSmall,
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(8.dp),
                     )
                 }
             }

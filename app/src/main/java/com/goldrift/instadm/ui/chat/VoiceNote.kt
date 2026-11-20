@@ -7,10 +7,13 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -44,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +78,7 @@ import com.goldrift.instadm.R
 import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.ui.components.segmentFrequentTick
+import com.goldrift.instadm.ui.components.segmentTick
 import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.components.toggle
 import kotlinx.coroutines.CoroutineScope
@@ -119,6 +124,8 @@ class VoicePlayer(context: Context) {
     var positionMs by mutableIntStateOf(0)
         private set
     var durationMs by mutableIntStateOf(0)
+        private set
+    var playbackSpeed by mutableFloatStateOf(1f)
         private set
 
     /** The note on the player, with what a player bar needs to name it. */
@@ -166,6 +173,9 @@ class VoicePlayer(context: Context) {
                 VoicePlaybackNotifier.hide(appContext)
             }
             mediaPlayer.start()
+            if (playbackSpeed != 1f) {
+                applyPlaybackSpeed(mediaPlayer)
+            }
         } catch (error: Exception) {
             runCatching { mediaPlayer.release() }
             abandonFocus()
@@ -196,6 +206,13 @@ class VoicePlayer(context: Context) {
         if (playing) pause() else resume()
     }
 
+    fun cycleSpeed() {
+        playbackSpeed = nextPlaybackSpeed(playbackSpeed, VoicePlaybackSpeeds)
+        if (playing) {
+            player?.let(::applyPlaybackSpeed)
+        }
+    }
+
     private fun resume() {
         val current = player ?: return
         if (playing) return
@@ -203,9 +220,18 @@ class VoicePlayer(context: Context) {
         val resumeAt = if (positionMs >= durationMs - COMPLETION_TOLERANCE_MS) 0 else positionMs
         runCatching { current.seekTo(resumeAt) }
         if (runCatching { current.start() }.isSuccess) {
+            applyPlaybackSpeed(current)
             playing = true
             positionMs = resumeAt
             startTicker()
+        }
+    }
+
+    // MediaPlayer.setPlaybackParams can auto-start a paused player on some
+    // Android versions, so only apply it right after start() or while playing.
+    private fun applyPlaybackSpeed(mediaPlayer: MediaPlayer) {
+        runCatching {
+            mediaPlayer.playbackParams = mediaPlayer.playbackParams.setSpeed(playbackSpeed)
         }
     }
 
@@ -531,10 +557,42 @@ fun VoiceNoteBubble(
 
         Text(
             text = formatMediaDuration(remainingMs),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
             color = contentColor.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
         )
+
+        val speedLabel = formatPlaybackSpeed(player.playbackSpeed)
+        val speedDescription = stringResource(R.string.chat_voice_speed, speedLabel)
+        AnimatedVisibility(
+            visible = isActive,
+            enter = fadeIn(motion.fastEffectsSpec()) + expandHorizontally(motion.fastSpatialSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()) + shrinkHorizontally(motion.fastSpatialSpec()),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(contentColor.copy(alpha = 0.14f))
+                        .clickable(role = Role.Button) {
+                            haptic.segmentTick()
+                            player.cycleSpeed()
+                        }
+                        .semantics { contentDescription = speedDescription }
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = speedLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFeatureSettings = "tnum",
+                        ),
+                        color = contentColor,
+                    )
+                }
+            }
+        }
     }
 }
 

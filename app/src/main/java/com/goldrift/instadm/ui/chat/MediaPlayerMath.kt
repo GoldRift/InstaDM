@@ -35,6 +35,17 @@ internal fun shouldDismissMedia(
     return offsetPx == 0f || sign(offsetPx) == sign(velocityPxPerSec)
 }
 
+internal fun shouldDismissDownward(
+    offsetPx: Float,
+    velocityPxPerSec: Float,
+    thresholdPx: Float,
+    flingVelocityPxPerSec: Float,
+): Boolean {
+    if (thresholdPx <= 0f || offsetPx < 0f) return false
+    if (offsetPx >= thresholdPx) return true
+    return velocityPxPerSec >= flingVelocityPxPerSec
+}
+
 internal fun mediaDismissTransform(
     offsetPx: Float,
     containerHeightPx: Float,
