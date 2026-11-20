@@ -6,7 +6,14 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import com.goldrift.instadm.data.CdnDiskCacheKeyInterceptor
+import com.goldrift.instadm.data.CdnMemoryKeyer
 import com.goldrift.instadm.data.ChatStore
+import com.goldrift.instadm.data.IMAGE_DISK_CACHE_DIR
+import com.goldrift.instadm.data.IMAGE_DISK_CACHE_MAX_BYTES
+import com.goldrift.instadm.data.IMAGE_MEMORY_CACHE_PERCENT
 import com.goldrift.instadm.data.MailboxSync
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
@@ -98,6 +105,8 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .components {
+            add(CdnMemoryKeyer)
+            add(CdnDiskCacheKeyInterceptor)
             // Instagram delivers most stickers as animated WebP. ImageDecoder
             // is the only platform API that animates them (API 28+); the GIF
             // decoder keeps the older fallback path working.
@@ -107,6 +116,21 @@ open class InstaDmApplication : Application(), ImageLoaderFactory {
                 add(GifDecoder.Factory())
             }
         }
+        .memoryCache {
+            MemoryCache.Builder(this)
+                .maxSizePercent(IMAGE_MEMORY_CACHE_PERCENT)
+                .build()
+        }
+        .diskCache {
+            DiskCache.Builder()
+                .directory(cacheDir.resolve(IMAGE_DISK_CACHE_DIR))
+                .maxSizeBytes(IMAGE_DISK_CACHE_MAX_BYTES)
+                .build()
+        }
+        // Signed Instagram CDN URLs carry short cache headers tied to the
+        // signature window; reusing cached bytes avoids re-fetching identical
+        // avatars and thumbnails after a refresh rotates the signature.
+        .respectCacheHeaders(false)
         .okHttpClient {
             OkHttpClient.Builder()
                 .addInterceptor { chain ->

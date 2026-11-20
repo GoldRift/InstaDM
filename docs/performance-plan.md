@@ -175,7 +175,10 @@ not `debug`:
     connected API 33+ device (or rooted API 28+ emulator) and commit the
     generated `app/src/main/generated/baselineProfiles/` rules.
 
-- [ ] **4.2 Tune Coil caching**
-  - Files: `InstaDmApplication.kt`.
-  - Configure explicit memory/disk cache bounds and verify CDN cache hit rates
-    across signed URL refreshes.
+- [x] **4.2 Tune Coil caching**
+  - Files: `InstaDmApplication.kt`, `CoilCachePolicy.kt`.
+  - Configured explicit memory cache (`20%` heap) and disk cache (`100 MiB` in
+    `cacheDir/image_cache`), disabled `respectCacheHeaders`, and added
+    `CdnMemoryKeyer` + `CdnDiskCacheKeyInterceptor` to strip rotating Instagram
+    CDN signature/routing parameters (`oh`, `oe`, `_nc_*`, `ccb`, `edm`) and
+    edge POP host differences while preserving transform params (`stp`).
