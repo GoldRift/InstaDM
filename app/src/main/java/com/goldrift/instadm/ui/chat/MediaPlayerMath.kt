@@ -1,8 +1,139 @@
 package com.goldrift.instadm.ui.chat
 
+import com.goldrift.instadm.data.MessageMedia
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
+
+/** One slideable media item inside the full-screen chat viewer. */
+data class MediaViewerItem(
+    val messageId: String,
+    val media: MessageMedia,
+    val senderName: String = "",
+    val timestamp: String = "",
+) {
+    val key: String get() = "$messageId:${media.partIndex}"
+}
+
+/** Chat media gallery and starting position shown in the full-screen viewer. */
+data class MediaViewerRequest(
+    val threadId: String,
+    val items: List<MediaViewerItem>,
+    val initialIndex: Int = 0,
+)
+
+internal data class PageIndicatorWindow(
+    val startIndex: Int,
+    val endIndex: Int,
+    val hasLeadingOverflow: Boolean,
+    val hasTrailingOverflow: Boolean,
+)
+
+internal fun isViewableChatMedia(media: MessageMedia): Boolean =
+    !media.viewOnce && (media.isVisual || media.isReel)
+
+/**
+ * Collects all openable visual media across a chat transcript in chronological
+ * order and points [MediaViewerRequest.initialIndex] at the tapped attachment.
+ */
+internal fun buildChatMediaViewerRequest(
+    threadId: String,
+    messages: List<ChatMessage>,
+    tappedMessageId: String,
+    tappedMedia: MessageMedia,
+    selfSenderName: String,
+    fallbackSenderName: String,
+): MediaViewerRequest {
+    val items = buildList {
+        for (message in messages) {
+            if (!message.isServerMessage() || message.isReactionLog() || message.isAdminNotice()) {
+                continue
+            }
+            val senderName = when (message.sender) {
+                MessageSender.Me -> selfSenderName
+                MessageSender.Them -> message.senderName.ifBlank { fallbackSenderName }
+            }
+            for (attachment in message.media) {
+                if (!isViewableChatMedia(attachment)) continue
+                add(
+                    MediaViewerItem(
+                        messageId = message.id,
+                        media = attachment,
+                        senderName = senderName,
+                        timestamp = message.timestamp,
+                    ),
+                )
+            }
+        }
+    }
+
+    val exactIndex = items.indexOfFirst {
+        it.messageId == tappedMessageId && it.media == tappedMedia
+    }.takeIf { it >= 0 } ?: items.indexOfFirst {
+        it.messageId == tappedMessageId &&
+            it.media.partIndex == tappedMedia.partIndex &&
+            it.media.type == tappedMedia.type
+    }
+
+    if (exactIndex >= 0) {
+        return MediaViewerRequest(
+            threadId = threadId,
+            items = items,
+            initialIndex = exactIndex,
+        )
+    }
+
+    val tappedMessage = messages.firstOrNull { it.id == tappedMessageId }
+    val senderName = when {
+        tappedMessage == null -> fallbackSenderName
+        tappedMessage.sender == MessageSender.Me -> selfSenderName
+        else -> tappedMessage.senderName.ifBlank { fallbackSenderName }
+    }
+    return MediaViewerRequest(
+        threadId = threadId,
+        items = listOf(
+            MediaViewerItem(
+                messageId = tappedMessageId,
+                media = tappedMedia,
+                senderName = senderName,
+                timestamp = tappedMessage?.timestamp.orEmpty(),
+            ),
+        ),
+        initialIndex = 0,
+    )
+}
+
+internal fun pageIndicatorWindow(
+    currentPage: Int,
+    pageCount: Int,
+    maxVisible: Int = MAX_VISIBLE_PAGE_DOTS,
+): PageIndicatorWindow {
+    if (pageCount <= 0 || maxVisible <= 0) {
+        return PageIndicatorWindow(
+            startIndex = 0,
+            endIndex = -1,
+            hasLeadingOverflow = false,
+            hasTrailingOverflow = false,
+        )
+    }
+    val clampedPage = currentPage.coerceIn(0, pageCount - 1)
+    if (pageCount <= maxVisible) {
+        return PageIndicatorWindow(
+            startIndex = 0,
+            endIndex = pageCount - 1,
+            hasLeadingOverflow = false,
+            hasTrailingOverflow = false,
+        )
+    }
+    val start = (clampedPage - maxVisible / 2).coerceIn(0, pageCount - maxVisible)
+    val end = start + maxVisible - 1
+    return PageIndicatorWindow(
+        startIndex = start,
+        endIndex = end,
+        hasLeadingOverflow = start > 0,
+        hasTrailingOverflow = end < pageCount - 1,
+    )
+}
 
 internal val VideoPlaybackSpeeds = listOf(1f, 1.25f, 1.5f, 2f)
 internal val VoicePlaybackSpeeds = listOf(1f, 1.5f, 2f)
@@ -134,6 +265,7 @@ internal fun shouldAutoHidePlayerChrome(
     isBuffering: Boolean,
 ): Boolean = chromeVisible && isVideo && isPlaying && !isScrubbing && !isBuffering
 
+private const val MAX_VISIBLE_PAGE_DOTS = 7
 private const val ZOOM_DISMISS_EPSILON = 1.01f
 private const val DISMISS_TRAVEL_FRACTION = 0.5f
 private const val MIN_DISMISS_SCALE = 0.8f

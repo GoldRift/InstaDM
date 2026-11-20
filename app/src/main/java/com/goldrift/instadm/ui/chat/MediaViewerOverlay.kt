@@ -90,6 +90,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -158,16 +159,6 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlin.time.Duration.Companion.milliseconds
-
-/** Attachment group and message context shown in the full-screen viewer. */
-data class MediaViewerRequest(
-    val threadId: String,
-    val messageId: String,
-    val items: List<MessageMedia>,
-    val initialIndex: Int = 0,
-    val senderName: String = "",
-    val timestamp: String = "",
-)
 
 /**
  * Full-screen in-window media viewer for photos, stickers, GIFs, videos, and
@@ -256,16 +247,19 @@ private fun MediaViewerContent(
         }
     }
 
+    if (request.items.isEmpty()) return
+
     val safeInitial = request.initialIndex.coerceIn(0, (request.items.size - 1).coerceAtLeast(0))
     val pagerState = rememberPagerState(
         initialPage = safeInitial,
         pageCount = { request.items.size },
     )
-    val currentMedia = request.items.getOrElse(pagerState.currentPage) { request.items.first() }
+    val currentItem = request.items.getOrElse(pagerState.currentPage) { request.items.first() }
+    val readyFiles = remember(request) { mutableStateMapOf<String, File>() }
+    val currentReadyFile = readyFiles[currentItem.key]
 
     var chromeVisible by remember(request) { mutableStateOf(true) }
     var activeZoomScale by remember(request) { mutableFloatStateOf(1f) }
-    var currentReadyFile by remember(request, pagerState.currentPage) { mutableStateOf<File?>(null) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     LaunchedEffect(pagerState.settledPage) {
@@ -446,6 +440,8 @@ private fun MediaViewerContent(
         ) {
             HorizontalPager(
                 state = pagerState,
+                key = { pageIndex -> request.items[pageIndex].key },
+                pageSpacing = 16.dp,
                 userScrollEnabled = request.items.size > 1 && canSwipeToDismiss(activeZoomScale),
                 beyondViewportPageCount = 1,
                 modifier = Modifier.fillMaxSize(),
@@ -454,8 +450,8 @@ private fun MediaViewerContent(
                 val isCurrentPage = pagerState.currentPage == pageIndex
                 MediaViewerPage(
                     threadId = request.threadId,
-                    messageId = request.messageId,
-                    media = item,
+                    messageId = item.messageId,
+                    media = item.media,
                     isActivePage = isCurrentPage,
                     chromeVisible = chromeVisible,
                     chromeAlpha = combinedChromeAlpha,
@@ -467,7 +463,11 @@ private fun MediaViewerContent(
                         if (isCurrentPage) activeZoomScale = zoom
                     },
                     onReadyFile = { file ->
-                        if (isCurrentPage) currentReadyFile = file
+                        if (file != null) {
+                            readyFiles[item.key] = file
+                        } else {
+                            readyFiles.remove(item.key)
+                        }
                     },
                     pageCount = request.items.size,
                     pageIndex = pageIndex,
@@ -489,14 +489,14 @@ private fun MediaViewerContent(
             label = "viewerTopBar",
         ) {
             ViewerTopBar(
-                senderName = request.senderName,
-                timestamp = request.timestamp,
-                media = currentMedia,
+                senderName = currentItem.senderName,
+                timestamp = currentItem.timestamp,
+                media = currentItem.media,
                 pageIndex = pagerState.currentPage,
                 pageCount = request.items.size,
                 readyFile = currentReadyFile,
                 onClose = onDismiss,
-                onShare = { file -> shareMediaFile(context, file, currentMedia) },
+                onShare = { file -> shareMediaFile(context, file, currentItem.media) },
             )
         }
     }
@@ -706,10 +706,8 @@ private fun MediaViewerPage(
         )
     }
 
-    LaunchedEffect(state, isActivePage) {
-        if (isActivePage) {
-            onReadyFile((state as? ViewerLoadState.Ready)?.file)
-        }
+    LaunchedEffect(state) {
+        onReadyFile((state as? ViewerLoadState.Ready)?.file)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1008,17 +1006,32 @@ private fun ZoomableImagePage(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        repeat(pageCount) { index ->
+                        val window = pageIndicatorWindow(
+                            currentPage = pageIndex,
+                            pageCount = pageCount,
+                        )
+                        for (index in window.startIndex..window.endIndex) {
                             val selected = index == pageIndex
+                            val isOverflowEdge =
+                                (index == window.startIndex && window.hasLeadingOverflow) ||
+                                    (index == window.endIndex && window.hasTrailingOverflow)
+                            val dotHeight = if (isOverflowEdge && !selected) 4.dp else 6.dp
+                            val dotWidth = when {
+                                selected -> 18.dp
+                                isOverflowEdge -> 4.dp
+                                else -> 6.dp
+                            }
                             Box(
                                 modifier = Modifier
-                                    .size(width = if (selected) 18.dp else 6.dp, height = 6.dp)
+                                    .size(width = dotWidth, height = dotHeight)
                                     .clip(CircleShape)
                                     .background(
                                         if (selected) {
                                             MaterialTheme.colorScheme.primary
                                         } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = if (isOverflowEdge) 0.3f else 0.45f,
+                                            )
                                         },
                                     ),
                             )
@@ -1078,13 +1091,17 @@ private fun ExpressiveVideoPlayer(
     var interactionTick by remember(exoPlayer) { mutableIntStateOf(0) }
     var seekFeedback by remember(exoPlayer) { mutableStateOf<SeekFeedback?>(null) }
 
+    val latestIsActivePage by rememberUpdatedState(isActivePage)
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
                 isEnded = playbackState == Player.STATE_ENDED
                 if (playbackState == Player.STATE_READY) playbackError = false
-                if (playbackState == Player.STATE_ENDED) onSetChromeVisible(true)
+                if (playbackState == Player.STATE_ENDED && latestIsActivePage) {
+                    onSetChromeVisible(true)
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -1141,8 +1158,16 @@ private fun ExpressiveVideoPlayer(
         .coerceIn(0L, durationMs.coerceAtLeast(1L))
 
     // Auto-hide controls during steady playback; stay pinned when paused, buffering, or scrubbing.
-    LaunchedEffect(chromeVisible, isPlaying, isScrubbing, isBuffering, interactionTick) {
+    LaunchedEffect(
+        isActivePage,
+        chromeVisible,
+        isPlaying,
+        isScrubbing,
+        isBuffering,
+        interactionTick,
+    ) {
         if (
+            isActivePage &&
             shouldAutoHidePlayerChrome(
                 chromeVisible = chromeVisible,
                 isVideo = true,

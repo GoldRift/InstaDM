@@ -1053,29 +1053,13 @@ fun ChatScreen(
                                 onLoadOlder = onLoadOlder,
                                 onRetryOlder = onRetryOlder,
                                 onOpenMedia = { messageId, media ->
-                                    val message = messages.firstOrNull { it.id == messageId }
-                                    val items = message?.media
-                                        ?.filter { !it.viewOnce && (it.isVisual || it.isReel) }
-                                        ?.takeIf { it.isNotEmpty() }
-                                        ?: listOf(media)
-                                    val initialIndex = items.indexOfFirst {
-                                        it.partIndex == media.partIndex && it.type == media.type
-                                    }.coerceAtLeast(0)
-                                    val senderName = when {
-                                        message == null -> conversation.contact.name
-                                        message.sender == MessageSender.Me ->
-                                            resources.getString(R.string.chat_you)
-                                        else -> message.senderName.ifBlank {
-                                            conversation.contact.name
-                                        }
-                                    }
-                                    val request = MediaViewerRequest(
+                                    val request = buildChatMediaViewerRequest(
                                         threadId = conversation.id,
-                                        messageId = messageId,
-                                        items = items,
-                                        initialIndex = initialIndex,
-                                        senderName = senderName,
-                                        timestamp = message?.timestamp.orEmpty(),
+                                        messages = transcript,
+                                        tappedMessageId = messageId,
+                                        tappedMedia = media,
+                                        selfSenderName = resources.getString(R.string.chat_you),
+                                        fallbackSenderName = conversation.contact.name,
                                     )
                                     if (onOpenMediaViewer != null) {
                                         onOpenMediaViewer(request)
