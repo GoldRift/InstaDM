@@ -257,7 +257,7 @@ private fun MediaViewerContent(
     val readyFiles = remember(request) { mutableStateMapOf<String, File>() }
     val currentReadyFile = readyFiles[currentItem.key]
 
-    var chromeVisible by remember(request) { mutableStateOf(true) }
+    var chromeVisible by remember(request) { mutableStateOf(false) }
     var activeZoomScale by remember(request) { mutableFloatStateOf(1f) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 

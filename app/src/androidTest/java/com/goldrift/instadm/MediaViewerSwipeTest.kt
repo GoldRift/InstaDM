@@ -1,6 +1,7 @@
 package com.goldrift.instadm
 
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
@@ -61,6 +62,12 @@ class MediaViewerSwipeTest {
                 )
             }
         }
+
+        // Controls stay hidden until the media is tapped.
+        compose.onNodeWithText("You").assertDoesNotExist()
+
+        compose.onRoot().performTouchInput { click() }
+        compose.waitForIdle()
 
         compose.onNodeWithText("You").assertExists()
         compose.onNodeWithText("1:00 PM").assertExists()
