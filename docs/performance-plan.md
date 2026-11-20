@@ -60,7 +60,7 @@ not `debug`:
       `ReactionPill` so scrolling past old reacted messages does not spawn
       animations.
 
-- [ ] **1.4 Defer animation and gesture reads to Layout and Draw**
+- [x] **1.4 Defer animation and gesture reads to Layout and Draw**
   - Files: `ChatScreen.kt`, `VoiceNote.kt`, `MiniVoicePlayer.kt`,
     `MediaViewerOverlay.kt`.
   - Changes:

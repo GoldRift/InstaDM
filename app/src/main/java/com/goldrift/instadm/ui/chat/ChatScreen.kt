@@ -182,7 +182,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -456,6 +456,7 @@ fun ChatScreen(
     // Attachments picked or shared into this chat wait here until the viewer
     // sends them, in the order the strip shows.
     var stagedMedia by remember(conversation.id) { mutableStateOf<List<PickedMedia>>(emptyList()) }
+    var lastComposerHeightPx by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
 
     fun stageMedia(uris: List<Uri>) {
@@ -976,8 +977,11 @@ fun ChatScreen(
                 },
                 // The player bar floats just above this box; measure it so it
                 // can sit there whatever the composer grows into.
-                modifier = Modifier.onGloballyPositioned { coordinates ->
-                    onComposerHeight(with(density) { coordinates.size.height.toDp() })
+                modifier = Modifier.onSizeChanged { size ->
+                    if (size.height != lastComposerHeightPx) {
+                        lastComposerHeightPx = size.height
+                        onComposerHeight(with(density) { size.height.toDp() })
+                    }
                 },
             )
         },
@@ -1841,23 +1845,12 @@ private fun MessageRow(
         message.seen -> MessageStatus.Seen
         else -> MessageStatus.Sent
     }
+    val scope = rememberCoroutineScope()
     val replyThreshold = with(density) { SWIPE_REPLY_THRESHOLD.toPx() }
     val maxDrag = with(density) { SWIPE_REPLY_MAX.toPx() }
-    var dragOffset by remember(message.id) { mutableFloatStateOf(0f) }
-    var dragging by remember(message.id) { mutableStateOf(false) }
+    val swipeOffset = remember(message.id) { Animatable(0f) }
+    var swipeVisible by remember(message.id) { mutableStateOf(false) }
     var replyArmed by remember(message.id) { mutableStateOf(false) }
-    // Snap while the finger is down, then spring back the moment the gesture
-    // ends or is cancelled. The offset is plain state so no queued animation
-    // can race the release and leave a bubble parked mid-swipe.
-    val settledOffset by animateFloatAsState(
-        targetValue = if (dragging) dragOffset else 0f,
-        animationSpec = if (dragging) {
-            snap()
-        } else {
-            MaterialTheme.motionScheme.defaultSpatialSpec()
-        },
-        label = "replySwipeOffset",
-    )
     // Center the picture on the sender name rather than its top edge: the name
     // line is shorter than the picture, so the bubble column starts half the
     // difference lower and the picture's midline meets the name's midline.
@@ -1913,30 +1906,35 @@ private fun MessageRow(
             val showTimeLabel = stringResource(R.string.chat_show_timestamp)
             val hideTimeLabel = stringResource(R.string.chat_hide_timestamp)
             Box {
-                val dragProgress =
-                    (settledOffset / replyThreshold).coerceIn(0f, 1f)
-                SwipeReplyIcon(
-                    progress = dragProgress,
-                    armed = replyArmed,
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .then(if (isMine) Modifier.offset(x = (-36).dp) else Modifier),
-                )
+                if (swipeVisible) {
+                    SwipeReplyIcon(
+                        progress = { (swipeOffset.value / replyThreshold).coerceIn(0f, 1f) },
+                        armed = replyArmed,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .then(if (isMine) Modifier.offset(x = (-36).dp) else Modifier),
+                    )
+                }
                 Surface(
                     modifier = Modifier
-                        .offset { IntOffset(settledOffset.roundToInt(), 0) }
+                        .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
                         .pointerInput(message.id, canReply) {
                             if (!canReply) return@pointerInput
+                            var dragPx = 0f
+                            var swipeJob: kotlinx.coroutines.Job? = null
                             detectHorizontalDragGestures(
                                 onDragStart = {
-                                    dragging = true
+                                    swipeJob?.cancel()
+                                    dragPx = swipeOffset.value
+                                    swipeVisible = true
                                     replyArmed = false
                                 },
                                 onHorizontalDrag = { change, dragAmount ->
                                     change.consume()
-                                    val next = (dragOffset + dragAmount)
-                                        .coerceIn(0f, maxDrag)
-                                    dragOffset = next
+                                    dragPx = (dragPx + dragAmount).coerceIn(0f, maxDrag)
+                                    val next = dragPx
+                                    swipeJob?.cancel()
+                                    swipeJob = scope.launch { swipeOffset.snapTo(next) }
                                     val armed = next >= replyThreshold
                                     if (armed != replyArmed) {
                                         replyArmed = armed
@@ -1944,16 +1942,30 @@ private fun MessageRow(
                                     }
                                 },
                                 onDragEnd = {
-                                    val shouldReply = dragOffset >= replyThreshold
-                                    dragging = false
-                                    dragOffset = 0f
+                                    val shouldReply = dragPx >= replyThreshold
+                                    dragPx = 0f
                                     replyArmed = false
+                                    swipeJob?.cancel()
+                                    swipeJob = scope.launch {
+                                        try {
+                                            swipeOffset.animateTo(0f, motion.defaultSpatialSpec())
+                                        } finally {
+                                            if (swipeOffset.value == 0f) swipeVisible = false
+                                        }
+                                    }
                                     if (shouldReply) onReply()
                                 },
                                 onDragCancel = {
-                                    dragging = false
-                                    dragOffset = 0f
+                                    dragPx = 0f
                                     replyArmed = false
+                                    swipeJob?.cancel()
+                                    swipeJob = scope.launch {
+                                        try {
+                                            swipeOffset.animateTo(0f, motion.defaultSpatialSpec())
+                                        } finally {
+                                            if (swipeOffset.value == 0f) swipeVisible = false
+                                        }
+                                    }
                                 },
                             )
                         }
@@ -2210,11 +2222,10 @@ private fun MessageRow(
 /** Circular reply affordance revealed while dragging a bubble to the right. */
 @Composable
 private fun SwipeReplyIcon(
-    progress: Float,
+    progress: () -> Float,
     armed: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (progress <= 0f) return
     val bubbles = LocalMessageBubbleColors.current
     val motion = MaterialTheme.motionScheme
     val armedScale by animateFloatAsState(
@@ -2244,10 +2255,11 @@ private fun SwipeReplyIcon(
         modifier = modifier
             .size(32.dp)
             .graphicsLayer {
-                val scale = (0.8f + 0.2f * progress) * armedScale
+                val p = progress()
+                val scale = (0.8f + 0.2f * p) * armedScale
                 scaleX = scale
                 scaleY = scale
-                alpha = progress
+                alpha = p
             }
             .clip(CircleShape)
             .background(containerColor),

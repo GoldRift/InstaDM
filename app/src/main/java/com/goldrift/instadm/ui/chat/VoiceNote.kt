@@ -15,6 +15,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -52,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +97,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -458,14 +463,6 @@ fun VoiceNoteBubble(
         }
     }
     val isPlaying = player.isPlaying(messageId)
-    val progress = player.progressFor(messageId)
-    val durationMs = if (isActive && player.durationMs > 0) player.durationMs else media.durationMs
-    // Only the note being played counts down; an untouched one shows its length.
-    val remainingMs = if (isActive) {
-        (durationMs - player.positionMs).coerceAtLeast(0)
-    } else {
-        durationMs
-    }
     val nowPlaying = NowPlaying(
         threadId = threadId,
         messageId = messageId,
@@ -573,7 +570,7 @@ fun VoiceNoteBubble(
 
         WaveformBars(
             amplitudes = media.waveform,
-            progress = progress,
+            progress = { player.progressFor(messageId) },
             modifier = Modifier
                 .weight(1f)
                 .height(28.dp),
@@ -591,11 +588,11 @@ fun VoiceNoteBubble(
 
         Spacer(Modifier.width(8.dp))
 
-        Text(
-            text = formatMediaDuration(remainingMs),
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+        VoiceRemainingDurationText(
+            player = player,
+            isActive = isActive,
+            fallbackDurationMs = media.durationMs,
             color = contentColor.copy(alpha = 0.8f),
-            textAlign = TextAlign.Center,
         )
 
         val speedLabel = formatPlaybackSpeed(player.playbackSpeed)
@@ -661,11 +658,37 @@ fun VoiceNoteBubble(
     }
 }
 
+/**
+ * Isolates remaining-time reads so the bubble does not recompose on 80 ms
+ * player ticks; `derivedStateOf` updates this text at 1 Hz.
+ */
+@Composable
+private fun VoiceRemainingDurationText(
+    player: VoicePlayer,
+    isActive: Boolean,
+    fallbackDurationMs: Int,
+    color: Color,
+) {
+    val remainingSeconds by remember(player, isActive, fallbackDurationMs) {
+        derivedStateOf {
+            val total = if (isActive && player.durationMs > 0) player.durationMs else fallbackDurationMs
+            val remaining = if (isActive) (total - player.positionMs).coerceAtLeast(0) else total
+            remaining / 1000
+        }
+    }
+    Text(
+        text = formatMediaDuration(remainingSeconds * 1000),
+        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+        color = color,
+        textAlign = TextAlign.Center,
+    )
+}
+
 /** Waveform bars; a uniform low bar is drawn when the note has no waveform. */
 @Composable
 fun WaveformBars(
     amplitudes: List<Float>,
-    progress: Float,
+    progress: () -> Float,
     modifier: Modifier = Modifier,
     onSeek: ((Float) -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -676,14 +699,24 @@ fun WaveformBars(
     val seek = onSeek
     // Follows the finger so the bars don't trail MediaPlayer while it seeks.
     var dragProgress by remember { mutableStateOf<Float?>(null) }
-    // The player reports every 80 ms; a linear tween covers each gap so the
-    // playhead glides instead of hopping. Read in the draw lambda, not here, so
-    // a tick repaints without recomposing the bubble.
-    val animatedProgress = animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
-        label = "waveformProgress",
-    )
+    // The player reports every 80 ms; snapshotFlow drives an Animatable so the
+    // playhead glides in the Draw phase without recomposing the bubble or bars.
+    val animatedProgress = remember { Animatable(0f) }
+    val latestProgress by rememberUpdatedState(progress)
+    LaunchedEffect(Unit) {
+        snapshotFlow { latestProgress().coerceIn(0f, 1f) }
+            .distinctUntilChanged()
+            .collectLatest { target ->
+                if (target == 0f || abs(target - animatedProgress.value) > 0.15f) {
+                    animatedProgress.snapTo(target)
+                } else {
+                    animatedProgress.animateTo(
+                        targetValue = target,
+                        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
+                    )
+                }
+            }
+    }
     // The lambdas are new on every recomposition, so a pointerInput keyed on
     // them would restart mid-drag and drop the gesture to the bubble's
     // swipe-to-reply detector, which is an ancestor.
@@ -694,7 +727,7 @@ fun WaveformBars(
             .semantics {
                 contentDescription = waveformLabel
                 progressBarRangeInfo = ProgressBarRangeInfo(
-                    current = progress.coerceIn(0f, 1f),
+                    current = latestProgress().coerceIn(0f, 1f),
                     range = 0f..1f,
                 )
                 setProgress { target ->

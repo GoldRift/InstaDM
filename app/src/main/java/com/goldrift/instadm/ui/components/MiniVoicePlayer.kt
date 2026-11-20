@@ -39,6 +39,7 @@ import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -103,13 +104,6 @@ fun MiniVoicePlayer(
 ) {
     val note = player.nowPlaying ?: return
     val playing = player.playing
-    val duration = player.durationMs
-    val progress = if (duration > 0) {
-        (player.positionMs.toFloat() / duration).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val remaining = if (duration > 0) (duration - player.positionMs).coerceAtLeast(0) else 0
     val controlLabel = stringResource(
         if (playing) R.string.chat_voice_pause else R.string.chat_voice_play,
     )
@@ -221,22 +215,16 @@ fun MiniVoicePlayer(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = stringResource(
-                        R.string.mini_player_subtitle,
-                        formatMediaDuration(remaining),
-                    ),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                MiniPlayerSubtitle(player = player)
             }
             if (note.waveform.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
                 WaveformBars(
                     amplitudes = note.waveform,
-                    progress = progress,
+                    progress = {
+                        val total = player.durationMs
+                        if (total > 0) (player.positionMs.toFloat() / total).coerceIn(0f, 1f) else 0f
+                    },
                     modifier = Modifier
                         .width(44.dp)
                         .height(22.dp),
@@ -336,4 +324,25 @@ fun MiniVoicePlayer(
             }
         }
     }
+}
+
+@Composable
+private fun MiniPlayerSubtitle(player: VoicePlayer) {
+    val remainingSeconds by remember(player) {
+        derivedStateOf {
+            val total = player.durationMs
+            val remaining = if (total > 0) (total - player.positionMs).coerceAtLeast(0) else 0
+            remaining / 1000
+        }
+    }
+    Text(
+        text = stringResource(
+            R.string.mini_player_subtitle,
+            formatMediaDuration(remainingSeconds * 1000),
+        ),
+        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

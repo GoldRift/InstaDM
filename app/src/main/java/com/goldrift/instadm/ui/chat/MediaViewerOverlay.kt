@@ -87,7 +87,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -96,6 +95,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -153,6 +153,7 @@ import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.components.toggle
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
@@ -258,11 +259,11 @@ private fun MediaViewerContent(
     val currentReadyFile = readyFiles[currentItem.key]
 
     var chromeVisible by remember(request) { mutableStateOf(false) }
-    var activeZoomScale by remember(request) { mutableFloatStateOf(1f) }
+    var activePageZoomed by remember(request) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     LaunchedEffect(pagerState.settledPage) {
-        activeZoomScale = 1f
+        activePageZoomed = false
     }
 
     // Predictive back gesture state.
@@ -286,7 +287,7 @@ private fun MediaViewerContent(
     val dragOffsetY = remember(request) { Animatable(0f) }
     var dismissing by remember(request) { mutableStateOf(false) }
 
-    val latestZoom by rememberUpdatedState(activeZoomScale)
+    val latestZoomed = rememberUpdatedState(activePageZoomed)
     val latestOnDismiss by rememberUpdatedState(onDismiss)
 
     val containerHeightPx = containerSize.height.toFloat().coerceAtLeast(1f)
@@ -343,7 +344,7 @@ private fun MediaViewerContent(
                 .pointerInput(request, dismissThresholdPx, flingVelocityPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        if (dismissing || !canSwipeToDismiss(latestZoom)) return@awaitEachGesture
+                        if (dismissing || latestZoomed.value) return@awaitEachGesture
                         val touchSlop = viewConfiguration.touchSlop
                         val velocityTracker = VelocityTracker()
                         velocityTracker.addPosition(down.uptimeMillis, down.position)
@@ -356,7 +357,7 @@ private fun MediaViewerContent(
                             val event = awaitPointerEvent()
                             val activeChanges = event.changes.filter { it.pressed }
                             if (activeChanges.isEmpty()) break
-                            if (activeChanges.size > 1 || !canSwipeToDismiss(latestZoom)) {
+                            if (activeChanges.size > 1 || latestZoomed.value) {
                                 // Yield immediately to multi-touch pinch or zoomed pan.
                                 if (lockedVertical) {
                                     scope.launch {
@@ -441,7 +442,7 @@ private fun MediaViewerContent(
                 state = pagerState,
                 key = { pageIndex -> request.items[pageIndex].key },
                 pageSpacing = 16.dp,
-                userScrollEnabled = request.items.size > 1 && canSwipeToDismiss(activeZoomScale),
+                userScrollEnabled = request.items.size > 1 && !activePageZoomed,
                 beyondViewportPageCount = 1,
                 modifier = Modifier.fillMaxSize(),
             ) { pageIndex ->
@@ -458,8 +459,8 @@ private fun MediaViewerContent(
                     voicePlayer = voicePlayer,
                     onToggleChrome = { chromeVisible = !chromeVisible },
                     onSetChromeVisible = { chromeVisible = it },
-                    onZoomChange = { zoom ->
-                        if (isCurrentPage) activeZoomScale = zoom
+                    onZoomedChange = { zoomed ->
+                        if (isCurrentPage) activePageZoomed = zoomed
                     },
                     onReadyFile = { file ->
                         if (file != null) {
@@ -656,7 +657,7 @@ private fun MediaViewerPage(
     voicePlayer: VoicePlayer,
     onToggleChrome: () -> Unit,
     onSetChromeVisible: (Boolean) -> Unit,
-    onZoomChange: (Float) -> Unit,
+    onZoomedChange: (Boolean) -> Unit,
     onReadyFile: (File?) -> Unit,
 ) {
     var retryToken by remember(messageId, media.partIndex) { mutableIntStateOf(0) }
@@ -718,7 +719,7 @@ private fun MediaViewerPage(
                         media = media,
                         isActivePage = isActivePage,
                         onToggleChrome = onToggleChrome,
-                        onZoomChange = onZoomChange,
+                        onZoomedChange = onZoomedChange,
                     )
                 }
             }
@@ -810,7 +811,7 @@ private fun ZoomableImagePage(
     media: MessageMedia,
     isActivePage: Boolean,
     onToggleChrome: () -> Unit,
-    onZoomChange: (Float) -> Unit,
+    onZoomedChange: (Boolean) -> Unit,
 ) {
     val motion = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
@@ -827,8 +828,11 @@ private fun ZoomableImagePage(
         }
     }
 
-    LaunchedEffect(scale.value) {
-        onZoomChange(scale.value)
+    val latestOnZoomedChange by rememberUpdatedState(onZoomedChange)
+    LaunchedEffect(scale) {
+        snapshotFlow { !canSwipeToDismiss(scale.value) }
+            .distinctUntilChanged()
+            .collect { zoomed -> latestOnZoomedChange(zoomed) }
     }
 
     val contentDescription = media.altText.ifBlank {
