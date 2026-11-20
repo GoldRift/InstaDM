@@ -260,6 +260,12 @@ class ChatStore(
             val duplicate = message.offlineThreadingId
                 .takeIf { it.isNotBlank() }
                 ?.let { messageDao.byOtid(it) }
+            // Read the pending row's attachments before deleting it: ON DELETE CASCADE
+            // would otherwise drop locally recorded voice waveforms and cached paths.
+            val duplicateMedia = duplicate
+                ?.takeIf { it.id != message.id }
+                ?.let { messageDao.attachments(it.id).associateBy { attachment -> attachment.partIndex } }
+                .orEmpty()
             if (duplicate != null && duplicate.id != message.id) {
                 messageDao.delete(duplicate.id)
             }
@@ -299,16 +305,16 @@ class ChatStore(
             messageDao.upsertMessage(entity)
 
             if (message.media.isNotEmpty()) {
-                val previousMedia = messageDao.attachments(message.id).associateBy { it.partIndex }
+                val existingMedia = messageDao.attachments(message.id).associateBy { it.partIndex }
                 messageDao.deleteAttachments(message.id)
                 messageDao.upsertAttachments(
                     message.media.mapIndexed { index, media ->
                         val item = media.toAttachmentEntity(message.id, index)
-                        previousMedia[index]?.let { cached ->
+                        mergeAttachmentCache(duplicateMedia, existingMedia, index)?.let { cached ->
                             item.copy(
                                 localPath = cached.localPath,
                                 downloadState = cached.downloadState,
-                                waveform = item.waveform ?: cached.waveform,
+                                waveform = item.waveform ?: cached.waveform?.takeIf { it.isNotBlank() },
                             )
                         } ?: item
                     },
@@ -591,6 +597,14 @@ class ChatStore(
         messageDao.markAttachmentReady(messageId, partIndex, path)
     }
 
+    /** Persists a locally extracted waveform for a voice attachment. */
+    suspend fun setAttachmentWaveform(messageId: String, partIndex: Int, waveform: List<Float>) {
+        if (messageId.isBlank() || waveform.isEmpty()) return
+        val encoded = waveformJson(waveform)
+        if (encoded.isBlank()) return
+        messageDao.setAttachmentWaveform(messageId, partIndex, encoded)
+    }
+
     /** Drops delivered attachments' local paths after the media cache is cleared. */
     suspend fun clearDownloadedMediaFiles() = withContext(Dispatchers.IO) {
         messageDao.clearAttachmentFiles()
@@ -611,6 +625,7 @@ class ChatStore(
 
         val rows = ArrayList<MessageEntity>(messages.length())
         val payloads = ArrayList<Pair<String, JSONObject>>(messages.length())
+        val duplicateMediaById = HashMap<String, Map<Int, AttachmentEntity>>()
         for (index in 0 until messages.length()) {
             val message = messages.optJSONObject(index) ?: continue
             val id = message.optString("id").trim()
@@ -621,7 +636,7 @@ class ChatStore(
 
             // A realtime echo or a page can supersede an optimistic row that
             // has not been reconciled yet (same OTID, different ID). Keep that
-            // row's reply snapshot as the fallback before deleting it.
+            // row's reply snapshot and cached attachment state before deleting it.
             val otid = message.optString("offline_threading_id").trim()
             val duplicate = otid.takeIf { it.isNotEmpty() }
                 ?.let { messageDao.byOtid(it) }
@@ -629,7 +644,11 @@ class ChatStore(
             val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
 
             val entity = messageEntity(message, threadId, previous, now) ?: continue
-            if (duplicate != null) messageDao.delete(duplicate.id)
+            if (duplicate != null) {
+                duplicateMediaById[id] =
+                    messageDao.attachments(duplicate.id).associateBy { it.partIndex }
+                messageDao.delete(duplicate.id)
+            }
             rows += entity
             payloads += id to message
         }
@@ -639,13 +658,14 @@ class ChatStore(
         messageDao.upsertMessages(rows)
 
         for ((id, message) in payloads) {
-            val previousMedia = messageDao.attachments(id).associateBy { it.partIndex }
+            val existingMedia = messageDao.attachments(id).associateBy { it.partIndex }
+            val duplicateMedia = duplicateMediaById[id].orEmpty()
             val media = attachments(message, id).map { item ->
-                previousMedia[item.partIndex]?.let { cached ->
+                mergeAttachmentCache(duplicateMedia, existingMedia, item.partIndex)?.let { cached ->
                     item.copy(
                         localPath = cached.localPath,
                         downloadState = cached.downloadState,
-                        waveform = item.waveform ?: cached.waveform,
+                        waveform = item.waveform ?: cached.waveform?.takeIf { it.isNotBlank() },
                     )
                 } ?: item
             }
@@ -656,6 +676,28 @@ class ChatStore(
             messageDao.deleteReactions(id)
             if (reactions.isNotEmpty()) messageDao.upsertReactions(reactions)
         }
+    }
+
+    private fun mergeAttachmentCache(
+        duplicateMedia: Map<Int, AttachmentEntity>,
+        existingMedia: Map<Int, AttachmentEntity>,
+        partIndex: Int,
+    ): AttachmentEntity? {
+        val existing = existingMedia[partIndex]
+        val duplicate = duplicateMedia[partIndex]
+        if (existing == null) return duplicate
+        if (duplicate == null) return existing
+        val downloadState = if (existing.downloadState != AttachmentEntity.DOWNLOAD_NONE) {
+            existing.downloadState
+        } else {
+            duplicate.downloadState
+        }
+        return existing.copy(
+            localPath = existing.localPath.ifBlank { duplicate.localPath },
+            downloadState = downloadState,
+            waveform = existing.waveform?.takeIf { it.isNotBlank() }
+                ?: duplicate.waveform?.takeIf { it.isNotBlank() },
+        )
     }
 
     private suspend fun updatePreviewFromNewest(threadId: String, now: Long) {

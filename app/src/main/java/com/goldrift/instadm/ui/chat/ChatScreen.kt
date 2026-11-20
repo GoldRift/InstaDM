@@ -299,6 +299,7 @@ fun ChatScreen(
     isLoading: Boolean = false,
     errorMessage: String? = null,
     onLoadMedia: MediaLoader? = null,
+    onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)? = null,
     onMarkRead: (String) -> Unit = {},
     onLoadOlder: () -> Unit = {},
     onRetryOlder: () -> Unit = {},
@@ -1027,6 +1028,7 @@ fun ChatScreen(
                                 },
                                 onRetryMedia = onRetryMedia,
                                 onLoadMedia = onLoadMedia,
+                                onEnsureVoiceWaveform = onEnsureVoiceWaveform,
                                 voicePlayer = voicePlayer,
                                 viewerName = viewerName,
                                 viewerAvatarUrl = viewerAvatarUrl,
@@ -1230,6 +1232,7 @@ private fun MessageList(
     onUnsendAt: (messageId: String) -> Unit,
     onRetryMedia: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
+    onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
     voicePlayer: VoicePlayer,
     viewerName: String,
     viewerAvatarUrl: String,
@@ -1403,6 +1406,7 @@ private fun MessageList(
                         onUnsend = { onUnsendAt(message.id) },
                         onRetry = { onRetryMedia(message.id) },
                         onLoadMedia = onLoadMedia,
+                        onEnsureVoiceWaveform = onEnsureVoiceWaveform,
                         voicePlayer = voicePlayer,
                         isGroup = isGroup,
                         participants = participants,
@@ -1537,6 +1541,7 @@ private fun MessageRow(
     onUnsend: () -> Unit,
     onRetry: () -> Unit,
     onLoadMedia: MediaLoader?,
+    onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
     voicePlayer: VoicePlayer,
     isGroup: Boolean,
     participants: List<ConversationParticipant>,
@@ -1767,6 +1772,7 @@ private fun MessageRow(
                         onOpenMedia = onOpenMedia,
                         onLongPress = onLongPress,
                         onLoadMedia = onLoadMedia,
+                        onEnsureVoiceWaveform = onEnsureVoiceWaveform,
                         voicePlayer = voicePlayer,
                         // The bar names the chat; a group keeps the sender.
                         noteTitle = senderName.ifBlank { contact.name },
@@ -2015,6 +2021,7 @@ private fun MessageBubbleContent(
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
     onLoadMedia: MediaLoader?,
+    onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
     voicePlayer: VoicePlayer,
     noteTitle: String,
     noteAvatarUrl: String,
@@ -2098,6 +2105,10 @@ private fun MessageBubbleContent(
                     noteTitle = noteTitle,
                     noteAvatarUrl = noteAvatarUrl,
                     noteInitials = noteInitials,
+                    isVisible = isVisible,
+                    onEnsureWaveform = onEnsureVoiceWaveform?.let { ensure ->
+                        { ensure(message.id, item) }
+                    },
                 )
             }
         }

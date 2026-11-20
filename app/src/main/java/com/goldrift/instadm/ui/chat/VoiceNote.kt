@@ -50,6 +50,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -263,6 +264,15 @@ class VoicePlayer(context: Context) {
         stopInternal()
     }
 
+    /** Backfills waveform bars for the active note once on-device extraction completes. */
+    fun updateWaveform(messageId: String, waveform: List<Float>) {
+        if (waveform.isEmpty()) return
+        val current = nowPlaying ?: return
+        if (current.messageId == messageId && current.waveform.isEmpty()) {
+            nowPlaying = current.copy(waveform = waveform)
+        }
+    }
+
     private fun stopInternal() {
         ticker?.cancel()
         ticker = null
@@ -422,7 +432,15 @@ fun VoiceNoteBubble(
     noteAvatarUrl: String,
     noteInitials: String,
     modifier: Modifier = Modifier,
+    isVisible: Boolean = true,
+    onEnsureWaveform: (() -> Unit)? = null,
 ) {
+    if (onEnsureWaveform != null && isVisible && media.waveform.isEmpty()) {
+        val currentEnsureWaveform by rememberUpdatedState(onEnsureWaveform)
+        LaunchedEffect(messageId, media.partIndex) {
+            currentEnsureWaveform()
+        }
+    }
     val scope = rememberCoroutineScope()
     var file by remember(messageId, media.partIndex, media.localPath) {
         mutableStateOf(localVoiceFile(media))
@@ -431,6 +449,11 @@ fun VoiceNoteBubble(
     var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
 
     val isActive = player.activeId == messageId
+    if (isActive && media.waveform.isNotEmpty() && player.nowPlaying?.waveform.isNullOrEmpty()) {
+        LaunchedEffect(messageId, media.waveform) {
+            player.updateWaveform(messageId, media.waveform)
+        }
+    }
     val isPlaying = player.isPlaying(messageId)
     val progress = player.progressFor(messageId)
     val durationMs = if (isActive && player.durationMs > 0) player.durationMs else media.durationMs
@@ -769,7 +792,7 @@ fun RecordingWaveform(
 }
 
 /** Playable local file for an outgoing or already-downloaded note. */
-private fun localVoiceFile(media: MessageMedia): File? {
+internal fun localVoiceFile(media: MessageMedia): File? {
     if (media.localPath.isNotBlank()) {
         val file = File(media.localPath)
         if (file.isFile) return file

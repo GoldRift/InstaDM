@@ -881,6 +881,9 @@ private fun ChatDestination(
         onLoadMedia = { mediaThreadId, messageId, media ->
             inboxState.downloadMedia(mediaThreadId, messageId, media)
         },
+        onEnsureVoiceWaveform = { messageId, media ->
+            inboxState.ensureVoiceWaveform(threadId, messageId, media)
+        },
         onMarkRead = { messageId -> inboxState.markRead(threadId, messageId) },
         onLoadOlder = { inboxState.loadOlder(threadId) },
         onRetryOlder = { inboxState.retryOlder(threadId) },

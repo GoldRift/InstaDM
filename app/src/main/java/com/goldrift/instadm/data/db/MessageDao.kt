@@ -77,6 +77,12 @@ interface MessageDao {
     )
     suspend fun markAttachmentReady(messageId: String, partIndex: Int, path: String)
 
+    @Query(
+        "UPDATE attachments SET waveform = :waveform " +
+            "WHERE message_id = :messageId AND part_index = :partIndex",
+    )
+    suspend fun setAttachmentWaveform(messageId: String, partIndex: Int, waveform: String)
+
     /**
      * Forgets downloaded copies after the media cache is cleared. Pending and
      * failed sends keep their outbox copies for retry. Sent attachments also

@@ -4,11 +4,13 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.ChatStore
+import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.db.AttachmentEntity
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
+import com.goldrift.instadm.data.parseWaveform
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -699,6 +701,189 @@ class ChatStoreTest {
         assertTrue(attachment.viewOnce)
         assertEquals("viewed", attachment.viewMode)
         assertEquals("", attachment.url)
+    }
+
+    @Test
+    fun setAttachmentWaveformPersistsExtractedWaveformAcrossCacheClear() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-1" },
+                  "messages": [
+                    {
+                      "id": "voice-msg-1",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1700000001000,
+                      "kind": "audio",
+                      "media_count": 1,
+                      "is_from_viewer": false,
+                      "media": [
+                        {
+                          "type": "audio",
+                          "url": "https://cdn.example.invalid/voice.m4a",
+                          "duration_ms": 2500
+                        }
+                      ]
+                    }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+        store.markAttachmentReady("voice-msg-1", partIndex = 0, path = "/tmp/voice.m4a")
+        store.setAttachmentWaveform("voice-msg-1", partIndex = 0, waveform = listOf(0.2f, 0.9f, 0.4f))
+
+        val saved = store.observeThread("thread-1").first()
+            .first { it.message.id == "voice-msg-1" }
+            .attachments
+            .single()
+        assertEquals(listOf(0.2f, 0.9f, 0.4f), parseWaveform(saved.waveform))
+
+        store.clearDownloadedMediaFiles()
+
+        val afterClear = store.observeThread("thread-1").first()
+            .first { it.message.id == "voice-msg-1" }
+            .attachments
+            .single()
+        assertEquals("", afterClear.localPath)
+        assertEquals(listOf(0.2f, 0.9f, 0.4f), parseWaveform(afterClear.waveform))
+    }
+
+    @Test
+    fun otidDeduplicationPreservesLocalVoiceWaveform() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+
+        val realtimePendingId = "local:voice-rt"
+        val realtimeOtid = "otid-voice-rt"
+        db.messages().upsertMessage(
+            MessageEntity(
+                id = realtimePendingId,
+                localId = realtimePendingId,
+                threadId = "thread-1",
+                timestampMs = now,
+                kind = "audio",
+                otid = realtimeOtid,
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+                mediaCount = 1,
+            ),
+        )
+        db.messages().upsertAttachments(
+            listOf(
+                AttachmentEntity(
+                    messageId = realtimePendingId,
+                    partIndex = 0,
+                    kind = "audio",
+                    url = "file:///tmp/rt.m4a",
+                    durationMs = 1500,
+                    localPath = "/tmp/rt.m4a",
+                    waveform = "[0.15,0.85,0.45]",
+                    downloadState = AttachmentEntity.DOWNLOAD_READY,
+                ),
+            ),
+        )
+
+        store.ingestRealtimeMessage(
+            "thread-1",
+            RealtimeMessage(
+                id = "mid.voice.rt",
+                offlineThreadingId = realtimeOtid,
+                senderFbid = 111,
+                senderName = "Me",
+                isFromViewer = true,
+                timestampMs = now + 500,
+                kind = "audio",
+                media = listOf(
+                    MessageMedia(
+                        type = "audio",
+                        url = "https://cdn.example.invalid/rt.m4a",
+                        durationMs = 1500,
+                        partIndex = 0,
+                        waveform = emptyList(),
+                    ),
+                ),
+            ),
+        )
+
+        val rtAttachment = store.observeThread("thread-1").first()
+            .first { it.message.id == "mid.voice.rt" }
+            .attachments
+            .single()
+        assertEquals("/tmp/rt.m4a", rtAttachment.localPath)
+        assertEquals(AttachmentEntity.DOWNLOAD_READY, rtAttachment.downloadState)
+        assertEquals(listOf(0.15f, 0.85f, 0.45f), parseWaveform(rtAttachment.waveform))
+
+        val pagePendingId = "local:voice-page"
+        val pageOtid = "otid-voice-page"
+        db.messages().upsertMessage(
+            MessageEntity(
+                id = pagePendingId,
+                localId = pagePendingId,
+                threadId = "thread-1",
+                timestampMs = now + 1000,
+                kind = "audio",
+                otid = pageOtid,
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+                mediaCount = 1,
+            ),
+        )
+        db.messages().upsertAttachments(
+            listOf(
+                AttachmentEntity(
+                    messageId = pagePendingId,
+                    partIndex = 0,
+                    kind = "audio",
+                    url = "file:///tmp/page.m4a",
+                    durationMs = 2000,
+                    localPath = "/tmp/page.m4a",
+                    waveform = "[0.3,0.7]",
+                    downloadState = AttachmentEntity.DOWNLOAD_READY,
+                ),
+            ),
+        )
+
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-1" },
+                  "messages": [
+                    {
+                      "id": "mid.voice.page",
+                      "offline_threading_id": "$pageOtid",
+                      "sender_fbid": 111,
+                      "timestamp_ms": ${now + 1500},
+                      "kind": "audio",
+                      "media_count": 1,
+                      "is_from_viewer": true,
+                      "media": [
+                        {
+                          "type": "audio",
+                          "url": "https://cdn.example.invalid/page.m4a",
+                          "duration_ms": 2000
+                        }
+                      ]
+                    }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val pageAttachment = store.observeThread("thread-1").first()
+            .first { it.message.id == "mid.voice.page" }
+            .attachments
+            .single()
+        assertEquals("/tmp/page.m4a", pageAttachment.localPath)
+        assertEquals(AttachmentEntity.DOWNLOAD_READY, pageAttachment.downloadState)
+        assertEquals(listOf(0.3f, 0.7f), parseWaveform(pageAttachment.waveform))
     }
 
     private suspend fun ChatStore.conversationThread(threadId: String) =

@@ -22,6 +22,7 @@ import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.SettingsStore
+import com.goldrift.instadm.data.extractAudioWaveform
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
+import java.util.Collections
 
 enum class InboxStatus { Loading, Ready, NoSession, Error }
 
@@ -98,6 +100,8 @@ class InboxState(
     private val typingExpiry = mutableMapOf<String, Job>()
     private val typingPingedAt = mutableMapOf<String, Long>()
     private val typingIdleJobs = mutableMapOf<String, Job>()
+    private val waveformRequested = Collections.synchronizedSet(mutableSetOf<String>())
+    private val waveformExtracting = Collections.synchronizedSet(mutableSetOf<String>())
     private var openThreadId: String? = null
     private var messageCollector: Job? = null
     private var refreshInFlight = false
@@ -319,6 +323,8 @@ class InboxState(
                         repository.clearMediaCache()
                     }
                     items.clear()
+                    waveformRequested.clear()
+                    waveformExtracting.clear()
                     hasMoreConversations = false
                     inboxCursor = ""
                     status = InboxStatus.NoSession
@@ -919,7 +925,52 @@ class InboxState(
     ): File {
         val file = repository.downloadMedia(threadId, messageId, media)
         chatStore.markAttachmentReady(messageId, media.partIndex, file.absolutePath)
+        if (media.isVoiceNote && media.waveform.isEmpty()) {
+            launchWaveformExtraction(messageId, media.partIndex, file)
+        }
         return file
+    }
+
+    /** Ensures a visible voice note without a server waveform gets one decoded on device. */
+    fun ensureVoiceWaveform(
+        threadId: String,
+        messageId: String,
+        media: MessageMedia,
+    ) {
+        if (!media.isVoiceNote || media.waveform.isNotEmpty()) return
+        val key = "$messageId:${media.partIndex}"
+        if (!waveformRequested.add(key)) return
+
+        scope.launch {
+            val localFile = localVoiceFile(media)
+            if (localFile != null) {
+                launchWaveformExtraction(messageId, media.partIndex, localFile)
+            } else if (!messageId.startsWith("local:")) {
+                runCatching { downloadMedia(threadId, messageId, media) }
+                    .onFailure { waveformRequested.remove(key) }
+            } else {
+                waveformRequested.remove(key)
+            }
+        }
+    }
+
+    private fun launchWaveformExtraction(
+        messageId: String,
+        partIndex: Int,
+        file: File,
+    ) {
+        val key = "$messageId:$partIndex"
+        if (!waveformExtracting.add(key)) return
+        scope.launch {
+            try {
+                val bars = extractAudioWaveform(file)
+                if (bars.isNotEmpty()) {
+                    chatStore.setAttachmentWaveform(messageId, partIndex, bars)
+                }
+            } finally {
+                waveformExtracting.remove(key)
+            }
+        }
     }
 
     private fun indexOfThread(threadId: String): Int {
