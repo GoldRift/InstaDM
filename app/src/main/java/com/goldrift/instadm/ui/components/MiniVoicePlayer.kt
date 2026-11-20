@@ -82,7 +82,8 @@ internal fun showVoiceMiniPlayer(
     enabled: Boolean,
     finished: Boolean,
     mediaViewerOpen: Boolean = false,
-): Boolean = enabled && !mediaViewerOpen && nowPlaying != null && !finished &&
+    cameraOpen: Boolean = false,
+): Boolean = enabled && !mediaViewerOpen && !cameraOpen && nowPlaying != null && !finished &&
     nowPlaying.threadId != visibleThreadId
 
 /** Height the floating bar takes at the bottom, margin included. */

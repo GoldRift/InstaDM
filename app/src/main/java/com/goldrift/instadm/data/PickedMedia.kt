@@ -234,9 +234,15 @@ object CameraCapture {
     private const val CAPTURE_DIR = "outgoing"
     private const val MAX_AGE_MS = 24L * 60 * 60 * 1000
 
-    fun newTarget(context: Context): CaptureTarget {
+    fun newTarget(context: Context): CaptureTarget =
+        newTarget(context, extension = "jpg")
+
+    fun newVideoTarget(context: Context): CaptureTarget =
+        newTarget(context, extension = "mp4")
+
+    private fun newTarget(context: Context, extension: String): CaptureTarget {
         val directory = File(context.cacheDir, CAPTURE_DIR).apply { mkdirs() }
-        val file = File(directory, "capture-${UUID.randomUUID()}.jpg")
+        val file = File(directory, "capture-${UUID.randomUUID()}.$extension")
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",

@@ -52,5 +52,14 @@ class MiniPlayerVisibilityTest {
                 mediaViewerOpen = true,
             ),
         )
+        assertFalse(
+            showVoiceMiniPlayer(
+                note,
+                visibleThreadId = "sofia",
+                enabled = true,
+                finished = false,
+                cameraOpen = true,
+            ),
+        )
     }
 }
