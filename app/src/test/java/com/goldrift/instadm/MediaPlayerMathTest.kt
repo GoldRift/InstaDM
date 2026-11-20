@@ -1,5 +1,6 @@
 package com.goldrift.instadm
 
+import androidx.media3.common.PlaybackException
 import com.goldrift.instadm.ui.chat.VideoPlaybackSpeeds
 import com.goldrift.instadm.ui.chat.VoicePlaybackSpeeds
 import com.goldrift.instadm.ui.chat.canSwipeToDismiss
@@ -7,6 +8,7 @@ import com.goldrift.instadm.ui.chat.clampImagePan
 import com.goldrift.instadm.ui.chat.clampImageScale
 import com.goldrift.instadm.ui.chat.doubleTapZoomTarget
 import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
+import com.goldrift.instadm.ui.chat.isDecoderFailureCode
 import com.goldrift.instadm.ui.chat.mediaDismissTransform
 import com.goldrift.instadm.ui.chat.nextPlaybackSpeed
 import com.goldrift.instadm.ui.chat.shouldAutoHidePlayerChrome
@@ -253,5 +255,14 @@ class MediaPlayerMathTest {
                 isBuffering = true,
             ),
         )
+    }
+
+    @Test
+    fun decoderFailureCodesTriggerSoftwareFallbackOnlyForCodecErrors() {
+        assertTrue(isDecoderFailureCode(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED))
+        assertTrue(isDecoderFailureCode(PlaybackException.ERROR_CODE_DECODING_FAILED))
+        assertTrue(isDecoderFailureCode(PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED))
+        assertFalse(isDecoderFailureCode(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND))
+        assertFalse(isDecoderFailureCode(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED))
     }
 }

@@ -81,6 +81,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,7 +124,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.media3.ui.compose.state.rememberMuteButtonState
@@ -1045,22 +1045,24 @@ private fun ExpressiveVideoPlayer(
     val isGif = media.type == "gif"
     val loop = isGif || media.isReel
 
-    val exoPlayer = remember(file) {
-        ExoPlayer.Builder(context)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                /* handleAudioFocus = */ !isGif,
-            )
-            .build()
-            .apply {
-                repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                if (isGif) volume = 0f
-                setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-                prepare()
-            }
+    var preferSoftwareDecoder by remember(file) { mutableStateOf(false) }
+    var resumePositionMs by remember(file) { mutableLongStateOf(0L) }
+    val exoPlayer = remember(file, preferSoftwareDecoder) {
+        createExoPlayer(
+            context = context,
+            preferSoftwareDecoder = preferSoftwareDecoder,
+            audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            handleAudioFocus = !isGif,
+        ).apply {
+            repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            if (isGif) volume = 0f
+            setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+            if (resumePositionMs > 0L) seekTo(resumePositionMs)
+            prepare()
+        }
     }
 
     var isBuffering by remember(exoPlayer) { mutableStateOf(true) }
@@ -1087,6 +1089,11 @@ private fun ExpressiveVideoPlayer(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (!preferSoftwareDecoder && error.isDecoderFailure()) {
+                    resumePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    preferSoftwareDecoder = true
+                    return
+                }
                 playbackError = true
                 isBuffering = false
             }

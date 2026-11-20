@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
+import android.content.Context
 import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
@@ -59,9 +60,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import coil.compose.SubcomposeAsyncImage
@@ -271,6 +275,32 @@ private fun InlineGif(
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
+internal fun createExoPlayer(
+    context: Context,
+    preferSoftwareDecoder: Boolean,
+    audioAttributes: AudioAttributes,
+    handleAudioFocus: Boolean,
+): ExoPlayer {
+    val renderersFactory = DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+        .apply {
+            if (preferSoftwareDecoder) {
+                setMediaCodecSelector(MediaCodecSelector.PREFER_SOFTWARE)
+            }
+        }
+    return ExoPlayer.Builder(context, renderersFactory)
+        .setAudioAttributes(audioAttributes, handleAudioFocus)
+        .build()
+}
+
+internal fun isDecoderFailureCode(errorCode: Int): Boolean =
+    errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+        errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+        errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED
+
+internal fun PlaybackException.isDecoderFailure(): Boolean = isDecoderFailureCode(errorCode)
+
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun LoopingVideo(
     file: File,
@@ -280,16 +310,19 @@ private fun LoopingVideo(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activeState = rememberUpdatedState(active)
-    val exoPlayer = remember(file) {
-        ExoPlayer.Builder(context)
-            .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus = */ false)
-            .build()
-            .apply {
-                volume = 0f
-                repeatMode = Player.REPEAT_MODE_ONE
-                setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-                prepare()
-            }
+    var preferSoftwareDecoder by remember(file) { mutableStateOf(false) }
+    val exoPlayer = remember(file, preferSoftwareDecoder) {
+        createExoPlayer(
+            context = context,
+            preferSoftwareDecoder = preferSoftwareDecoder,
+            audioAttributes = AudioAttributes.DEFAULT,
+            handleAudioFocus = false,
+        ).apply {
+            volume = 0f
+            repeatMode = Player.REPEAT_MODE_ONE
+            setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+            prepare()
+        }
     }
 
     LaunchedEffect(exoPlayer, active) {
@@ -297,6 +330,13 @@ private fun LoopingVideo(
     }
 
     DisposableEffect(exoPlayer, lifecycleOwner) {
+        val playerListener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!preferSoftwareDecoder && error.isDecoderFailure()) {
+                    preferSoftwareDecoder = true
+                }
+            }
+        }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> exoPlayer.playWhenReady = false
@@ -304,8 +344,10 @@ private fun LoopingVideo(
                 else -> Unit
             }
         }
+        exoPlayer.addListener(playerListener)
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            exoPlayer.removeListener(playerListener)
             lifecycleOwner.lifecycle.removeObserver(observer)
             exoPlayer.release()
         }
