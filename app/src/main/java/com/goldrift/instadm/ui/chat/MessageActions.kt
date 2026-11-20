@@ -64,6 +64,12 @@ fun ChatMessage.canEdit(nowMs: Long = System.currentTimeMillis()): Boolean =
         text.isNotBlank() &&
         (timestampMs <= 0 || nowMs - timestampMs <= EDIT_WINDOW_MS)
 
+/** The text an edit would submit, or null when it is blank or leaves the message unchanged. */
+fun editedText(message: ChatMessage, raw: String): String? {
+    val text = raw.trim().take(MAX_MESSAGE_LENGTH)
+    return text.takeIf { it.isNotEmpty() && it != message.text }
+}
+
 fun ChatMessage.reactionGroups(): List<ReactionGroup> =
     reactions
         .filter { it.emoji.isNotBlank() }

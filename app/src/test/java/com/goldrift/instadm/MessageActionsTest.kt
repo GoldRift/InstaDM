@@ -6,6 +6,7 @@ import com.goldrift.instadm.ui.chat.ADMIN_RESTRICTED_KIND
 import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.EDIT_WINDOW_MS
+import com.goldrift.instadm.ui.chat.MAX_MESSAGE_LENGTH
 import com.goldrift.instadm.ui.chat.MessageReaction
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReactionDelta
@@ -14,6 +15,7 @@ import com.goldrift.instadm.ui.chat.canEdit
 import com.goldrift.instadm.ui.chat.canReact
 import com.goldrift.instadm.ui.chat.canReply
 import com.goldrift.instadm.ui.chat.canUnsend
+import com.goldrift.instadm.ui.chat.editedText
 import com.goldrift.instadm.ui.chat.isAdminNotice
 import com.goldrift.instadm.ui.chat.isAdminNoticeKind
 import com.goldrift.instadm.ui.chat.isReactionLog
@@ -23,6 +25,7 @@ import com.goldrift.instadm.ui.chat.restoreViewerReaction
 import com.goldrift.instadm.ui.chat.toggleViewerReaction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -195,6 +198,20 @@ class MessageActionsTest {
         assertFalse(theirs.canEdit(now))
         assertFalse(pending.canEdit(now))
         assertFalse(mediaOnly.canEdit(now))
+    }
+
+    @Test
+    fun editedTextTrimsCapsAndRejectsNoOps() {
+        val original = message(text = "hello")
+
+        assertEquals("hello there", editedText(original, "  hello there \n"))
+        assertEquals(
+            MAX_MESSAGE_LENGTH,
+            editedText(original, "x".repeat(MAX_MESSAGE_LENGTH + 50))?.length,
+        )
+        assertNull(editedText(original, "   "))
+        assertNull(editedText(original, "hello"))
+        assertNull(editedText(original, "  hello  "))
     }
 
     @Test
