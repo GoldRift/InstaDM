@@ -1516,13 +1516,19 @@ private fun MessageList(
         if (loadOlderNow) onLoadOlder()
     }
 
-    LazyColumn(
-        state = listState,
-        reverseLayout = true,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
+    val inlineGifPool = remember(threadId) { InlineGifPool() }
+    DisposableEffect(inlineGifPool) {
+        onDispose { inlineGifPool.clear() }
+    }
+
+    CompositionLocalProvider(LocalInlineGifPool provides inlineGifPool) {
+        LazyColumn(
+            state = listState,
+            reverseLayout = true,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
         if (isTyping) {
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
@@ -1686,6 +1692,7 @@ private fun MessageList(
                     onRetry = onRetryOlder,
                 )
             }
+        }
         }
     }
 }

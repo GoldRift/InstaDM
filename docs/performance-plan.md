@@ -139,7 +139,7 @@ not `debug`:
       `file.length()` checks off the main thread; avoid O(N^2) list copying on
       every amplitude sample; throttle displayed elapsed seconds to 1 Hz.
 
-- [ ] **3.4 Cap inline GIF `ExoPlayer` instances**
+- [x] **3.4 Cap inline GIF `ExoPlayer` instances**
   - Files: `MediaViewer.kt`.
   - Change: Initialize `InlineGif` from `media.localPath` when cached, avoid
     creating players during fast scroll, and cap active concurrent inline GIF

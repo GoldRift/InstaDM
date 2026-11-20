@@ -38,11 +38,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +75,8 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
@@ -252,9 +255,63 @@ private fun ThumbnailImage(
     }
 }
 
+private const val DEFAULT_MAX_ACTIVE_INLINE_GIFS = 3
+private const val INLINE_GIF_SETTLE_MS = 150L
+private const val INLINE_GIF_MIN_VISIBLE_FRACTION = 0.1f
+
 /**
- * Downloads a GIF through the Go client once its row is visible, then loops it
- * inline. While the download runs, the static preview stays in place.
+ * Caps concurrent inline GIF ExoPlayer instances to the most recently visible
+ * items so hardware video decoder pools are not exhausted in GIF-heavy chats.
+ */
+internal class InlineGifPool(
+    private val maxActive: Int = DEFAULT_MAX_ACTIVE_INLINE_GIFS,
+) {
+    init {
+        require(maxActive > 0) { "maxActive must be positive" }
+    }
+
+    private val visibleOrder = ArrayList<String>()
+
+    var activeKeys by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    fun isActive(key: String): Boolean = key in activeKeys
+
+    fun setVisible(key: String, visible: Boolean) {
+        if (visible) {
+            visibleOrder.remove(key)
+            visibleOrder.add(key)
+        } else {
+            if (!visibleOrder.remove(key)) return
+        }
+        val next = if (visibleOrder.size <= maxActive) {
+            visibleOrder.toSet()
+        } else {
+            visibleOrder.subList(visibleOrder.size - maxActive, visibleOrder.size).toSet()
+        }
+        if (next != activeKeys) {
+            activeKeys = next
+        }
+    }
+
+    fun clear() {
+        if (visibleOrder.isEmpty() && activeKeys.isEmpty()) return
+        visibleOrder.clear()
+        activeKeys = emptySet()
+    }
+}
+
+internal val LocalInlineGifPool = staticCompositionLocalOf { InlineGifPool() }
+
+internal fun resolveCachedMediaFile(localPath: String): File? {
+    if (localPath.isBlank()) return null
+    val candidate = File(localPath)
+    return candidate.takeIf { it.isFile && it.length() > 0L }
+}
+
+/**
+ * Resolves a GIF from its local cache or the Go client once its row settles in
+ * the viewport, then loops it inline while it holds a slot in [InlineGifPool].
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -265,12 +322,36 @@ private fun InlineGif(
     loadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
-    var visible by remember(messageId, media.partIndex) { mutableStateOf(false) }
-    var file by remember(messageId, media.partIndex) { mutableStateOf<File?>(null) }
-    var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
+    val pool = LocalInlineGifPool.current
+    val gifKey = remember(messageId, media.partIndex) { "$messageId:${media.partIndex}" }
+    var visible by remember(gifKey) { mutableStateOf(false) }
+    var file by remember(gifKey) { mutableStateOf<File?>(null) }
+    var failed by remember(gifKey) { mutableStateOf(false) }
+    val canPlay by remember(pool, gifKey) {
+        derivedStateOf { pool.isActive(gifKey) }
+    }
 
-    LaunchedEffect(messageId, media.partIndex, visible) {
-        if (!visible || file != null || failed) return@LaunchedEffect
+    DisposableEffect(pool, gifKey) {
+        onDispose { pool.setVisible(gifKey, false) }
+    }
+
+    LaunchedEffect(pool, gifKey, visible) {
+        pool.setVisible(gifKey, visible)
+    }
+
+    LaunchedEffect(gifKey, media.localPath, visible) {
+        if (!visible || file != null) return@LaunchedEffect
+        val cached = if (media.localPath.isNotBlank()) {
+            withContext(Dispatchers.IO) { resolveCachedMediaFile(media.localPath) }
+        } else {
+            null
+        }
+        if (cached != null) {
+            file = cached
+            failed = false
+            return@LaunchedEffect
+        }
+        if (failed) return@LaunchedEffect
         val loader = loadMedia ?: return@LaunchedEffect
         runCatching { loader(threadId, messageId, media) }
             .onSuccess { file = it }
@@ -278,19 +359,21 @@ private fun InlineGif(
     }
 
     Box(
-        modifier = modifier.onVisibilityChanged(minFractionVisible = 0f) { visible = it },
+        modifier = modifier.onVisibilityChanged(
+            minDurationMs = INLINE_GIF_SETTLE_MS,
+            minFractionVisible = INLINE_GIF_MIN_VISIBLE_FRACTION,
+        ) { visible = it },
         contentAlignment = Alignment.Center,
     ) {
         val loaded = file
-        if (loaded != null) {
+        if (loaded != null && canPlay) {
             LoopingVideo(
                 file = loaded,
-                active = visible,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
-            if (!failed) {
+            if (loaded == null && visible && !failed) {
                 ContainedLoadingIndicator(modifier = Modifier.size(52.dp))
             }
         }
@@ -327,12 +410,10 @@ internal fun PlaybackException.isDecoderFailure(): Boolean = isDecoderFailureCod
 @Composable
 private fun LoopingVideo(
     file: File,
-    active: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val activeState = rememberUpdatedState(active)
     var preferSoftwareDecoder by remember(file) { mutableStateOf(false) }
     val exoPlayer = remember(file, preferSoftwareDecoder) {
         createExoPlayer(
@@ -343,13 +424,10 @@ private fun LoopingVideo(
         ).apply {
             volume = 0f
             repeatMode = Player.REPEAT_MODE_ONE
+            playWhenReady = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             prepare()
         }
-    }
-
-    LaunchedEffect(exoPlayer, active) {
-        exoPlayer.playWhenReady = active
     }
 
     DisposableEffect(exoPlayer, lifecycleOwner) {
@@ -363,7 +441,7 @@ private fun LoopingVideo(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> exoPlayer.playWhenReady = false
-                Lifecycle.Event.ON_START -> exoPlayer.playWhenReady = activeState.value
+                Lifecycle.Event.ON_START -> exoPlayer.playWhenReady = true
                 else -> Unit
             }
         }
