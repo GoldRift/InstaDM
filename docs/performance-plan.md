@@ -104,7 +104,7 @@ not `debug`:
     and expand the local window on scroll/quote-jump before fetching older
     network pages, instead of reloading up to 10,000 rows on every table write.
 
-- [ ] **2.4 Batch N+1 queries in `ChatStore` and parse JSON outside transactions**
+- [x] **2.4 Batch N+1 queries in `ChatStore` and parse JSON outside transactions**
   - Files: `ChatStore.kt`, `MessageDao.kt`, `ThreadDao.kt`.
   - Change: Parse JSON payloads on `Dispatchers.Default` before
     `db.withTransaction`. Batch `IN (:ids)` / `IN (:otids)` lookups and batch

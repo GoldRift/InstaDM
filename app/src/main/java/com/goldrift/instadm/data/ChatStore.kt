@@ -22,6 +22,9 @@ import java.io.File
 /** Messages kept per thread; older rows are pruned after each ingest. */
 private const val MESSAGE_RETENTION = 10_000
 
+/** SQLite caps bound parameters per statement at 999 on API 24; stay well under. */
+internal const val SQLITE_BIND_CHUNK = 500
+
 /** Kind the Go core assigns to like/reaction activity entries. */
 internal const val REACTION_LOG_KIND = "reaction-log"
 
@@ -113,72 +116,54 @@ class ChatStore(
 
     /** Applies `PolarisDirectInboxQuery` output: thread metadata and previews. */
     suspend fun ingestMailbox(json: JSONObject) {
-        val threads = json.optJSONArray("threads") ?: return
+        val parsed = withContext(Dispatchers.Default) { parseMailboxPayload(json) } ?: return
         val now = clock()
 
         db.withTransaction {
-            val ids = (0 until threads.length()).mapNotNull { index ->
-                threads.optJSONObject(index)
-                    ?.optString("id")
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-            }
-            val existing = if (ids.isEmpty()) {
-                emptyMap()
-            } else {
-                threadDao.threads(ids).associateBy { it.id }
-            }
+            val ids = parsed.threads.map { it.id }
+            val existing = chunkedQuery(ids) { threadDao.threads(it) }.associateBy { it.id }
 
-            val rows = ArrayList<ThreadEntity>(threads.length())
-            for (index in 0 until threads.length()) {
-                val thread = threads.optJSONObject(index) ?: continue
-                val id = thread.optString("id").trim()
-                if (id.isEmpty()) continue
-                rows += threadEntity(thread, existing[id], now) ?: continue
-            }
+            val rows = parsed.threads.map { it.toEntity(existing[it.id], now) }
             if (rows.isNotEmpty()) threadDao.upsertAll(rows)
 
-            // Participants reference the thread row, so insert them afterwards.
-            for (index in 0 until threads.length()) {
-                val thread = threads.optJSONObject(index) ?: continue
-                val id = thread.optString("id").trim()
-                if (id.isEmpty()) continue
-                threadDao.deleteParticipants(id)
-                val participants = participants(thread, id)
-                if (participants.isNotEmpty()) threadDao.upsertParticipants(participants)
+            // Participants reference the thread row, so replace them afterwards.
+            if (ids.isNotEmpty()) {
+                chunkedForEach(ids) { threadDao.deleteParticipantsForThreads(it) }
+            }
+            if (parsed.participants.isNotEmpty()) {
+                threadDao.upsertParticipants(parsed.participants)
             }
 
-            json.optJSONObject("viewer")?.let { saveViewer(it) }
-            metaDao.put(AppMetaEntity(META_INBOX_SYNCED_AT, now.toString()))
+            parsed.viewerFbid?.let { cachedViewerFbid = it.takeIf { id -> id > 0 } }
+            val metaEntries = parsed.viewerMeta + AppMetaEntity(META_INBOX_SYNCED_AT, now.toString())
+            metaDao.putAll(metaEntries)
         }
     }
 
     /** Applies `IGDThreadDetailQuery` output: thread metadata, messages, receipts. */
     suspend fun ingestThread(json: JSONObject) {
-        val threadJson = json.optJSONObject("thread")
-        val threadId = threadJson?.optString("id")?.trim().orEmpty()
-            .ifBlank { json.optString("thread_id").trim() }
-        if (threadId.isEmpty()) return
+        val parsed = withContext(Dispatchers.Default) { parseThreadPayload(json) } ?: return
+        val threadId = parsed.threadId
 
         val now = clock()
         db.withTransaction {
             val previous = threadDao.thread(threadId)
-            if (threadJson != null) {
-                val entity = threadEntity(threadJson, previous, now) ?: return@withTransaction
-                threadDao.upsert(entity)
+            if (parsed.thread != null) {
+                threadDao.upsert(parsed.thread.toEntity(previous, now))
                 threadDao.deleteParticipants(threadId)
-                val participants = participants(threadJson, threadId)
-                if (participants.isNotEmpty()) threadDao.upsertParticipants(participants)
+                if (parsed.participants.isNotEmpty()) {
+                    threadDao.upsertParticipants(parsed.participants)
+                }
             } else if (previous == null) {
                 threadDao.upsert(ThreadEntity(id = threadId, updatedAt = now))
             }
 
-            upsertServerMessages(threadId, json.optJSONArray("messages") ?: JSONArray(), now)
+            upsertServerMessages(threadId, parsed.messages)
             if (previous == null || previous.oldestCursor.isBlank()) {
                 threadDao.updateNewestPage(
                     threadId = threadId,
-                    cursor = json.optString("oldest_cursor"),
-                    hasMore = json.optBoolean("has_more_older"),
+                    cursor = parsed.oldestCursor,
+                    hasMore = parsed.hasMoreOlder,
                     syncedAt = now,
                     now = now,
                 )
@@ -187,7 +172,7 @@ class ChatStore(
                 // pages have already advanced; only the sync time changes.
                 threadDao.markSynced(threadId = threadId, syncedAt = now, now = now)
             }
-            applyReadReceipts(threadId, json.optJSONArray("read_receipts"), now)
+            applyReadReceipts(threadId, parsed.readReceipts, now)
             updatePreviewFromNewest(threadId, now)
             messageDao.prune(threadId, retention)
         }
@@ -199,8 +184,8 @@ class ChatStore(
      * what is cached and add nothing while its cursor still moves.
      */
     suspend fun ingestOlderPage(json: JSONObject): OlderPageResult? {
-        val threadId = json.optString("thread_id").trim()
-        if (threadId.isEmpty()) return null
+        val parsed = withContext(Dispatchers.Default) { parseOlderPagePayload(json) } ?: return null
+        val threadId = parsed.threadId
 
         val now = clock()
         return db.withTransaction {
@@ -210,9 +195,9 @@ class ChatStore(
             }
             val requestedCursor = previous?.oldestCursor.orEmpty()
             val before = messageDao.count(threadId)
-            upsertServerMessages(threadId, json.optJSONArray("messages") ?: JSONArray(), now)
+            upsertServerMessages(threadId, parsed.messages)
             val added = messageDao.count(threadId) - before
-            val cursor = json.optString("oldest_cursor").trim()
+            val cursor = parsed.oldestCursor
             // A page can overlap what is cached and add nothing while the cursor
             // still moves; only a cursor that fails to advance would make the
             // scroll loader retry the same page forever.
@@ -222,7 +207,7 @@ class ChatStore(
             val retained = (messageDao.count(threadId) - before).coerceAtLeast(0)
             // At the retention cap a page can be stored and pruned in the same
             // transaction. Stop rather than fetching history that cannot be shown.
-            val hasMore = json.optBoolean("has_more_older") &&
+            val hasMore = parsed.hasMoreOlder &&
                 cursorAdvanced &&
                 (added == 0 || retained > 0)
             threadDao.updateOlderPage(
@@ -622,86 +607,79 @@ class ChatStore(
 
     private suspend fun upsertServerMessages(
         threadId: String,
-        messages: JSONArray,
-        now: Long,
+        messages: List<ParsedServerMessage>,
     ) {
-        if (messages.length() == 0) return
+        if (messages.isEmpty()) return
 
-        val rows = ArrayList<MessageEntity>(messages.length())
-        val payloads = ArrayList<Pair<String, JSONObject>>(messages.length())
-        val duplicateMediaById = HashMap<String, Map<Int, AttachmentEntity>>()
-        for (index in 0 until messages.length()) {
-            val message = messages.optJSONObject(index) ?: continue
-            val id = message.optString("id").trim()
-            if (id.isEmpty()) continue
+        val ids = messages.map { it.id }
+        val existingById = chunkedQuery(ids) { messageDao.messagesByIds(it) }.associateBy { it.id }
 
-            val existing = messageDao.message(id)
-            if (existing?.status == MessageStatus.DELETED) continue
+        val activeMessages = messages.filter { existingById[it.id]?.status != MessageStatus.DELETED }
+        if (activeMessages.isEmpty()) return
 
-            // A realtime echo or a page can supersede an optimistic row that
-            // has not been reconciled yet (same OTID, different ID). Keep that
-            // row's reply snapshot and cached attachment state before deleting it.
-            val otid = message.optString("offline_threading_id").trim()
-            val duplicate = otid.takeIf { it.isNotEmpty() }
-                ?.let { messageDao.byOtid(it) }
-                ?.takeIf { it.id != id }
-            val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
-
-            val entity = messageEntity(message, threadId, previous, now) ?: continue
-            if (duplicate != null) {
-                duplicateMediaById[id] =
-                    messageDao.attachments(duplicate.id).associateBy { it.partIndex }
-                messageDao.delete(duplicate.id)
-            }
-            rows += entity
-            payloads += id to message
+        val otids = activeMessages.asSequence()
+            .mapNotNull { it.otid.takeIf { otid -> otid.isNotEmpty() } }
+            .distinct()
+            .toList()
+        val existingByOtid = if (otids.isEmpty()) {
+            emptyMap()
+        } else {
+            chunkedQuery(otids) { messageDao.messagesByOtids(it) }.groupBy { it.otid }
         }
-        if (rows.isEmpty()) return
+
+        val duplicateIds = activeMessages.asSequence()
+            .mapNotNull { msg ->
+                msg.otid.takeIf { it.isNotEmpty() }
+                    ?.let { otid -> existingByOtid[otid]?.firstOrNull { it.id != msg.id }?.id }
+            }
+            .distinct()
+            .toList()
+        val duplicateAttachmentsByMsgId = if (duplicateIds.isEmpty()) {
+            emptyMap()
+        } else {
+            chunkedQuery(duplicateIds) { messageDao.attachmentsForMessages(it) }
+                .groupBy { it.messageId }
+        }
+
+        val activeIds = activeMessages.map { it.id }
+        val existingAttachmentsByMsgId = chunkedQuery(activeIds) { messageDao.attachmentsForMessages(it) }
+            .groupBy { it.messageId }
+        val existingReactionMsgIds = chunkedQuery(activeIds) { messageDao.reactionMessageIds(it) }
+            .toHashSet()
+
+        val plan = planServerMessageUpsert(
+            threadId = threadId,
+            parsed = activeMessages,
+            existingById = existingById,
+            existingByOtid = existingByOtid,
+            duplicateAttachmentsByMsgId = duplicateAttachmentsByMsgId,
+            existingAttachmentsByMsgId = existingAttachmentsByMsgId,
+            existingReactionMsgIds = existingReactionMsgIds,
+        )
+        if (plan.messages.isEmpty()) return
+
+        // Delete superseded pending rows after reading their cached attachments
+        // and before upserting so ON DELETE CASCADE cannot touch the new rows.
+        if (plan.duplicateIdsToDelete.isNotEmpty()) {
+            chunkedForEach(plan.duplicateIdsToDelete) { messageDao.deleteMessages(it) }
+        }
 
         // Messages first: attachments and reactions reference the message row.
-        messageDao.upsertMessages(rows)
+        messageDao.upsertMessages(plan.messages)
 
-        for ((id, message) in payloads) {
-            val existingMedia = messageDao.attachments(id).associateBy { it.partIndex }
-            val duplicateMedia = duplicateMediaById[id].orEmpty()
-            val media = attachments(message, id).map { item ->
-                mergeAttachmentCache(duplicateMedia, existingMedia, item.partIndex)?.let { cached ->
-                    item.copy(
-                        localPath = cached.localPath,
-                        downloadState = cached.downloadState,
-                        waveform = item.waveform ?: cached.waveform?.takeIf { it.isNotBlank() },
-                    )
-                } ?: item
-            }
-            messageDao.deleteAttachments(id)
-            if (media.isNotEmpty()) messageDao.upsertAttachments(media)
-
-            val reactions = reactions(message, id)
-            messageDao.deleteReactions(id)
-            if (reactions.isNotEmpty()) messageDao.upsertReactions(reactions)
+        if (plan.attachmentIdsToDelete.isNotEmpty()) {
+            chunkedForEach(plan.attachmentIdsToDelete) { messageDao.deleteAttachmentsForMessages(it) }
         }
-    }
-
-    private fun mergeAttachmentCache(
-        duplicateMedia: Map<Int, AttachmentEntity>,
-        existingMedia: Map<Int, AttachmentEntity>,
-        partIndex: Int,
-    ): AttachmentEntity? {
-        val existing = existingMedia[partIndex]
-        val duplicate = duplicateMedia[partIndex]
-        if (existing == null) return duplicate
-        if (duplicate == null) return existing
-        val downloadState = if (existing.downloadState != AttachmentEntity.DOWNLOAD_NONE) {
-            existing.downloadState
-        } else {
-            duplicate.downloadState
+        if (plan.attachments.isNotEmpty()) {
+            messageDao.upsertAttachments(plan.attachments)
         }
-        return existing.copy(
-            localPath = existing.localPath.ifBlank { duplicate.localPath },
-            downloadState = downloadState,
-            waveform = existing.waveform?.takeIf { it.isNotBlank() }
-                ?: duplicate.waveform?.takeIf { it.isNotBlank() },
-        )
+
+        if (plan.reactionIdsToDelete.isNotEmpty()) {
+            chunkedForEach(plan.reactionIdsToDelete) { messageDao.deleteReactionsForMessages(it) }
+        }
+        if (plan.reactions.isNotEmpty()) {
+            messageDao.upsertReactions(plan.reactions)
+        }
     }
 
     private suspend fun updatePreviewFromNewest(threadId: String, now: Long) {
@@ -720,125 +698,483 @@ class ChatStore(
 
     private suspend fun applyReadReceipts(
         threadId: String,
-        receipts: JSONArray?,
+        receipts: ParsedReadReceipts,
         now: Long,
     ) {
-        if (receipts == null) return
-
-        var viewerWatermark = 0L
-        var otherWatermark = 0L
-        for (index in 0 until receipts.length()) {
-            val receipt = receipts.optJSONObject(index) ?: continue
-            val watermark = receipt.optLong("watermark_ms")
-            if (watermark <= 0) continue
-            if (receipt.optBoolean("from_viewer")) {
-                viewerWatermark = maxOf(viewerWatermark, watermark)
-            } else {
-                otherWatermark = maxOf(otherWatermark, watermark)
-            }
+        if (receipts.viewerWatermark > 0) {
+            threadDao.updateReadWatermark(threadId, receipts.viewerWatermark, now)
         }
-        if (viewerWatermark > 0) {
-            threadDao.updateReadWatermark(threadId, viewerWatermark, now)
+        if (receipts.otherWatermark > 0) {
+            messageDao.markSeen(threadId, receipts.otherWatermark)
         }
-        if (otherWatermark > 0) {
-            messageDao.markSeen(threadId, otherWatermark)
-        }
-    }
-
-    private suspend fun saveViewer(viewer: JSONObject) {
-        val fbid = viewer.optLong("fbid")
-        cachedViewerFbid = fbid.takeIf { it > 0 }
-        val entries = buildList {
-            add(AppMetaEntity(META_VIEWER_ID, viewer.optString("ig_id")))
-            add(AppMetaEntity(META_VIEWER_USERNAME, viewer.optString("username")))
-            add(AppMetaEntity(META_VIEWER_NAME, viewer.optString("name")))
-            add(AppMetaEntity(META_VIEWER_AVATAR, viewer.optString("avatar_url")))
-            add(AppMetaEntity(META_VIEWER_FBID, fbid.toString()))
-        }
-        entries.filter { it.value.isNotBlank() && it.value != "0" }.forEach { metaDao.put(it) }
     }
 }
 
-internal fun threadEntity(
-    json: JSONObject,
-    previous: ThreadEntity?,
-    now: Long,
-): ThreadEntity? {
+internal inline fun <T, R> chunkedQuery(
+    items: List<T>,
+    chunkSize: Int = SQLITE_BIND_CHUNK,
+    query: (List<T>) -> List<R>,
+): List<R> {
+    if (items.isEmpty()) return emptyList()
+    if (items.size <= chunkSize) return query(items)
+    val result = ArrayList<R>(items.size)
+    var start = 0
+    while (start < items.size) {
+        val end = minOf(start + chunkSize, items.size)
+        result += query(items.subList(start, end))
+        start = end
+    }
+    return result
+}
+
+internal inline fun <T> chunkedForEach(
+    items: List<T>,
+    chunkSize: Int = SQLITE_BIND_CHUNK,
+    action: (List<T>) -> Unit,
+) {
+    if (items.isEmpty()) return
+    if (items.size <= chunkSize) {
+        action(items)
+        return
+    }
+    var start = 0
+    while (start < items.size) {
+        val end = minOf(start + chunkSize, items.size)
+        action(items.subList(start, end))
+        start = end
+    }
+}
+
+internal data class ParsedReadReceipts(
+    val viewerWatermark: Long = 0L,
+    val otherWatermark: Long = 0L,
+)
+
+private data class ParsedMailboxPayload(
+    val threads: List<ParsedThreadFields>,
+    val participants: List<ParticipantEntity>,
+    val viewerFbid: Long?,
+    val viewerMeta: List<AppMetaEntity>,
+)
+
+private data class ParsedThreadPayload(
+    val threadId: String,
+    val thread: ParsedThreadFields?,
+    val participants: List<ParticipantEntity>,
+    val messages: List<ParsedServerMessage>,
+    val oldestCursor: String,
+    val hasMoreOlder: Boolean,
+    val readReceipts: ParsedReadReceipts,
+)
+
+private data class ParsedOlderPagePayload(
+    val threadId: String,
+    val messages: List<ParsedServerMessage>,
+    val oldestCursor: String,
+    val hasMoreOlder: Boolean,
+)
+
+private data class ParsedThreadFields(
+    val id: String,
+    val longThreadId: String,
+    val threadFbid: String,
+    val threadKey: Long,
+    val hasIsGroup: Boolean,
+    val isGroup: Boolean,
+    val subtype: String,
+    val title: String,
+    val avatarUrl: String,
+    val folder: String,
+    val systemFolder: String,
+    val mailboxActivityMs: Long,
+    val hasIsMuted: Boolean,
+    val isMuted: Boolean,
+    val hasIsPinned: Boolean,
+    val isPinned: Boolean,
+    val hasMarkedUnread: Boolean,
+    val markedUnread: Boolean,
+    val hasPreview: Boolean,
+    val previewId: String,
+    val previewTs: Long,
+    val previewText: String,
+    val previewKind: String,
+    val previewFromViewer: Boolean,
+    val previewSenderFbid: Long,
+) {
+    fun toEntity(previous: ThreadEntity?, now: Long): ThreadEntity {
+        val lastActivity = when {
+            mailboxActivityMs > 0 -> mailboxActivityMs
+            previewTs > 0 -> previewTs
+            else -> previous?.lastActivityMs ?: 0L
+        }
+        // Only adopt the inbox stub when it is at least as new as the stored
+        // preview; a loaded page can be ahead of the mailbox snapshot.
+        val adoptPreview = hasPreview &&
+            (previous == null || previewTs >= previous.lastMessageTs)
+        // A newer inbox stub means the cached page no longer ends at the newest
+        // message, so the thread is refetched when it is opened.
+        val previewAdvanced = adoptPreview && (
+            previous == null ||
+                previewTs > previous.lastMessageTs ||
+                (previewId.isNotBlank() && previewId != previous.lastMessageId)
+            )
+
+        return ThreadEntity(
+            id = id,
+            longThreadId = longThreadId.ifBlank { previous?.longThreadId.orEmpty() },
+            threadFbid = threadFbid.ifBlank { previous?.threadFbid.orEmpty() },
+            threadKey = threadKey.takeIf { it != 0L } ?: previous?.threadKey ?: 0L,
+            isGroup = if (hasIsGroup) isGroup else previous?.isGroup ?: false,
+            subtype = subtype.ifBlank { previous?.subtype.orEmpty() },
+            title = title.ifBlank { previous?.title.orEmpty() },
+            avatarUrl = avatarUrl.ifBlank { previous?.avatarUrl.orEmpty() },
+            folder = folder.ifBlank { previous?.folder.orEmpty() },
+            systemFolder = systemFolder.ifBlank { previous?.systemFolder.orEmpty() },
+            lastActivityMs = lastActivity,
+            isMuted = if (hasIsMuted) isMuted else previous?.isMuted ?: false,
+            isPinned = if (hasIsPinned) isPinned else previous?.isPinned ?: false,
+            markedUnread = if (hasMarkedUnread) markedUnread else previous?.markedUnread ?: false,
+            readWatermarkMs = previous?.readWatermarkMs ?: 0,
+            oldestCursor = previous?.oldestCursor.orEmpty(),
+            hasMoreOlder = previous?.hasMoreOlder ?: false,
+            messagesSyncedAt = if (previewAdvanced) 0 else previous?.messagesSyncedAt ?: 0,
+            lastMessageId = if (adoptPreview) previewId else previous?.lastMessageId.orEmpty(),
+            lastMessageTs = if (adoptPreview) previewTs else previous?.lastMessageTs ?: 0,
+            lastMessageText = if (adoptPreview) previewText else previous?.lastMessageText.orEmpty(),
+            lastMessageKind = if (adoptPreview) previewKind else previous?.lastMessageKind.orEmpty(),
+            lastMessageFromViewer = if (adoptPreview) {
+                previewFromViewer
+            } else {
+                previous?.lastMessageFromViewer ?: false
+            },
+            lastMessageSenderFbid = if (adoptPreview) {
+                previewSenderFbid
+            } else {
+                previous?.lastMessageSenderFbid ?: 0
+            },
+            updatedAt = now,
+        )
+    }
+}
+
+internal data class ParsedServerMessage(
+    val id: String,
+    val otid: String,
+    val senderFbid: Long,
+    val senderName: String,
+    val timestampMs: Long,
+    val kind: String,
+    val text: String,
+    val replyToId: String,
+    val hasQuoted: Boolean,
+    val quotedText: String,
+    val quotedSender: String,
+    val quotedFromViewer: Boolean,
+    val quotedKind: String,
+    val quotedMediaCount: Int,
+    val isFromViewer: Boolean,
+    val seen: Boolean,
+    val mediaCount: Int,
+    val attachments: List<AttachmentEntity>,
+    val reactions: List<ReactionEntity>,
+) {
+    fun toEntity(threadId: String, previous: MessageEntity?): MessageEntity {
+        val status = previous?.status?.takeIf { it == MessageStatus.DELETED } ?: MessageStatus.SENT
+        val resolvedReplyToId = replyToId.ifBlank { previous?.replyToId.orEmpty() }
+        // A page refresh may omit the nested snapshot; keep the one already stored
+        // as long as it still describes the same quoted message.
+        val storedReply = previous?.takeIf { it.replyToId == resolvedReplyToId }
+        return MessageEntity(
+            id = id,
+            localId = previous?.localId,
+            threadId = threadId,
+            senderFbid = senderFbid,
+            senderName = senderName,
+            timestampMs = sentTimestamp(previous, isFromViewer, timestampMs),
+            kind = kind,
+            text = text,
+            replyToId = resolvedReplyToId,
+            replyToText = if (hasQuoted) quotedText else storedReply?.replyToText.orEmpty(),
+            replyToSender = if (hasQuoted) quotedSender else storedReply?.replyToSender.orEmpty(),
+            replyToIsFromViewer = if (hasQuoted) {
+                quotedFromViewer
+            } else {
+                storedReply?.replyToIsFromViewer ?: false
+            },
+            replyToKind = if (hasQuoted) quotedKind else storedReply?.replyToKind.orEmpty(),
+            replyToMediaCount = if (hasQuoted) {
+                quotedMediaCount
+            } else {
+                storedReply?.replyToMediaCount ?: 0
+            },
+            otid = otid,
+            isFromViewer = isFromViewer,
+            status = status,
+            seen = seen,
+            mediaCount = mediaCount,
+            editedAt = previous?.editedAt ?: 0,
+            deletedAt = previous?.deletedAt ?: 0,
+        )
+    }
+}
+
+internal data class ServerMessageUpsertPlan(
+    val messages: List<MessageEntity>,
+    val duplicateIdsToDelete: List<String>,
+    val attachmentIdsToDelete: List<String>,
+    val attachments: List<AttachmentEntity>,
+    val reactionIdsToDelete: List<String>,
+    val reactions: List<ReactionEntity>,
+)
+
+internal fun planServerMessageUpsert(
+    threadId: String,
+    parsed: List<ParsedServerMessage>,
+    existingById: Map<String, MessageEntity>,
+    existingByOtid: Map<String, List<MessageEntity>>,
+    duplicateAttachmentsByMsgId: Map<String, List<AttachmentEntity>>,
+    existingAttachmentsByMsgId: Map<String, List<AttachmentEntity>>,
+    existingReactionMsgIds: Set<String>,
+): ServerMessageUpsertPlan {
+    val messages = ArrayList<MessageEntity>(parsed.size)
+    val duplicateIdsToDelete = ArrayList<String>()
+    val seenDuplicateIds = HashSet<String>()
+    val attachmentIdsToDelete = ArrayList<String>()
+    val attachments = ArrayList<AttachmentEntity>()
+    val reactionIdsToDelete = ArrayList<String>()
+    val reactions = ArrayList<ReactionEntity>()
+
+    for (msg in parsed) {
+        val existing = existingById[msg.id]
+        if (existing?.status == MessageStatus.DELETED) continue
+
+        val duplicate = msg.otid.takeIf { it.isNotEmpty() }
+            ?.let { otid -> existingByOtid[otid]?.firstOrNull { it.id != msg.id } }
+        val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
+        messages += msg.toEntity(threadId, previous)
+
+        val duplicateMedia = if (duplicate != null) {
+            if (seenDuplicateIds.add(duplicate.id)) {
+                duplicateIdsToDelete += duplicate.id
+            }
+            duplicateAttachmentsByMsgId[duplicate.id]
+                ?.associateBy { it.partIndex }
+                .orEmpty()
+        } else {
+            emptyMap()
+        }
+
+        val existingMediaList = existingAttachmentsByMsgId[msg.id]
+        if (!existingMediaList.isNullOrEmpty()) {
+            attachmentIdsToDelete += msg.id
+        }
+        val existingMedia = existingMediaList?.associateBy { it.partIndex }.orEmpty()
+        for (item in msg.attachments) {
+            attachments += mergeAttachmentCache(duplicateMedia, existingMedia, item.partIndex)
+                ?.let { cached ->
+                    item.copy(
+                        localPath = cached.localPath,
+                        downloadState = cached.downloadState,
+                        waveform = item.waveform ?: cached.waveform?.takeIf { it.isNotBlank() },
+                    )
+                }
+                ?: item
+        }
+
+        if (msg.id in existingReactionMsgIds) {
+            reactionIdsToDelete += msg.id
+        }
+        if (msg.reactions.isNotEmpty()) {
+            reactions += msg.reactions
+        }
+    }
+
+    return ServerMessageUpsertPlan(
+        messages = messages,
+        duplicateIdsToDelete = duplicateIdsToDelete,
+        attachmentIdsToDelete = attachmentIdsToDelete,
+        attachments = attachments,
+        reactionIdsToDelete = reactionIdsToDelete,
+        reactions = reactions,
+    )
+}
+
+private fun mergeAttachmentCache(
+    duplicateMedia: Map<Int, AttachmentEntity>,
+    existingMedia: Map<Int, AttachmentEntity>,
+    partIndex: Int,
+): AttachmentEntity? {
+    val existing = existingMedia[partIndex]
+    val duplicate = duplicateMedia[partIndex]
+    if (existing == null) return duplicate
+    if (duplicate == null) return existing
+    val downloadState = if (existing.downloadState != AttachmentEntity.DOWNLOAD_NONE) {
+        existing.downloadState
+    } else {
+        duplicate.downloadState
+    }
+    return existing.copy(
+        localPath = existing.localPath.ifBlank { duplicate.localPath },
+        downloadState = downloadState,
+        waveform = existing.waveform?.takeIf { it.isNotBlank() }
+            ?: duplicate.waveform?.takeIf { it.isNotBlank() },
+    )
+}
+
+private fun parseMailboxPayload(json: JSONObject): ParsedMailboxPayload? {
+    val threadsArray = json.optJSONArray("threads") ?: return null
+    val threadsById = LinkedHashMap<String, ParsedThreadFields>(threadsArray.length())
+    val participantsByThread = LinkedHashMap<String, List<ParticipantEntity>>(threadsArray.length())
+    for (index in 0 until threadsArray.length()) {
+        val threadJson = threadsArray.optJSONObject(index) ?: continue
+        val parsed = parseThreadFields(threadJson) ?: continue
+        threadsById[parsed.id] = parsed
+        participantsByThread[parsed.id] = participants(threadJson, parsed.id)
+    }
+
+    val allParticipants = ArrayList<ParticipantEntity>()
+    for (list in participantsByThread.values) {
+        allParticipants += list
+    }
+
+    val viewerJson = json.optJSONObject("viewer")
+    val viewerFbid = viewerJson?.optLong("fbid")
+    val viewerMeta = if (viewerJson != null) {
+        listOf(
+            AppMetaEntity(META_VIEWER_ID, viewerJson.optString("ig_id")),
+            AppMetaEntity(META_VIEWER_USERNAME, viewerJson.optString("username")),
+            AppMetaEntity(META_VIEWER_NAME, viewerJson.optString("name")),
+            AppMetaEntity(META_VIEWER_AVATAR, viewerJson.optString("avatar_url")),
+            AppMetaEntity(META_VIEWER_FBID, (viewerFbid ?: 0L).toString()),
+        ).filter { it.value.isNotBlank() && it.value != "0" }
+    } else {
+        emptyList()
+    }
+
+    return ParsedMailboxPayload(
+        threads = threadsById.values.toList(),
+        participants = allParticipants,
+        viewerFbid = viewerFbid,
+        viewerMeta = viewerMeta,
+    )
+}
+
+private fun parseThreadPayload(json: JSONObject): ParsedThreadPayload? {
+    val threadJson = json.optJSONObject("thread")
+    val threadId = threadJson?.optString("id")?.trim().orEmpty()
+        .ifBlank { json.optString("thread_id").trim() }
+    if (threadId.isEmpty()) return null
+
+    val parsedThread = threadJson?.let(::parseThreadFields)
+    val parsedParticipants = if (parsedThread != null) {
+        participants(threadJson, threadId)
+    } else {
+        emptyList()
+    }
+    return ParsedThreadPayload(
+        threadId = threadId,
+        thread = parsedThread,
+        participants = parsedParticipants,
+        messages = parseThreadMessages(json.optJSONArray("messages")),
+        oldestCursor = json.optString("oldest_cursor"),
+        hasMoreOlder = json.optBoolean("has_more_older"),
+        readReceipts = parseReadReceipts(json.optJSONArray("read_receipts")),
+    )
+}
+
+private fun parseOlderPagePayload(json: JSONObject): ParsedOlderPagePayload? {
+    val threadId = json.optString("thread_id").trim()
+    if (threadId.isEmpty()) return null
+    return ParsedOlderPagePayload(
+        threadId = threadId,
+        messages = parseThreadMessages(json.optJSONArray("messages")),
+        oldestCursor = json.optString("oldest_cursor").trim(),
+        hasMoreOlder = json.optBoolean("has_more_older"),
+    )
+}
+
+private fun parseThreadFields(json: JSONObject): ParsedThreadFields? {
     val id = json.optString("id").trim()
     if (id.isEmpty()) return null
-
     val preview = json.optJSONObject("last_message")
-    val previewTs = preview?.optLong("timestamp_ms") ?: 0L
-    val previewId = preview?.optString("id").orEmpty()
-    val mailboxActivity = json.optLong("last_activity_ms")
-    val lastActivity = when {
-        mailboxActivity > 0 -> mailboxActivity
-        previewTs > 0 -> previewTs
-        else -> previous?.lastActivityMs ?: 0L
-    }
-    // Only adopt the inbox stub when it is at least as new as the stored
-    // preview; a loaded page can be ahead of the mailbox snapshot.
-    val adoptPreview = preview != null &&
-        (previous == null || previewTs >= previous.lastMessageTs)
-    // A newer inbox stub means the cached page no longer ends at the newest
-    // message, so the thread is refetched when it is opened.
-    val previewAdvanced = adoptPreview && (
-        previous == null ||
-            previewTs > previous.lastMessageTs ||
-            (previewId.isNotBlank() && previewId != previous.lastMessageId)
-        )
-
-    return ThreadEntity(
+    return ParsedThreadFields(
         id = id,
-        longThreadId = json.optString("thread_id").ifBlank { previous?.longThreadId.orEmpty() },
-        threadFbid = json.optString("thread_fbid").ifBlank { previous?.threadFbid.orEmpty() },
-        threadKey = json.optLong("thread_key").takeIf { it != 0L } ?: previous?.threadKey ?: 0L,
-        isGroup = if (json.has("is_group")) json.optBoolean("is_group") else previous?.isGroup ?: false,
-        subtype = json.optString("subtype").ifBlank { previous?.subtype.orEmpty() },
-        title = json.optString("title").ifBlank { previous?.title.orEmpty() },
-        avatarUrl = json.optString("avatar_url").ifBlank { previous?.avatarUrl.orEmpty() },
-        folder = json.optString("folder").ifBlank { previous?.folder.orEmpty() },
-        systemFolder = json.optString("system_folder").ifBlank { previous?.systemFolder.orEmpty() },
-        lastActivityMs = lastActivity,
-        isMuted = if (json.has("is_muted")) json.optBoolean("is_muted") else previous?.isMuted ?: false,
-        isPinned = if (json.has("is_pinned")) json.optBoolean("is_pinned") else previous?.isPinned ?: false,
-        markedUnread = if (json.has("marked_as_unread")) {
-            json.optBoolean("marked_as_unread")
-        } else {
-            previous?.markedUnread ?: false
-        },
-        readWatermarkMs = previous?.readWatermarkMs ?: 0,
-        oldestCursor = previous?.oldestCursor.orEmpty(),
-        hasMoreOlder = previous?.hasMoreOlder ?: false,
-        messagesSyncedAt = if (previewAdvanced) 0 else previous?.messagesSyncedAt ?: 0,
-        lastMessageId = if (adoptPreview) {
-            previewId
-        } else {
-            previous?.lastMessageId.orEmpty()
-        },
-        lastMessageTs = if (adoptPreview) previewTs else previous?.lastMessageTs ?: 0,
-        lastMessageText = if (adoptPreview) {
-            preview?.optString("text").orEmpty()
-        } else {
-            previous?.lastMessageText.orEmpty()
-        },
-        lastMessageKind = if (adoptPreview) {
-            preview?.optString("kind").orEmpty()
-        } else {
-            previous?.lastMessageKind.orEmpty()
-        },
-        lastMessageFromViewer = if (adoptPreview) {
-            preview?.optBoolean("is_from_viewer") ?: false
-        } else {
-            previous?.lastMessageFromViewer ?: false
-        },
-        lastMessageSenderFbid = if (adoptPreview) {
-            preview?.optLong("sender_fbid") ?: 0
-        } else {
-            previous?.lastMessageSenderFbid ?: 0
-        },
-        updatedAt = now,
+        longThreadId = json.optString("thread_id"),
+        threadFbid = json.optString("thread_fbid"),
+        threadKey = json.optLong("thread_key"),
+        hasIsGroup = json.has("is_group"),
+        isGroup = json.optBoolean("is_group"),
+        subtype = json.optString("subtype"),
+        title = json.optString("title"),
+        avatarUrl = json.optString("avatar_url"),
+        folder = json.optString("folder"),
+        systemFolder = json.optString("system_folder"),
+        mailboxActivityMs = json.optLong("last_activity_ms"),
+        hasIsMuted = json.has("is_muted"),
+        isMuted = json.optBoolean("is_muted"),
+        hasIsPinned = json.has("is_pinned"),
+        isPinned = json.optBoolean("is_pinned"),
+        hasMarkedUnread = json.has("marked_as_unread"),
+        markedUnread = json.optBoolean("marked_as_unread"),
+        hasPreview = preview != null,
+        previewId = preview?.optString("id").orEmpty(),
+        previewTs = preview?.optLong("timestamp_ms") ?: 0L,
+        previewText = preview?.optString("text").orEmpty(),
+        previewKind = preview?.optString("kind").orEmpty(),
+        previewFromViewer = preview?.optBoolean("is_from_viewer") ?: false,
+        previewSenderFbid = preview?.optLong("sender_fbid") ?: 0L,
     )
+}
+
+internal fun parseReadReceipts(receipts: JSONArray?): ParsedReadReceipts {
+    if (receipts == null) return ParsedReadReceipts()
+    var viewerWatermark = 0L
+    var otherWatermark = 0L
+    for (index in 0 until receipts.length()) {
+        val receipt = receipts.optJSONObject(index) ?: continue
+        val watermark = receipt.optLong("watermark_ms")
+        if (watermark <= 0) continue
+        if (receipt.optBoolean("from_viewer")) {
+            viewerWatermark = maxOf(viewerWatermark, watermark)
+        } else {
+            otherWatermark = maxOf(otherWatermark, watermark)
+        }
+    }
+    return ParsedReadReceipts(viewerWatermark = viewerWatermark, otherWatermark = otherWatermark)
+}
+
+internal fun parseThreadMessages(messages: JSONArray?): List<ParsedServerMessage> {
+    if (messages == null || messages.length() == 0) return emptyList()
+    val byId = LinkedHashMap<String, ParsedServerMessage>(messages.length())
+    for (index in 0 until messages.length()) {
+        val message = messages.optJSONObject(index) ?: continue
+        val id = message.optString("id").trim()
+        if (id.isEmpty()) continue
+        val quoted = message.optJSONObject("replied_to_message")
+        byId[id] = ParsedServerMessage(
+            id = id,
+            otid = message.optString("offline_threading_id").trim(),
+            senderFbid = message.optLong("sender_fbid"),
+            senderName = message.optString("sender_name"),
+            timestampMs = message.optLong("timestamp_ms"),
+            kind = message.optString("kind").ifBlank { "unknown" },
+            text = message.optString("text"),
+            replyToId = message.optString("replied_to_message_id")
+                .ifBlank { quoted?.optString("id").orEmpty() },
+            hasQuoted = quoted != null,
+            quotedText = quoted?.optString("text").orEmpty(),
+            quotedSender = quoted?.optString("sender_name").orEmpty(),
+            quotedFromViewer = quoted?.optBoolean("is_from_viewer") ?: false,
+            quotedKind = quoted?.optString("kind").orEmpty(),
+            quotedMediaCount = quoted?.optInt("media_count") ?: 0,
+            isFromViewer = message.optBoolean("is_from_viewer"),
+            seen = message.optBoolean("seen"),
+            mediaCount = message.optInt("media_count"),
+            attachments = attachments(message, id),
+            reactions = reactions(message, id),
+        )
+    }
+    return byId.values.toList()
 }
 
 internal fun participants(json: JSONObject, threadId: String): List<ParticipantEntity> {
@@ -884,53 +1220,6 @@ private fun MessageEntity.withReplySnapshotFrom(fallback: MessageEntity?): Messa
  */
 internal fun sentTimestamp(previous: MessageEntity?, fromViewer: Boolean, serverMs: Long): Long =
     if (fromViewer) previous?.timestampMs?.takeIf { it > 0 } ?: serverMs else serverMs
-
-internal fun messageEntity(
-    json: JSONObject,
-    threadId: String,
-    previous: MessageEntity?,
-    now: Long,
-): MessageEntity? {
-    val id = json.optString("id").trim()
-    if (id.isEmpty()) return null
-
-    val status = previous?.status?.takeIf { it == MessageStatus.DELETED } ?: MessageStatus.SENT
-    val fromViewer = json.optBoolean("is_from_viewer")
-    val quoted = json.optJSONObject("replied_to_message")
-    val replyToId = json.optString("replied_to_message_id")
-        .ifBlank { quoted?.optString("id").orEmpty() }
-        .ifBlank { previous?.replyToId.orEmpty() }
-    // A page refresh may omit the nested snapshot; keep the one already stored
-    // as long as it still describes the same quoted message.
-    val storedReply = previous?.takeIf { it.replyToId == replyToId }
-    return MessageEntity(
-        id = id,
-        localId = previous?.localId,
-        threadId = threadId,
-        senderFbid = json.optLong("sender_fbid"),
-        senderName = json.optString("sender_name"),
-        timestampMs = sentTimestamp(previous, fromViewer, json.optLong("timestamp_ms")),
-        kind = json.optString("kind").ifBlank { "unknown" },
-        text = json.optString("text"),
-        replyToId = replyToId,
-        replyToText = quoted?.optString("text") ?: storedReply?.replyToText.orEmpty(),
-        replyToSender = quoted?.optString("sender_name") ?: storedReply?.replyToSender.orEmpty(),
-        replyToIsFromViewer = quoted?.optBoolean("is_from_viewer")
-            ?: storedReply?.replyToIsFromViewer
-            ?: false,
-        replyToKind = quoted?.optString("kind") ?: storedReply?.replyToKind.orEmpty(),
-        replyToMediaCount = quoted?.optInt("media_count")
-            ?: storedReply?.replyToMediaCount
-            ?: 0,
-        otid = json.optString("offline_threading_id"),
-        isFromViewer = fromViewer,
-        status = status,
-        seen = json.optBoolean("seen"),
-        mediaCount = json.optInt("media_count"),
-        editedAt = previous?.editedAt ?: 0,
-        deletedAt = previous?.deletedAt ?: 0,
-    )
-}
 
 internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEntity> {
     val array = json.optJSONArray("media") ?: return emptyList()

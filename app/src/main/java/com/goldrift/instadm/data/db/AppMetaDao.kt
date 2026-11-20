@@ -12,6 +12,9 @@ interface AppMetaDao {
     @Upsert
     suspend fun put(entry: AppMetaEntity)
 
+    @Upsert
+    suspend fun putAll(entries: List<AppMetaEntity>)
+
     @Query("DELETE FROM app_meta")
     suspend fun clear()
 }

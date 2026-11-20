@@ -86,6 +86,9 @@ interface ThreadDao {
     @Query("DELETE FROM participants WHERE thread_id = :threadId")
     suspend fun deleteParticipants(threadId: String)
 
+    @Query("DELETE FROM participants WHERE thread_id IN (:threadIds)")
+    suspend fun deleteParticipantsForThreads(threadIds: List<String>)
+
     @Upsert
     suspend fun upsertParticipants(participants: List<ParticipantEntity>)
 

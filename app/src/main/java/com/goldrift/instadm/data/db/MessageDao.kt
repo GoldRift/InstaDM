@@ -49,6 +49,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :messageId")
     suspend fun message(messageId: String): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE id IN (:messageIds)")
+    suspend fun messagesByIds(messageIds: List<String>): List<MessageEntity>
+
     @Query("SELECT COUNT(*) FROM messages WHERE thread_id = :threadId")
     suspend fun count(threadId: String): Int
 
@@ -57,6 +60,9 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE otid = :otid LIMIT 1")
     suspend fun byOtid(otid: String): MessageEntity?
+
+    @Query("SELECT * FROM messages WHERE otid IN (:otids)")
+    suspend fun messagesByOtids(otids: List<String>): List<MessageEntity>
 
     @Query("SELECT * FROM messages WHERE thread_id = :threadId AND status != 'deleted' " +
         "ORDER BY timestamp_ms DESC, id DESC LIMIT 1")
@@ -68,6 +74,12 @@ interface MessageDao {
 
     @Query("SELECT * FROM attachments WHERE message_id = :messageId")
     suspend fun attachments(messageId: String): List<AttachmentEntity>
+
+    @Query("SELECT * FROM attachments WHERE message_id IN (:messageIds)")
+    suspend fun attachmentsForMessages(messageIds: List<String>): List<AttachmentEntity>
+
+    @Query("SELECT DISTINCT message_id FROM reactions WHERE message_id IN (:messageIds)")
+    suspend fun reactionMessageIds(messageIds: List<String>): List<String>
 
     @Upsert
     suspend fun upsertMessage(message: MessageEntity)
@@ -83,6 +95,9 @@ interface MessageDao {
 
     @Query("DELETE FROM attachments WHERE message_id = :messageId")
     suspend fun deleteAttachments(messageId: String)
+
+    @Query("DELETE FROM attachments WHERE message_id IN (:messageIds)")
+    suspend fun deleteAttachmentsForMessages(messageIds: List<String>)
 
     @Query(
         "UPDATE attachments SET local_path = :path, download_state = 'ready' " +
@@ -122,6 +137,9 @@ interface MessageDao {
     @Query("DELETE FROM reactions WHERE message_id = :messageId")
     suspend fun deleteReactions(messageId: String)
 
+    @Query("DELETE FROM reactions WHERE message_id IN (:messageIds)")
+    suspend fun deleteReactionsForMessages(messageIds: List<String>)
+
     @Query("DELETE FROM reactions WHERE message_id = :messageId AND sender_fbid = :senderFbid")
     suspend fun deleteReaction(messageId: String, senderFbid: Long)
 
@@ -155,6 +173,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun delete(messageId: String)
+
+    @Query("DELETE FROM messages WHERE id IN (:messageIds)")
+    suspend fun deleteMessages(messageIds: List<String>)
 
     @Query("DELETE FROM messages")
     suspend fun clear()
