@@ -10,10 +10,8 @@ import com.goldrift.instadm.data.db.ParticipantEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.parseWaveform
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Maps a persisted inbox row into the Compose model. Messages loaded earlier in
@@ -156,17 +154,18 @@ private fun participantTitle(participants: List<ParticipantEntity>): String {
 
 fun formatMessageTime(milliseconds: Long): String {
     if (milliseconds <= 0) return currentTimeLabel()
-    return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(milliseconds))
+    return formatDatePattern("h:mm a", milliseconds)
 }
 
-fun formatInboxTime(milliseconds: Long): String {
+fun formatInboxTime(
+    milliseconds: Long,
+    nowMs: Long = System.currentTimeMillis(),
+    zone: TimeZone = TimeZone.getDefault(),
+    locale: Locale = Locale.getDefault(),
+): String {
     if (milliseconds <= 0) return ""
-    val now = Calendar.getInstance()
-    val then = Calendar.getInstance().apply { timeInMillis = milliseconds }
-    val sameDay = now.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
-        now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR)
-    val pattern = if (sameDay) "h:mm a" else "MMM d"
-    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(milliseconds))
+    val pattern = if (calendarDaysBetween(milliseconds, nowMs, zone) == 0L) "h:mm a" else "MMM d"
+    return formatDatePattern(pattern, milliseconds, zone, locale)
 }
 
 /**

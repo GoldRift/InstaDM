@@ -1,9 +1,6 @@
 package com.goldrift.instadm.ui.chat
 
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -59,18 +56,15 @@ fun formatRevealedTimestamp(
     locale: Locale = Locale.getDefault(),
 ): String {
     if (timestampMs <= 0) return fallbackTime
-    val date = Date(timestampMs)
-    val timeText = SimpleDateFormat("h:mm a", locale).apply { timeZone = zone }.format(date)
+    val timeText = formatDatePattern("h:mm a", timestampMs, zone, locale)
     if (calendarDaysBetween(timestampMs, nowMs, zone) == 0L) return timeText
 
-    val msgCal = Calendar.getInstance(zone).apply { timeInMillis = timestampMs }
-    val nowCal = Calendar.getInstance(zone).apply { timeInMillis = nowMs }
-    val datePattern = if (msgCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR)) {
+    val datePattern = if (yearOfTimestamp(timestampMs, zone) == yearOfTimestamp(nowMs, zone)) {
         "MMM d"
     } else {
         "MMM d, yyyy"
     }
-    val dateText = SimpleDateFormat(datePattern, locale).apply { timeZone = zone }.format(date)
+    val dateText = formatDatePattern(datePattern, timestampMs, zone, locale)
     return "$dateText · $timeText"
 }
 

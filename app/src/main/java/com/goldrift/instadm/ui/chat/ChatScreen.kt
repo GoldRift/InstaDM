@@ -255,8 +255,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormat
-import java.util.Date
 import kotlin.math.roundToInt
 
 /** Bubble corner radius, shared with nested share cards so their curves line up. */
@@ -3251,7 +3249,7 @@ private fun DayHeader(timestampMs: Long) {
         when (days) {
             0L -> today
             1L -> yesterday
-            else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(timestampMs))
+            else -> formatMediumDate(timestampMs)
         }
     }
     Box(
@@ -3278,7 +3276,7 @@ private fun DayHeader(timestampMs: Long) {
 @Composable
 private fun TimeGapHeader(timestampMs: Long) {
     val label = remember(timestampMs) {
-        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
+        formatShortTime(timestampMs)
     }
     Box(
         modifier = Modifier

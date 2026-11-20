@@ -2,7 +2,9 @@ package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.ReplySnapshot
+import java.text.DateFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -205,11 +207,74 @@ private fun message(
     reactions = reactions,
 )
 
+private class DateFormatCache {
+    private val patterns = HashMap<String, SimpleDateFormat>()
+    private val mediumDates = HashMap<String, DateFormat>()
+    private val shortTimes = HashMap<String, DateFormat>()
+    private val calendar: Calendar = Calendar.getInstance()
+
+    fun formatPattern(pattern: String, ms: Long, zone: TimeZone, locale: Locale): String {
+        val key = "$pattern|${locale.toLanguageTag()}|${zone.id}"
+        val formatter = patterns.getOrPut(key) {
+            SimpleDateFormat(pattern, locale).apply { timeZone = zone }
+        }
+        return formatter.format(Date(ms))
+    }
+
+    fun formatMediumDate(ms: Long, zone: TimeZone, locale: Locale): String {
+        val key = "${locale.toLanguageTag()}|${zone.id}"
+        val formatter = mediumDates.getOrPut(key) {
+            DateFormat.getDateInstance(DateFormat.MEDIUM, locale).apply { timeZone = zone }
+        }
+        return formatter.format(Date(ms))
+    }
+
+    fun formatShortTime(ms: Long, zone: TimeZone, locale: Locale): String {
+        val key = "${locale.toLanguageTag()}|${zone.id}"
+        val formatter = shortTimes.getOrPut(key) {
+            DateFormat.getTimeInstance(DateFormat.SHORT, locale).apply { timeZone = zone }
+        }
+        return formatter.format(Date(ms))
+    }
+
+    fun yearOf(ms: Long, zone: TimeZone): Int {
+        calendar.timeZone = zone
+        calendar.timeInMillis = ms
+        return calendar.get(Calendar.YEAR)
+    }
+}
+
+private val ThreadLocalDateFormats = object : ThreadLocal<DateFormatCache>() {
+    override fun initialValue(): DateFormatCache = DateFormatCache()
+}
+
+internal fun formatDatePattern(
+    pattern: String,
+    ms: Long,
+    zone: TimeZone = TimeZone.getDefault(),
+    locale: Locale = Locale.getDefault(),
+): String = ThreadLocalDateFormats.get()!!.formatPattern(pattern, ms, zone, locale)
+
+internal fun formatMediumDate(
+    ms: Long,
+    zone: TimeZone = TimeZone.getDefault(),
+    locale: Locale = Locale.getDefault(),
+): String = ThreadLocalDateFormats.get()!!.formatMediumDate(ms, zone, locale)
+
+internal fun formatShortTime(
+    ms: Long,
+    zone: TimeZone = TimeZone.getDefault(),
+    locale: Locale = Locale.getDefault(),
+): String = ThreadLocalDateFormats.get()!!.formatShortTime(ms, zone, locale)
+
+internal fun yearOfTimestamp(ms: Long, zone: TimeZone = TimeZone.getDefault()): Int =
+    ThreadLocalDateFormats.get()!!.yearOf(ms, zone)
+
 private fun timeLabel(now: Long, minutesAgo: Int): String =
-    SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(now - minutesAgo * 60_000L))
+    formatDatePattern("h:mm a", now - minutesAgo * 60_000L)
 
 fun currentTimeLabel(): String =
-    SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+    formatDatePattern("h:mm a", System.currentTimeMillis())
 
 private const val DAY_MS = 24L * 60L * 60L * 1000L
 

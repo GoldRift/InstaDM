@@ -1,7 +1,9 @@
 package com.goldrift.instadm
 
 import com.goldrift.instadm.ui.chat.calendarDaysBetween
+import com.goldrift.instadm.ui.chat.formatInboxTime
 import java.util.Calendar
+import java.util.Locale
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -71,5 +73,16 @@ class ChatDateHeaderTest {
         assertEquals(0L, calendarDaysBetween(fallDayEarly, fallDayLate, newYork))
         assertEquals(1L, calendarDaysBetween(fallDayEarly, dayAfterFall, newYork))
         assertEquals(1L, calendarDaysBetween(fallDayLate, dayAfterFall, newYork))
+    }
+
+    @Test
+    fun formatInboxTimeShowsTimeTodayAndMonthDayEarlier() {
+        val now = at(2026, 10, 21, 18, 0)
+        val sameDay = at(2026, 10, 21, 9, 5)
+        val yesterday = at(2026, 10, 20, 23, 55)
+
+        assertEquals("9:05 AM", formatInboxTime(sameDay, now, zone, Locale.US))
+        assertEquals("Oct 20", formatInboxTime(yesterday, now, zone, Locale.US))
+        assertEquals("", formatInboxTime(0L, now, zone, Locale.US))
     }
 }

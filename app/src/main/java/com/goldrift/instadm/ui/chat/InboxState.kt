@@ -22,17 +22,19 @@ import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.SettingsStore
 import com.goldrift.instadm.data.extractAudioWaveform
-import com.goldrift.instadm.data.db.MessageWithMedia
-import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.service.suppressesNotification
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
@@ -176,8 +178,17 @@ class InboxState(
                 chatStore.observeInbox().distinctUntilChanged(),
                 chatStore.observeUnreadCounts().distinctUntilChanged(),
             ) { rows, counts ->
-                rows to counts.associate { it.threadId to it.unreadCount }
-            }.collect { (rows, counts) -> applyInboxRows(rows, counts) }
+                val unreadByThread = counts.associate { it.threadId to it.unreadCount }
+                val mapped = rows.map { row ->
+                    row.toConversation(
+                        previous = null,
+                        unreadCount = unreadByThread[row.thread.id] ?: 0,
+                    )
+                }
+                mapped to mapped.associateBy { it.id }
+            }
+                .flowOn(Dispatchers.Default)
+                .collect { (mapped, byId) -> applyInboxRows(mapped, byId) }
         }
     }
 
@@ -414,17 +425,14 @@ class InboxState(
         }
     }
 
-    /** Rebuilds the inbox summary list from the database without open-thread messages. */
+    /** Applies mapped inbox summary rows without touching open-thread messages. */
     private fun applyInboxRows(
-        rows: List<ThreadWithParticipants>,
-        unreadCounts: Map<String, Int>,
+        mapped: List<Conversation>,
+        byId: Map<String, Conversation>,
     ) {
-        val mapped = rows.map { row ->
-            row.toConversation(previous = null, unreadCount = unreadCounts[row.thread.id] ?: 0)
-        }
         if (mapped != conversations) {
             conversations = mapped
-            conversationsById = mapped.associateBy { it.id }
+            conversationsById = byId
         }
         if (mapped.isNotEmpty() && status == InboxStatus.Loading) {
             status = InboxStatus.Ready
@@ -469,9 +477,10 @@ class InboxState(
             activeThread = ActiveThreadState(threadId = threadId)
         }
         messageCollector = scope.launch {
-            chatStore.observeThread(threadId).collect { rows ->
-                applyThreadMessages(threadId, rows)
-            }
+            chatStore.observeThread(threadId)
+                .map { rows -> rows.map { it.toChatMessage() } }
+                .flowOn(Dispatchers.Default)
+                .collect { stored -> applyThreadMessages(threadId, stored) }
         }
     }
 
@@ -487,11 +496,9 @@ class InboxState(
     }
 
     /**
-     * Rebuilds an open thread from the database. Optimistic sends are still
-     * memory-only until the outbox lands, so they are carried over here.
+     * Applies mapped messages for the open thread on the UI thread.
      */
-    private fun applyThreadMessages(threadId: String, rows: List<MessageWithMedia>) {
-        val stored = rows.map { it.toChatMessage() }
+    private fun applyThreadMessages(threadId: String, stored: List<ChatMessage>) {
         updateActiveThread(threadId) { current ->
             current.copy(
                 messages = stored,
@@ -992,7 +999,7 @@ class InboxState(
         if (!waveformRequested.add(key)) return
 
         scope.launch {
-            val localFile = localVoiceFile(media)
+            val localFile = withContext(Dispatchers.IO) { localVoiceFile(media) }
             if (localFile != null) {
                 launchWaveformExtraction(messageId, media.partIndex, localFile)
             } else if (!messageId.startsWith("local:")) {

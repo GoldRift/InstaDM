@@ -90,7 +90,7 @@ not `debug`:
     swap immutable lists instead of `clear()`/`addAll()`, and apply
     `.distinctUntilChanged()` to `observeUnreadCounts()`.
 
-- [ ] **2.2 Move Room-to-UI mapping off `Dispatchers.Main.immediate` and cache formatters**
+- [x] **2.2 Move Room-to-UI mapping off `Dispatchers.Main.immediate` and cache formatters**
   - Files: `InboxState.kt`, `ProtocolMapper.kt`, `ChatModels.kt`,
     `TranscriptLayout.kt`.
   - Change: Map Room flows on `Dispatchers.Default` (including reaction-log
