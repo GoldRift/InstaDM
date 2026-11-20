@@ -18,6 +18,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
+import androidx.camera.core.TorchState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.lifecycle.awaitInstance
 import androidx.camera.video.FallbackStrategy
@@ -327,6 +328,7 @@ private fun CameraCaptureContent(
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var viewfinderScreenFlash by remember { mutableStateOf<ImageCapture.ScreenFlash?>(null) }
     var screenFlashActive by remember { mutableStateOf(false) }
+    var torchCommandedOn by remember { mutableStateOf(false) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var activeVideoTarget by remember { mutableStateOf<CaptureTarget?>(null) }
     var recordingDurationMs by remember { mutableLongStateOf(0L) }
@@ -369,6 +371,15 @@ private fun CameraCaptureContent(
     val isRecording = activeRecording != null
     val canDismissByGesture = !isRecording && captured == null && !dismissing
 
+    fun turnOffTorchIfActive(camera: Camera?) {
+        val cam = camera ?: return
+        val isOn = torchCommandedOn || cam.cameraInfo.torchState.value == TorchState.ON
+        if (isOn && cam.cameraInfo.hasFlashUnit()) {
+            cam.cameraControl.enableTorch(false)
+        }
+        torchCommandedOn = false
+    }
+
     fun discardCaptured() {
         captured?.target?.file?.let { file -> runCatching { file.delete() } }
         captured = null
@@ -378,11 +389,7 @@ private fun CameraCaptureContent(
         if (dismissing) return
         dismissing = true
         screenFlashActive = false
-        boundCamera?.let { cam ->
-            if (cam.cameraInfo.hasFlashUnit()) {
-                cam.cameraControl.enableTorch(false)
-            }
-        }
+        turnOffTorchIfActive(boundCamera)
         activeRecording?.stop()
         activeRecording = null
         discardCaptured()
@@ -473,7 +480,9 @@ private fun CameraCaptureContent(
         haptic.confirm()
         val target = CameraCapture.newTarget(context)
         val isFront = boundLensFacing == CameraSelector.LENS_FACING_FRONT
-        capture.screenFlash = activeScreenFlash
+        if (isFront) {
+            capture.screenFlash = activeScreenFlash
+        }
         val resolvedFlash = resolvePhotoFlash(
             mode = CameraCaptureMode.Photo,
             flashMode = flashMode,
@@ -522,16 +531,11 @@ private fun CameraCaptureContent(
         )
     }
 
-    // Bind CameraX whenever camera permission, lens, or review state changes.
-    var singleUseCaseFallback by remember { mutableStateOf(false) }
-    val bindModeKey = if (singleUseCaseFallback) mode else CameraCaptureMode.Photo
-
-    LaunchedEffect(hasCameraPermission, lensFacing, captured == null, bindModeKey) {
-        boundCamera?.let { cam ->
-            if (cam.cameraInfo.hasFlashUnit()) {
-                cam.cameraControl.enableTorch(false)
-            }
-        }
+    // Bind only the active capture mode's use case so photo mode stays on
+    // TEMPLATE_PREVIEW + TEMPLATE_STILL_CAPTURE with real hardware flash
+    // instead of VideoCapture forcing TEMPLATE_RECORD / torch-as-flash.
+    LaunchedEffect(hasCameraPermission, lensFacing, captured == null, mode) {
+        turnOffTorchIfActive(boundCamera)
         screenFlashActive = false
         if (!hasCameraPermission || captured != null) {
             surfaceRequest = null
@@ -574,62 +578,79 @@ private fun CameraCaptureContent(
         val preview = Preview.Builder().build().apply {
             setSurfaceProvider { req -> surfaceRequest = req }
         }
-        val imgCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setJpegQuality(90)
-            .build()
-        val recorder = Recorder.Builder()
-            .setQualitySelector(
-                QualitySelector.fromOrderedList(
-                    listOf(Quality.FHD, Quality.HD, Quality.SD),
-                    FallbackStrategy.lowerQualityOrHigherThan(Quality.SD),
-                ),
+        val isFront = resolvedFacing == CameraSelector.LENS_FACING_FRONT
+        val selectorHasFlash = runCatching {
+            provider.getCameraInfo(selector).hasFlashUnit()
+        }.getOrDefault(false)
+
+        val imgCapture: ImageCapture?
+        val vidCapture: VideoCapture<Recorder>?
+        if (mode == CameraCaptureMode.Photo) {
+            val initialFlash = resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = flashMode,
+                isFrontCamera = isFront,
+                hasFlashUnit = selectorHasFlash,
+                hasScreenFlash = activeScreenFlash != null,
             )
-            .build()
-        val vidCapture = VideoCapture.withOutput(recorder)
+            val builder = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setJpegQuality(90)
+            if (initialFlash != ResolvedPhotoFlash.ScreenOn) {
+                builder.setFlashMode(initialFlash.toCameraXFlashMode())
+            }
+            imgCapture = builder.build().also { built ->
+                if (isFront) {
+                    built.screenFlash = activeScreenFlash
+                }
+                if (initialFlash == ResolvedPhotoFlash.ScreenOn) {
+                    built.flashMode = ImageCapture.FLASH_MODE_SCREEN
+                }
+            }
+            vidCapture = null
+        } else {
+            imgCapture = null
+            val recorder = Recorder.Builder()
+                .setQualitySelector(
+                    QualitySelector.fromOrderedList(
+                        listOf(Quality.FHD, Quality.HD, Quality.SD),
+                        FallbackStrategy.lowerQualityOrHigherThan(Quality.SD),
+                    ),
+                )
+                .build()
+            vidCapture = VideoCapture.withOutput(recorder)
+        }
 
         // Clear stale use-case refs before unbinding so flash/torch effects never target the previous lens.
         boundCamera = null
         imageCapture = null
         videoCapture = null
         provider.unbindAll()
-        val camera = try {
-            if (!singleUseCaseFallback) {
-                provider.bindToLifecycle(lifecycleOwner, selector, preview, imgCapture, vidCapture)
-            } else if (mode == CameraCaptureMode.Video) {
+        val camera = runCatching {
+            if (vidCapture != null) {
                 provider.bindToLifecycle(lifecycleOwner, selector, preview, vidCapture)
             } else {
-                provider.bindToLifecycle(lifecycleOwner, selector, preview, imgCapture)
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, requireNotNull(imgCapture))
             }
-        } catch (_: IllegalArgumentException) {
-            // Some legacy or emulated camera HALs only allow two concurrent surfaces.
-            singleUseCaseFallback = true
-            provider.unbindAll()
-            runCatching {
-                if (mode == CameraCaptureMode.Video) {
-                    provider.bindToLifecycle(lifecycleOwner, selector, preview, vidCapture)
-                } else {
-                    provider.bindToLifecycle(lifecycleOwner, selector, preview, imgCapture)
-                }
-            }.getOrNull()
-        } catch (_: Exception) {
-            null
-        }
+        }.getOrNull()
 
         if (camera == null) {
             cameraError = true
             return@LaunchedEffect
         }
         val cameraHasFlash = camera.cameraInfo.hasFlashUnit()
-        val isFront = resolvedFacing == CameraSelector.LENS_FACING_FRONT
-        imgCapture.screenFlash = activeScreenFlash
-        imgCapture.flashMode = resolvePhotoFlash(
-            mode = mode,
-            flashMode = flashMode,
-            isFrontCamera = isFront,
-            hasFlashUnit = cameraHasFlash,
-            hasScreenFlash = activeScreenFlash != null,
-        ).toCameraXFlashMode()
+        imgCapture?.let { capture ->
+            if (isFront) {
+                capture.screenFlash = activeScreenFlash
+            }
+            capture.flashMode = resolvePhotoFlash(
+                mode = CameraCaptureMode.Photo,
+                flashMode = flashMode,
+                isFrontCamera = isFront,
+                hasFlashUnit = cameraHasFlash,
+                hasScreenFlash = activeScreenFlash != null,
+            ).toCameraXFlashMode()
+        }
         boundLensFacing = resolvedFacing
         hasFlashUnit = cameraHasFlash
         boundCamera = camera
@@ -652,7 +673,9 @@ private fun CameraCaptureContent(
         val isFront = boundLensFacing == CameraSelector.LENS_FACING_FRONT
         val isLive = captured == null
         imageCapture?.let { capture ->
-            capture.screenFlash = activeScreenFlash
+            if (isFront) {
+                capture.screenFlash = activeScreenFlash
+            }
             capture.flashMode = resolvePhotoFlash(
                 mode = mode,
                 flashMode = flashMode,
@@ -662,16 +685,18 @@ private fun CameraCaptureContent(
             ).toCameraXFlashMode()
         }
         boundCamera?.let { camera ->
-            if (camera.cameraInfo.hasFlashUnit()) {
-                camera.cameraControl.enableTorch(
-                    shouldEnableCameraTorch(
-                        mode = mode,
-                        flashMode = flashMode,
-                        isFrontCamera = isFront,
-                        hasFlashUnit = hasFlashUnit,
-                        isLivePreview = isLive,
-                    ),
-                )
+            val torchUpdate = desiredCameraTorchUpdate(
+                mode = mode,
+                flashMode = flashMode,
+                isFrontCamera = isFront,
+                hasFlashUnit = camera.cameraInfo.hasFlashUnit(),
+                isLivePreview = isLive,
+                isTorchCurrentlyOn = torchCommandedOn ||
+                    camera.cameraInfo.torchState.value == TorchState.ON,
+            )
+            if (torchUpdate != null) {
+                torchCommandedOn = torchUpdate
+                camera.cameraControl.enableTorch(torchUpdate)
             }
         }
     }
@@ -693,11 +718,7 @@ private fun CameraCaptureContent(
 
     DisposableEffect(Unit) {
         onDispose {
-            boundCamera?.let { cam ->
-                if (cam.cameraInfo.hasFlashUnit()) {
-                    cam.cameraControl.enableTorch(false)
-                }
-            }
+            turnOffTorchIfActive(boundCamera)
             activeRecording?.stop()
             activeRecording = null
             runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }

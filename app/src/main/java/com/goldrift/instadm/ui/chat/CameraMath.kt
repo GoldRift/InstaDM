@@ -82,6 +82,34 @@ internal fun shouldEnableCameraTorch(
     effectiveCameraFlashMode(mode, flashMode, isFrontCamera, hasFlashUnit) == CameraFlashMode.On &&
     hasFlashUnit
 
+/**
+ * Returns the torch state to send to `CameraControl.enableTorch`, or `null` when
+ * no call should be issued. Avoiding redundant `enableTorch(false)` calls in photo
+ * mode keeps CameraX's CameraPipe 3A state from overwriting still-capture flash.
+ */
+internal fun desiredCameraTorchUpdate(
+    mode: CameraCaptureMode,
+    flashMode: CameraFlashMode,
+    isFrontCamera: Boolean,
+    hasFlashUnit: Boolean,
+    isLivePreview: Boolean,
+    isTorchCurrentlyOn: Boolean,
+): Boolean? {
+    if (!hasFlashUnit) return null
+    val wantTorch = shouldEnableCameraTorch(
+        mode = mode,
+        flashMode = flashMode,
+        isFrontCamera = isFrontCamera,
+        hasFlashUnit = true,
+        isLivePreview = isLivePreview,
+    )
+    return when {
+        wantTorch -> true
+        isTorchCurrentlyOn -> false
+        else -> null
+    }
+}
+
 internal fun resolvePhotoFlash(
     mode: CameraCaptureMode,
     flashMode: CameraFlashMode,

@@ -3,6 +3,7 @@ package com.goldrift.instadm
 import com.goldrift.instadm.ui.chat.CameraCaptureMode
 import com.goldrift.instadm.ui.chat.CameraFlashMode
 import com.goldrift.instadm.ui.chat.ResolvedPhotoFlash
+import com.goldrift.instadm.ui.chat.desiredCameraTorchUpdate
 import com.goldrift.instadm.ui.chat.effectiveCameraFlashMode
 import com.goldrift.instadm.ui.chat.formatRecordingDuration
 import com.goldrift.instadm.ui.chat.formatZoomRatio
@@ -15,6 +16,7 @@ import com.goldrift.instadm.ui.chat.shouldShowFlashControl
 import com.goldrift.instadm.ui.chat.zoomPresets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -142,6 +144,73 @@ class CameraMathTest {
                 isFrontCamera = true,
                 hasFlashUnit = false,
                 isLivePreview = true,
+            ),
+        )
+    }
+
+    @Test
+    fun desiredTorchUpdateSkipsOffCallsWhenTorchIsAlreadyOff() {
+        assertNull(
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+                isTorchCurrentlyOn = false,
+            ),
+        )
+        assertNull(
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.Auto,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+                isTorchCurrentlyOn = false,
+            ),
+        )
+        assertEquals(
+            true,
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+                isTorchCurrentlyOn = false,
+            ),
+        )
+        assertEquals(
+            false,
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.Off,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+                isTorchCurrentlyOn = true,
+            ),
+        )
+        assertEquals(
+            false,
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Photo,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = false,
+                hasFlashUnit = true,
+                isLivePreview = true,
+                isTorchCurrentlyOn = true,
+            ),
+        )
+        assertNull(
+            desiredCameraTorchUpdate(
+                mode = CameraCaptureMode.Video,
+                flashMode = CameraFlashMode.On,
+                isFrontCamera = true,
+                hasFlashUnit = false,
+                isLivePreview = true,
+                isTorchCurrentlyOn = false,
             ),
         )
     }
