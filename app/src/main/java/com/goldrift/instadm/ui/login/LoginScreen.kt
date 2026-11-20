@@ -33,18 +33,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.WavyProgressIndicatorDefaults
@@ -64,12 +65,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.canonicalCookieJson
 import com.goldrift.instadm.data.missingCookies
 import com.goldrift.instadm.data.parseCookieHeader
+import com.goldrift.instadm.ui.components.InlineBanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -193,7 +196,14 @@ fun LoginScreen(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.login_title)) },
+                title = {
+                    Text(
+                        text = stringResource(R.string.login_title),
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 actions = {
                     IconButton(
                         onClick = {
@@ -201,6 +211,7 @@ fun LoginScreen(
                             lastAttempt = ""
                             webView?.reload()
                         },
+                        shapes = IconButtonDefaults.shapes(),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Refresh,
@@ -376,33 +387,18 @@ fun LoginScreen(
                     fadeOut(motion.defaultEffectsSpec()),
             ) {
                 val message = errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
-                Surface(
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    color = MaterialTheme.colorScheme.errorContainer,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = message,
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        TextButton(
-                            onClick = {
-                                errorMessage = null
-                                lastAttempt = ""
-                                webView?.reload()
-                            },
-                        ) {
-                            Text(stringResource(R.string.login_retry))
-                        }
-                    }
-                }
+                InlineBanner(
+                    text = message,
+                    icon = Icons.Rounded.ErrorOutline,
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    actionLabel = stringResource(R.string.login_retry),
+                    onAction = {
+                        errorMessage = null
+                        lastAttempt = ""
+                        webView?.reload()
+                    },
+                )
             }
 
             Spacer(Modifier.height(8.dp))

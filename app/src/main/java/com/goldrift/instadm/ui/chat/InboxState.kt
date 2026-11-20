@@ -46,6 +46,10 @@ data class ChatBanner(
     val threadId: String,
     val title: String,
     val preview: String,
+    val initials: String = initialsOf(title),
+    val avatarUrl: String = "",
+    val isGroup: Boolean = false,
+    val participants: List<ConversationParticipant> = emptyList(),
 )
 
 /** Wait for a burst of incoming messages to settle before sending a receipt. */
@@ -275,10 +279,22 @@ class InboxState(
                 ?.render { id, args -> appContext.getString(id, *args.toTypedArray()) }
                 ?: appContext.getString(R.string.notification_message)
 
+            val title = bannerTitle(message, conversation, isGroup)
+            val senderParticipant = if (!isGroup) {
+                conversation?.participants?.firstOrNull()
+            } else {
+                null
+            }
+            val avatarUrl = conversation?.contact?.avatarUrl?.takeIf { it.isNotBlank() }
+                ?: senderParticipant?.avatarUrl.orEmpty()
             banner = ChatBanner(
                 threadId = event.threadId,
-                title = bannerTitle(message, conversation, isGroup),
+                title = title,
                 preview = preview,
+                initials = initialsOf(title),
+                avatarUrl = avatarUrl,
+                isGroup = isGroup,
+                participants = conversation?.participants.orEmpty(),
             )
             bannerJob?.cancel()
             bannerJob = scope.launch {

@@ -7,7 +7,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +29,7 @@ import com.goldrift.instadm.update.UpdateManifest
 import com.goldrift.instadm.update.UpdateState
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UpdateDialog(
     update: UpdateManifest,
@@ -36,6 +43,12 @@ fun UpdateDialog(
     val busy = state is UpdateState.Downloading || state is UpdateState.Installing
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.SystemUpdate,
+                contentDescription = null,
+            )
+        },
         title = { Text(stringResource(R.string.updates_dialog_title, update.version)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -74,8 +87,9 @@ fun UpdateDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 enabled = !busy,
+                shapes = ButtonDefaults.shapes(),
                 onClick = if (canInstall) onInstall else onOpenInstallPermission,
             ) {
                 Text(
@@ -90,7 +104,11 @@ fun UpdateDialog(
             }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
+            TextButton(
+                enabled = !busy,
+                shapes = ButtonDefaults.shapes(),
+                onClick = onDismiss,
+            ) {
                 Text(stringResource(R.string.chat_cancel))
             }
         },

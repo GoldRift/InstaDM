@@ -15,12 +15,15 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -28,15 +31,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +69,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
@@ -81,6 +88,7 @@ import com.goldrift.instadm.ui.chat.CameraCaptureOverlay
 import com.goldrift.instadm.ui.chat.CameraCaptureRequest
 import com.goldrift.instadm.ui.chat.ChatBanner
 import com.goldrift.instadm.ui.chat.ChatScreen
+import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.chat.InboxStatus
@@ -90,6 +98,9 @@ import com.goldrift.instadm.ui.chat.MediaViewerOverlay
 import com.goldrift.instadm.ui.chat.MediaViewerRequest
 import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.chat.VoicePlayer
+import com.goldrift.instadm.ui.components.Avatar
+import com.goldrift.instadm.ui.components.ConversationAvatar
+import com.goldrift.instadm.ui.components.ExpressiveStateBadge
 import com.goldrift.instadm.ui.components.MiniVoicePlayer
 import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.showVoiceMiniPlayer
@@ -547,6 +558,7 @@ fun InstaDmApp(
  * pane keeps its own selection instead of pushing a route, so the list stays
  * visible while reading a thread.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MainPane(
     inboxState: InboxState,
@@ -647,16 +659,26 @@ private fun MainPane(
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selected == null) {
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
+                    ExpressiveStateBadge(
+                        shape = MaterialShapes.Cookie7Sided.toShape(),
+                        icon = Icons.Rounded.Forum,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.inbox_select_conversation),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
             } else {
@@ -771,9 +793,30 @@ private fun IncomingChatBanner(
         shadowElevation = 6.dp,
     ) {
         Row(
-            modifier = Modifier.padding(start = 20.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
+            modifier = Modifier.padding(start = 10.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (banner.isGroup) {
+                ConversationAvatar(
+                    contact = Contact(
+                        id = banner.threadId,
+                        name = banner.title,
+                        initials = banner.initials,
+                        avatarUrl = banner.avatarUrl,
+                    ),
+                    isGroup = true,
+                    participants = banner.participants,
+                    size = 44.dp,
+                )
+            } else {
+                Avatar(
+                    initials = banner.initials,
+                    size = 44.dp,
+                    imageUrl = banner.avatarUrl,
+                    colorSeed = banner.threadId,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = banner.title,
@@ -878,6 +921,10 @@ private fun ChatDestination(
         onTyping = { if (!isDraft) inboxState.notifyTyping(threadId) },
         isLoading = sendingDraft || inboxState.isLoading(threadId),
         errorMessage = draftError ?: inboxState.errorMessage,
+        onDismissError = {
+            draftError = null
+            inboxState.clearError()
+        },
         onLoadMedia = { mediaThreadId, messageId, media ->
             inboxState.downloadMedia(mediaThreadId, messageId, media)
         },

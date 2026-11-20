@@ -3,8 +3,10 @@ package com.goldrift.instadm
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
 import com.goldrift.instadm.ui.theme.DarkColorScheme
 import com.goldrift.instadm.ui.theme.LightColorScheme
+import com.goldrift.instadm.ui.theme.Typography
 import com.goldrift.instadm.ui.theme.messageBubbleColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -123,5 +125,13 @@ class ThemeColorsTest {
         assertEquals(DarkColorScheme.surface, DarkColorScheme.surfaceTint)
         assertEquals(LightColorScheme.surface, LightColorScheme.background)
         assertEquals(DarkColorScheme.surface, DarkColorScheme.background)
+    }
+
+    @Test
+    fun emphasizedTitleIsHeavierThanStandardAndHeadlineMediumIsBold() {
+        val standardWeight = checkNotNull(Typography.titleLarge.fontWeight)
+        val emphasizedWeight = checkNotNull(Typography.titleLargeEmphasized.fontWeight)
+        assertTrue(emphasizedWeight > standardWeight)
+        assertEquals(FontWeight.Bold, Typography.headlineMedium.fontWeight)
     }
 }

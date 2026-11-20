@@ -41,6 +41,8 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -456,11 +458,23 @@ fun SettingsScreen(
     if (confirmClearCache) {
         AlertDialog(
             onDismissRequest = { if (!clearingCache) confirmClearCache = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteSweep,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            },
             title = { Text(stringResource(R.string.settings_clear_cache_title)) },
             text = { Text(stringResource(R.string.settings_clear_cache_body)) },
             confirmButton = {
-                TextButton(
+                Button(
                     enabled = !clearingCache,
+                    shapes = ButtonDefaults.shapes(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
                     onClick = {
                         haptic.confirm()
                         scope.launch {
@@ -486,6 +500,7 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(
                     enabled = !clearingCache,
+                    shapes = ButtonDefaults.shapes(),
                     onClick = { confirmClearCache = false },
                 ) {
                     Text(stringResource(R.string.chat_cancel))

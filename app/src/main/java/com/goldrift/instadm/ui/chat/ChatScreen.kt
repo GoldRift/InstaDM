@@ -104,10 +104,12 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
@@ -121,6 +123,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -130,6 +133,7 @@ import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButtonShapes
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -144,6 +148,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -200,6 +205,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -231,6 +237,8 @@ import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.EmojiPickerDialog
+import com.goldrift.instadm.ui.components.ExpressiveStateBadge
+import com.goldrift.instadm.ui.components.InlineBanner
 import com.goldrift.instadm.ui.components.MiniVoicePlayerInset
 import com.goldrift.instadm.ui.components.confirm
 import com.goldrift.instadm.ui.components.contextClick
@@ -328,6 +336,7 @@ fun ChatScreen(
     onTyping: () -> Unit = {},
     isLoading: Boolean = false,
     errorMessage: String? = null,
+    onDismissError: () -> Unit = {},
     onLoadMedia: MediaLoader? = null,
     onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)? = null,
     onMarkRead: (String) -> Unit = {},
@@ -935,21 +944,13 @@ fun ChatScreen(
                         fadeOut(motion.defaultEffectsSpec()),
                 ) {
                     val message = errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
-                    Surface(
-                        modifier = Modifier.semantics {
-                            liveRegion = LiveRegionMode.Polite
-                        },
-                        color = MaterialTheme.colorScheme.errorContainer,
-                    ) {
-                        Text(
-                            text = message,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
+                    InlineBanner(
+                        text = message,
+                        icon = Icons.Rounded.ErrorOutline,
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        onDismiss = onDismissError,
+                    )
                 }
 
                 when {
@@ -966,14 +967,26 @@ fun ChatScreen(
                     }
 
                     transcript.isEmpty() -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
                         ) {
+                            ExpressiveStateBadge(
+                                shape = MaterialShapes.Clover4Leaf.toShape(),
+                                icon = Icons.Rounded.ChatBubbleOutline,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                size = 76.dp,
+                            )
+                            Spacer(Modifier.height(16.dp))
                             Text(
                                 text = stringResource(R.string.chat_no_messages),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -2989,6 +3002,7 @@ private fun MessageMenu(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun EditMessageDialog(
     message: ChatMessage,
@@ -3001,6 +3015,12 @@ private fun EditMessageDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Edit,
+                contentDescription = null,
+            )
+        },
         title = { Text(stringResource(R.string.chat_edit_title)) },
         text = {
             OutlinedTextField(
@@ -3015,20 +3035,26 @@ private fun EditMessageDialog(
             )
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (canSave) onSave(trimmed) else onDismiss() },
+            Button(
+                enabled = canSave,
+                shapes = ButtonDefaults.shapes(),
+                onClick = { onSave(trimmed) },
             ) {
                 Text(stringResource(R.string.chat_edit_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                shapes = ButtonDefaults.shapes(),
+                onClick = onDismiss,
+            ) {
                 Text(stringResource(R.string.chat_cancel))
             }
         },
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun UnsendMessageDialog(
     onConfirm: () -> Unit,
@@ -3037,23 +3063,35 @@ private fun UnsendMessageDialog(
     val haptic = LocalHapticFeedback.current
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+            )
+        },
         title = { Text(stringResource(R.string.chat_unsend_title)) },
         text = { Text(stringResource(R.string.chat_unsend_body)) },
         confirmButton = {
-            TextButton(
+            Button(
+                shapes = ButtonDefaults.shapes(),
                 onClick = {
                     haptic.reject()
                     onConfirm()
                 },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
                 ),
             ) {
                 Text(stringResource(R.string.chat_action_unsend))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                shapes = ButtonDefaults.shapes(),
+                onClick = onDismiss,
+            ) {
                 Text(stringResource(R.string.chat_cancel))
             }
         },
