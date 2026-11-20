@@ -269,29 +269,50 @@ private val ClusterInnerCornerRadius = 6.dp
 internal val AttachmentInset = 4.dp
 
 private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
+private val BubbleShapeMineFirst = RoundedCornerShape(
+    topStart = BubbleCornerRadius,
+    topEnd = BubbleCornerRadius,
+    bottomEnd = ClusterInnerCornerRadius,
+    bottomStart = BubbleCornerRadius,
+)
+private val BubbleShapeThemFirst = RoundedCornerShape(
+    topStart = BubbleCornerRadius,
+    topEnd = BubbleCornerRadius,
+    bottomEnd = BubbleCornerRadius,
+    bottomStart = ClusterInnerCornerRadius,
+)
+private val BubbleShapeMineMiddle = RoundedCornerShape(
+    topStart = BubbleCornerRadius,
+    topEnd = ClusterInnerCornerRadius,
+    bottomEnd = ClusterInnerCornerRadius,
+    bottomStart = BubbleCornerRadius,
+)
+private val BubbleShapeThemMiddle = RoundedCornerShape(
+    topStart = ClusterInnerCornerRadius,
+    topEnd = BubbleCornerRadius,
+    bottomEnd = BubbleCornerRadius,
+    bottomStart = ClusterInnerCornerRadius,
+)
+private val BubbleShapeMineLast = RoundedCornerShape(
+    topStart = BubbleCornerRadius,
+    topEnd = ClusterInnerCornerRadius,
+    bottomEnd = BubbleCornerRadius,
+    bottomStart = BubbleCornerRadius,
+)
+private val BubbleShapeThemLast = RoundedCornerShape(
+    topStart = ClusterInnerCornerRadius,
+    topEnd = BubbleCornerRadius,
+    bottomEnd = BubbleCornerRadius,
+    bottomStart = BubbleCornerRadius,
+)
 
-private fun bubbleShape(isMine: Boolean, position: ClusterPosition): RoundedCornerShape {
-    val inner = ClusterInnerCornerRadius
-    val outer = BubbleCornerRadius
-    return when (position) {
+private fun bubbleShape(isMine: Boolean, position: ClusterPosition): RoundedCornerShape =
+    when (position) {
         ClusterPosition.Solo -> BubbleShape
-        ClusterPosition.First -> if (isMine) {
-            RoundedCornerShape(topStart = outer, topEnd = outer, bottomEnd = inner, bottomStart = outer)
-        } else {
-            RoundedCornerShape(topStart = outer, topEnd = outer, bottomEnd = outer, bottomStart = inner)
-        }
-        ClusterPosition.Middle -> if (isMine) {
-            RoundedCornerShape(topStart = outer, topEnd = inner, bottomEnd = inner, bottomStart = outer)
-        } else {
-            RoundedCornerShape(topStart = inner, topEnd = outer, bottomEnd = outer, bottomStart = inner)
-        }
-        ClusterPosition.Last -> if (isMine) {
-            RoundedCornerShape(topStart = outer, topEnd = inner, bottomEnd = outer, bottomStart = outer)
-        } else {
-            RoundedCornerShape(topStart = inner, topEnd = outer, bottomEnd = outer, bottomStart = outer)
-        }
+        ClusterPosition.First -> if (isMine) BubbleShapeMineFirst else BubbleShapeThemFirst
+        ClusterPosition.Middle -> if (isMine) BubbleShapeMineMiddle else BubbleShapeThemMiddle
+        ClusterPosition.Last -> if (isMine) BubbleShapeMineLast else BubbleShapeThemLast
     }
-}
 
 
 /** Horizontal drag needed to start a reply, and the distance the bubble follows. */
@@ -1462,6 +1483,9 @@ private fun MessageList(
 ) {
     val reversed = messages.asReversed()
     val messagesById = remember(messages) { messages.associateBy { it.id } }
+    val participantsByFbid = remember(participants) {
+        if (participants.isEmpty()) emptyMap() else participants.associateBy { it.fbid }
+    }
 
     // The list is reversed, so older messages are appended past the visible
     // range and stable keys keep the reader's position while a page is
@@ -1508,17 +1532,13 @@ private fun MessageList(
         itemsIndexed(
             items = reversed,
             key = { _, message -> message.id },
-            contentType = { _, message -> if (message.isAdminNotice()) "admin" else message.sender },
+            contentType = { _, message -> messageContentType(message) },
         ) { reverseIndex, message ->
             val adminNotice = message.isAdminNotice()
             val originalIndex = messages.lastIndex - reverseIndex
             val previous = messages.getOrNull(originalIndex - 1)
             val next = messages.getOrNull(originalIndex + 1)
-            val member = if (isGroup) {
-                participants.firstOrNull { it.fbid == message.senderFbid }
-            } else {
-                null
-            }
+            val member = if (isGroup) participantsByFbid[message.senderFbid] else null
             // Instagram only persists the sender on the message row, so fall
             // back to it when the participant list does not know the FBID.
             val senderName = if (isGroup) {
@@ -1534,14 +1554,14 @@ private fun MessageList(
             // The list is reversed, so the oldest message of a day or time block
             // sits at the top of that block. A header at the top of this item
             // separates it from the older message above it.
-            val divider = transcriptDividerBefore(previous, message)
+            val rowLayout = transcriptRowLayout(previous, message, next)
+            val divider = rowLayout.divider
             val showDayHeader = divider == TranscriptDivider.Day
             val showTimeGap = divider == TranscriptDivider.TimeGap
-            val clusterPos = clusterPosition(previous, message, next)
-            val joinedWithPrevious = previous != null && sameSenderCluster(previous, message)
+            val clusterPos = rowLayout.clusterPosition
             val topSpacing = when {
                 previous == null || divider != TranscriptDivider.None -> 0.dp
-                joinedWithPrevious -> 2.dp
+                rowLayout.joinedWithPrevious -> 2.dp
                 else -> 10.dp
             }
             // Direct chats show no avatars beside bubbles.
@@ -1642,7 +1662,7 @@ private fun MessageList(
                         onEnsureVoiceWaveform = onEnsureVoiceWaveform,
                         voicePlayer = voicePlayer,
                         isGroup = isGroup,
-                        participants = participants,
+                        participantsByFbid = participantsByFbid,
                         viewerName = viewerName,
                         viewerAvatarUrl = viewerAvatarUrl,
                     )
@@ -1780,7 +1800,7 @@ private fun MessageRow(
     onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
     voicePlayer: VoicePlayer,
     isGroup: Boolean,
-    participants: List<ConversationParticipant>,
+    participantsByFbid: Map<Long, ConversationParticipant>,
     viewerName: String,
     viewerAvatarUrl: String,
     modifier: Modifier = Modifier,
@@ -2040,7 +2060,7 @@ private fun MessageRow(
             ReactionPills(
                 message = message,
                 isGroup = isGroup,
-                participants = participants,
+                participantsByFbid = participantsByFbid,
                 viewerName = viewerName,
                 viewerAvatarUrl = viewerAvatarUrl,
             )
@@ -2367,6 +2387,12 @@ private fun ReplyThumbnailBox(
     thumbnail: ReplyThumbnail,
     size: Dp,
 ) {
+    var useFallback by remember(thumbnail) { mutableStateOf(false) }
+    val model = if (useFallback && thumbnail.fallbackModel != null) {
+        thumbnail.fallbackModel
+    } else {
+        thumbnail.model
+    }
     Box(
         modifier = Modifier
             .size(size)
@@ -2375,10 +2401,15 @@ private fun ReplyThumbnailBox(
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = thumbnail.model,
+            model = model,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
+            onError = {
+                if (!useFallback && thumbnail.fallbackModel != null) {
+                    useFallback = true
+                }
+            },
         )
         if (thumbnail.isVideo) {
             Box(
@@ -2575,7 +2606,7 @@ private fun MessageBubbleContent(
 private fun ReactionPills(
     message: ChatMessage,
     isGroup: Boolean,
-    participants: List<ConversationParticipant>,
+    participantsByFbid: Map<Long, ConversationParticipant>,
     viewerName: String,
     viewerAvatarUrl: String,
 ) {
@@ -2585,14 +2616,17 @@ private fun ReactionPills(
     if (isGroup) {
         val reactions = message.reactions.filter { it.emoji.isNotBlank() }
         if (reactions.isEmpty()) return
+        val viewerInitials = remember(viewerName) { initialsOf(viewerName) }
         FlowRow(
             modifier = Modifier.padding(top = 3.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             reactions.forEach { reaction ->
-                val participant = participants.firstOrNull {
-                    reaction.senderFbid != 0L && it.fbid == reaction.senderFbid
+                val participant = if (reaction.senderFbid != 0L) {
+                    participantsByFbid[reaction.senderFbid]
+                } else {
+                    null
                 }
                 ReactionPill(
                     emoji = reaction.emoji,
@@ -2600,7 +2634,7 @@ private fun ReactionPills(
                     fromViewer = reaction.isFromViewer,
                     author = ReactionAuthor(
                         initials = if (reaction.isFromViewer) {
-                            initialsOf(viewerName)
+                            viewerInitials
                         } else {
                             participant?.initials.orEmpty()
                         },
@@ -2655,23 +2689,8 @@ private fun ReactionPill(
     author: ReactionAuthor?,
 ) {
     val description = pluralStringResource(R.plurals.chat_reaction_count, count, emoji, count)
-    val motion = MaterialTheme.motionScheme
-    // Both paths (group and direct) get the entrance because it lives in the
-    // pill, and a remembered Animatable keeps it to the pill's first appearance.
-    val appearScale = remember { Animatable(0f) }
-    val appearAlpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch { appearScale.animateTo(1f, motion.defaultSpatialSpec()) }
-        appearAlpha.animateTo(1f, motion.defaultEffectsSpec())
-    }
     Surface(
-        modifier = Modifier
-            .graphicsLayer {
-                scaleX = 0.6f + 0.4f * appearScale.value
-                scaleY = 0.6f + 0.4f * appearScale.value
-                alpha = appearAlpha.value
-            }
-            .clearAndSetSemantics { contentDescription = description },
+        modifier = Modifier.clearAndSetSemantics { contentDescription = description },
         shape = CircleShape,
         color = if (fromViewer) {
             MaterialTheme.colorScheme.primaryContainer

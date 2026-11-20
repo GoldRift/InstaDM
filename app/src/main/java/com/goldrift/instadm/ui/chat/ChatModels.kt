@@ -3,7 +3,6 @@ package com.goldrift.instadm.ui.chat
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.ReplySnapshot
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -214,6 +213,9 @@ fun currentTimeLabel(): String =
 
 private const val DAY_MS = 24L * 60L * 60L * 1000L
 
+private fun epochDay(ms: Long, zone: TimeZone): Long =
+    Math.floorDiv(ms + zone.getOffset(ms), DAY_MS)
+
 /**
  * Whole calendar days between two instants in [zone]; 0 means the same day and
  * 1 means [fromMs] was yesterday relative to [toMs]. Used for chat date headers,
@@ -223,17 +225,7 @@ fun calendarDaysBetween(
     fromMs: Long,
     toMs: Long,
     zone: TimeZone = TimeZone.getDefault(),
-): Long {
-    fun startOfDay(ms: Long): Long = Calendar.getInstance(zone).apply {
-        timeInMillis = ms
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
-
-    return (startOfDay(toMs) - startOfDay(fromMs)) / DAY_MS
-}
+): Long = epochDay(toMs, zone) - epochDay(fromMs, zone)
 
 /**
  * Whether a group incoming bubble starts a sender run (avatar and name). A
@@ -270,9 +262,11 @@ fun stagedDragTarget(index: Int, offsetPx: Float, stepPx: Float, lastIndex: Int)
     return (index + (offsetPx / stepPx).roundToInt()).coerceIn(0, lastIndex)
 }
 
+private val WhitespaceRegex = Regex("\\s+")
+
 /** Two-letter initials used by avatars, or "?" for an empty name. */
 fun initialsOf(name: String): String {
-    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val parts = name.trim().split(WhitespaceRegex).filter { it.isNotEmpty() }
     if (parts.isEmpty()) return "?"
     return parts.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "?" }
 }

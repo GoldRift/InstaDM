@@ -94,6 +94,12 @@ fun ChatMessage.isJumboEmoji(): Boolean =
 fun ChatMessage.hasBubbleContainer(): Boolean =
     !isAdminNotice() && !isStickerOnly() && !isJumboEmoji()
 
+data class TranscriptRowLayout(
+    val divider: TranscriptDivider,
+    val clusterPosition: ClusterPosition,
+    val joinedWithPrevious: Boolean,
+)
+
 /**
  * Whether [older] and [newer] belong to the same visual bubble cluster: same
  * sender (and same group member), no day or time divider between them, within
@@ -105,11 +111,54 @@ fun sameSenderCluster(
     zone: TimeZone = TimeZone.getDefault(),
 ): Boolean {
     if (!older.hasBubbleContainer() || !newer.hasBubbleContainer()) return false
+    if (transcriptDividerBefore(older, newer, zone) != TranscriptDivider.None) return false
+    return sameSenderClusterWithinWindow(older, newer)
+}
+
+private fun sameSenderClusterWithinWindow(older: ChatMessage, newer: ChatMessage): Boolean {
     if (older.sender != newer.sender) return false
     if (older.sender == MessageSender.Them && older.senderFbid != newer.senderFbid) return false
-    if (transcriptDividerBefore(older, newer, zone) != TranscriptDivider.None) return false
     if (older.timestampMs <= 0 || newer.timestampMs <= 0) return false
     return (newer.timestampMs - older.timestampMs) in 0 until CLUSTER_GAP_MS
+}
+
+/**
+ * Computes divider, cluster position, and previous-cluster join in one pass
+ * without repeating calendar or emoji-cluster checks.
+ */
+fun transcriptRowLayout(
+    previous: ChatMessage?,
+    message: ChatMessage,
+    next: ChatMessage?,
+    zone: TimeZone = TimeZone.getDefault(),
+): TranscriptRowLayout {
+    val divider = transcriptDividerBefore(previous, message, zone)
+    if (!message.hasBubbleContainer()) {
+        return TranscriptRowLayout(
+            divider = divider,
+            clusterPosition = ClusterPosition.Solo,
+            joinedWithPrevious = false,
+        )
+    }
+    val joinedPrev = previous != null &&
+        divider == TranscriptDivider.None &&
+        sameSenderClusterWithinWindow(previous, message) &&
+        previous.hasBubbleContainer()
+    val joinedNext = next != null &&
+        sameSenderClusterWithinWindow(message, next) &&
+        transcriptDividerBefore(message, next, zone) == TranscriptDivider.None &&
+        next.hasBubbleContainer()
+    val position = when {
+        joinedPrev && joinedNext -> ClusterPosition.Middle
+        !joinedPrev && joinedNext -> ClusterPosition.First
+        joinedPrev && !joinedNext -> ClusterPosition.Last
+        else -> ClusterPosition.Solo
+    }
+    return TranscriptRowLayout(
+        divider = divider,
+        clusterPosition = position,
+        joinedWithPrevious = joinedPrev,
+    )
 }
 
 /** Position of [message] within its visual sender cluster. */
@@ -118,16 +167,20 @@ fun clusterPosition(
     message: ChatMessage,
     next: ChatMessage?,
     zone: TimeZone = TimeZone.getDefault(),
-): ClusterPosition {
-    if (!message.hasBubbleContainer()) return ClusterPosition.Solo
-    val joinedPrev = previous != null && sameSenderCluster(previous, message, zone)
-    val joinedNext = next != null && sameSenderCluster(message, next, zone)
-    return when {
-        joinedPrev && joinedNext -> ClusterPosition.Middle
-        !joinedPrev && joinedNext -> ClusterPosition.First
-        joinedPrev && !joinedNext -> ClusterPosition.Last
-        else -> ClusterPosition.Solo
+): ClusterPosition = transcriptRowLayout(previous, message, next, zone).clusterPosition
+
+/** Content type key for LazyColumn slot reuse across distinct bubble shapes. */
+fun messageContentType(message: ChatMessage): String {
+    if (message.isAdminNotice()) return "admin"
+    val kind = when {
+        message.isStickerOnly() -> "sticker"
+        message.isJumboEmoji() -> "jumbo"
+        message.media.any { it.isVoiceNote } -> "voice"
+        message.media.any { (it.isLink || it.isReel) && !it.viewOnce } -> "share"
+        message.media.isNotEmpty() || message.localMedia != null -> "media"
+        else -> "text"
     }
+    return "${message.sender.name}:$kind"
 }
 
 /** True when [text] contains only 1 to 3 emoji clusters and optional whitespace. */
@@ -242,6 +295,7 @@ private fun isEmojiBase(cp: Int): Boolean = when (cp) {
 data class ReplyThumbnail(
     val model: Any,
     val isVideo: Boolean = false,
+    val fallbackModel: Any? = null,
 )
 
 /**
@@ -252,13 +306,14 @@ fun ChatMessage.replyThumbnail(): ReplyThumbnail? {
     for (item in media) {
         if (item.viewOnce || item.isAudio) continue
         val isVideoMedia = item.isVideo && item.type != "gif"
-        if (!item.isVideo && !item.isLink && item.localPath.isNotBlank()) {
-            val localFile = File(item.localPath)
-            if (localFile.isFile) {
-                return ReplyThumbnail(model = localFile, isVideo = false)
-            }
-        }
         val url = if (item.isSticker) item.stickerUrl else item.thumbnailUrl
+        if (!item.isVideo && !item.isLink && item.localPath.isNotBlank()) {
+            return ReplyThumbnail(
+                model = File(item.localPath),
+                isVideo = false,
+                fallbackModel = url.ifBlank { null },
+            )
+        }
         if (url.isNotBlank()) {
             return ReplyThumbnail(model = url, isVideo = isVideoMedia)
         }

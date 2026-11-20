@@ -16,9 +16,11 @@ import com.goldrift.instadm.ui.chat.countNewArrivals
 import com.goldrift.instadm.ui.chat.formatRevealedTimestamp
 import com.goldrift.instadm.ui.chat.isJumboEmoji
 import com.goldrift.instadm.ui.chat.isJumboEmojiText
+import com.goldrift.instadm.ui.chat.messageContentType
 import com.goldrift.instadm.ui.chat.replyThumbnail
 import com.goldrift.instadm.ui.chat.sameSenderCluster
 import com.goldrift.instadm.ui.chat.transcriptDividerBefore
+import com.goldrift.instadm.ui.chat.transcriptRowLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -318,5 +320,89 @@ class TranscriptLayoutTest {
         )
         assertEquals(2, countNewArrivals(transcript, previousNewestId = "mid.2"))
         assertEquals(0, countNewArrivals(transcript, previousNewestId = "mid.6"))
+    }
+
+    @Test
+    fun transcriptRowLayoutComputesDividerClusterAndJoinTogether() {
+        val base = at(2026, 11, 19, 20, 0)
+        val m1 = message(id = "1", sender = MessageSender.Me, timestampMs = base)
+        val m2 = message(id = "2", sender = MessageSender.Me, timestampMs = base + 60_000L)
+        val m3 = message(id = "3", sender = MessageSender.Me, timestampMs = base + TIME_GAP_DIVIDER_MS + 60_000L)
+        val jumbo = message(id = "4", text = "❤️", sender = MessageSender.Me, timestampMs = base + TIME_GAP_DIVIDER_MS + 70_000L)
+
+        val l1 = transcriptRowLayout(null, m1, m2, zone)
+        assertEquals(TranscriptDivider.Day, l1.divider)
+        assertEquals(ClusterPosition.First, l1.clusterPosition)
+        assertFalse(l1.joinedWithPrevious)
+
+        val l2 = transcriptRowLayout(m1, m2, m3, zone)
+        assertEquals(TranscriptDivider.None, l2.divider)
+        assertEquals(ClusterPosition.Last, l2.clusterPosition)
+        assertTrue(l2.joinedWithPrevious)
+
+        val l3 = transcriptRowLayout(m2, m3, jumbo, zone)
+        assertEquals(TranscriptDivider.TimeGap, l3.divider)
+        assertEquals(ClusterPosition.Solo, l3.clusterPosition)
+        assertFalse(l3.joinedWithPrevious)
+
+        val l4 = transcriptRowLayout(m3, jumbo, null, zone)
+        assertEquals(TranscriptDivider.None, l4.divider)
+        assertEquals(ClusterPosition.Solo, l4.clusterPosition)
+        assertFalse(l4.joinedWithPrevious)
+    }
+
+    @Test
+    fun replyThumbnailUsesLocalPathWithoutDiskStatAndCarriesFallbackUrl() {
+        val missingPath = "/nonexistent/cache/photo-123.jpg"
+        val thumb = message(
+            media = listOf(
+                MessageMedia(
+                    type = "image",
+                    url = "https://example.com/p.jpg",
+                    localPath = missingPath,
+                ),
+            ),
+        ).replyThumbnail()
+
+        assertEquals(File(missingPath), thumb?.model)
+        assertEquals("https://example.com/p.jpg", thumb?.fallbackModel)
+        assertFalse(thumb?.isVideo ?: true)
+    }
+
+    @Test
+    fun messageContentTypeDistinguishesRowShapesAndSenders() {
+        val admin = message(kind = ADMIN_KIND)
+        val myText = message(sender = MessageSender.Me, text = "hi")
+        val theirText = message(sender = MessageSender.Them, text = "hi")
+        val jumbo = message(sender = MessageSender.Me, text = "🔥")
+        val sticker = message(
+            sender = MessageSender.Them,
+            text = "",
+            media = listOf(MessageMedia(type = "sticker", url = "https://example.com/s.webp")),
+        )
+        val voice = message(
+            sender = MessageSender.Them,
+            text = "",
+            media = listOf(MessageMedia(type = "audio", url = "https://example.com/v.m4a")),
+        )
+        val photo = message(
+            sender = MessageSender.Me,
+            text = "",
+            media = listOf(MessageMedia(type = "image", url = "https://example.com/p.jpg")),
+        )
+        val share = message(
+            sender = MessageSender.Me,
+            text = "",
+            media = listOf(MessageMedia(type = "link", url = "https://example.com/post")),
+        )
+
+        assertEquals("admin", messageContentType(admin))
+        assertEquals("Me:text", messageContentType(myText))
+        assertEquals("Them:text", messageContentType(theirText))
+        assertEquals("Me:jumbo", messageContentType(jumbo))
+        assertEquals("Them:sticker", messageContentType(sticker))
+        assertEquals("Them:voice", messageContentType(voice))
+        assertEquals("Me:media", messageContentType(photo))
+        assertEquals("Me:share", messageContentType(share))
     }
 }

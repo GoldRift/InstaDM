@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +23,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.ConversationParticipant
 
@@ -79,10 +77,7 @@ fun Avatar(
         AvatarInitials(initials = initials, size = size)
         if (!imageUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(imageUrl)
-                    .crossfade(true)
-                    .build(),
+                model = imageUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
@@ -216,10 +211,7 @@ private fun AvatarInitials(initials: String, size: Dp) {
 @Composable
 private fun CollageTile(url: String, modifier: Modifier = Modifier) {
     AsyncImage(
-        model = ImageRequest.Builder(LocalContext.current)
-            .data(url)
-            .crossfade(true)
-            .build(),
+        model = url,
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = modifier,

@@ -96,6 +96,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -445,7 +446,7 @@ fun VoiceNoteBubble(
     }
     val scope = rememberCoroutineScope()
     var file by remember(messageId, media.partIndex, media.localPath) {
-        mutableStateOf(localVoiceFile(media))
+        mutableStateOf<File?>(null)
     }
     var loading by remember { mutableStateOf(false) }
     var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
@@ -481,18 +482,24 @@ fun VoiceNoteBubble(
             player.pause()
             return
         }
-        val ready = file?.takeIf { it.isFile }
-        if (ready != null) {
+        val cached = file
+        if (cached != null) {
             haptic.toggle(true)
-            player.play(nowPlaying, ready, media.durationMs)
+            player.play(nowPlaying, cached, media.durationMs)
             return
         }
-        val loader = loadMedia ?: return
         if (loading) return
         haptic.toggle(true)
-        loading = true
         failed = false
         scope.launch {
+            val local = withContext(Dispatchers.IO) { localVoiceFile(media) }
+            if (local != null) {
+                file = local
+                player.play(nowPlaying, local, media.durationMs)
+                return@launch
+            }
+            val loader = loadMedia ?: return@launch
+            loading = true
             val downloaded = runCatching {
                 loader(threadId, messageId, media)
             }.getOrNull()

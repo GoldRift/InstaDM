@@ -39,7 +39,7 @@ not `debug`:
     overlay states. Replace `BoxWithConstraints` in `LinkPreview` with
     `Modifier.layout`. Pass `wide` from `InstaDmApp` into `MainPane`.
 
-- [ ] **1.3 Cut per-item scroll allocations, linear lookups, and main-thread `File.isFile`**
+- [x] **1.3 Cut per-item scroll allocations, linear lookups, and main-thread `File.isFile`**
   - Files: `ChatModels.kt`, `TranscriptLayout.kt`, `ChatScreen.kt`,
     `VoiceNote.kt`, `Avatar.kt`.
   - Changes:
