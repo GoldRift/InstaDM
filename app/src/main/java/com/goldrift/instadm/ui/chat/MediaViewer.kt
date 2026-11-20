@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,7 +90,6 @@ fun MediaThumbnail(
     media: MessageMedia,
     threadId: String,
     messageId: String,
-    active: Boolean,
     loadMedia: MediaLoader?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
@@ -124,7 +124,6 @@ fun MediaThumbnail(
                 threadId = threadId,
                 messageId = messageId,
                 media = media,
-                active = active,
                 loadMedia = loadMedia,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -242,30 +241,33 @@ private fun InlineGif(
     threadId: String,
     messageId: String,
     media: MessageMedia,
-    active: Boolean,
     loadMedia: MediaLoader?,
     modifier: Modifier = Modifier,
 ) {
+    var visible by remember(messageId, media.partIndex) { mutableStateOf(false) }
     var file by remember(messageId, media.partIndex) { mutableStateOf<File?>(null) }
     var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
 
-    LaunchedEffect(messageId, media.partIndex, active) {
-        if (!active || file != null || failed) return@LaunchedEffect
+    LaunchedEffect(messageId, media.partIndex, visible) {
+        if (!visible || file != null || failed) return@LaunchedEffect
         val loader = loadMedia ?: return@LaunchedEffect
         runCatching { loader(threadId, messageId, media) }
             .onSuccess { file = it }
             .onFailure { failed = true }
     }
 
-    val loaded = file
-    if (loaded != null) {
-        LoopingVideo(
-            file = loaded,
-            active = active,
-            modifier = modifier,
-        )
-    } else {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier.onVisibilityChanged(minFractionVisible = 0f) { visible = it },
+        contentAlignment = Alignment.Center,
+    ) {
+        val loaded = file
+        if (loaded != null) {
+            LoopingVideo(
+                file = loaded,
+                active = visible,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
             ThumbnailImage(media = media, modifier = Modifier.fillMaxSize())
             if (!failed) {
                 ContainedLoadingIndicator(modifier = Modifier.size(52.dp))

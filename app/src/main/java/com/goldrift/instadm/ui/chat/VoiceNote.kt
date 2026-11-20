@@ -68,6 +68,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -432,10 +433,11 @@ fun VoiceNoteBubble(
     noteAvatarUrl: String,
     noteInitials: String,
     modifier: Modifier = Modifier,
-    isVisible: Boolean = true,
     onEnsureWaveform: (() -> Unit)? = null,
 ) {
-    if (onEnsureWaveform != null && isVisible && media.waveform.isEmpty()) {
+    val needsWaveform = onEnsureWaveform != null && media.waveform.isEmpty()
+    var visible by remember(messageId, media.partIndex) { mutableStateOf(false) }
+    if (needsWaveform && visible) {
         val currentEnsureWaveform by rememberUpdatedState(onEnsureWaveform)
         LaunchedEffect(messageId, media.partIndex) {
             currentEnsureWaveform()
@@ -514,8 +516,14 @@ fun VoiceNoteBubble(
             else -> R.string.chat_voice_play
         },
     )
+    val visibilityModifier = if (needsWaveform) {
+        Modifier.onVisibilityChanged(minFractionVisible = 0f) { visible = it }
+    } else {
+        Modifier
+    }
     Row(
         modifier = modifier
+            .then(visibilityModifier)
             .widthIn(min = 200.dp, max = 270.dp)
             .clip(MaterialTheme.shapes.medium)
             .background(contentColor.copy(alpha = 0.07f))

@@ -18,7 +18,7 @@ not `debug`:
 
 ## Phase 1: Chat and Inbox Scroll Smoothness
 
-- [ ] **1.1 Remove per-frame `visibleMessageIds` churn in `MessageList`**
+- [x] **1.1 Remove per-frame `visibleMessageIds` churn in `MessageList`**
   - Files: `app/src/main/java/com/goldrift/instadm/ui/chat/ChatScreen.kt`,
     `MediaViewer.kt`, `VoiceNote.kt`.
   - Problem: `visibleMessageIds` allocates a fresh `HashSet` on every scroll

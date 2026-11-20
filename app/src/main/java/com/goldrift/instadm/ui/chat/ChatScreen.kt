@@ -1462,11 +1462,6 @@ private fun MessageList(
 ) {
     val reversed = messages.asReversed()
     val messagesById = remember(messages) { messages.associateBy { it.id } }
-    val visibleMessageIds by remember(listState) {
-        derivedStateOf {
-            listState.layoutInfo.visibleItemsInfo.mapNotNullTo(HashSet()) { it.key as? String }
-        }
-    }
 
     // The list is reversed, so older messages are appended past the visible
     // range and stable keys keep the reader's position while a page is
@@ -1609,7 +1604,6 @@ private fun MessageList(
                         reserveAvatarGutter = reserveAvatarGutter,
                         clusterPosition = clusterPos,
                         threadId = threadId,
-                        isVisible = message.id in visibleMessageIds,
                         onOpenMedia = { media -> onOpenMedia(message.id, media) },
                         onLongPress = { if (message.isServerMessage()) onLongPress(message) },
                         reply = reply,
@@ -1760,7 +1754,6 @@ private fun MessageRow(
     reserveAvatarGutter: Boolean,
     clusterPosition: ClusterPosition,
     threadId: String,
-    isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
     onLongPress: () -> Unit,
     reply: ReplySnapshot?,
@@ -2004,7 +1997,6 @@ private fun MessageRow(
                     MessageBubbleContent(
                         message = message,
                         threadId = threadId,
-                        isVisible = isVisible,
                         reply = reply,
                         replyLabel = replyLabel,
                         replyThumbnail = replyThumbnail,
@@ -2442,7 +2434,6 @@ private fun replyContent(reply: ReplySnapshot): String {
 private fun MessageBubbleContent(
     message: ChatMessage,
     threadId: String,
-    isVisible: Boolean,
     reply: ReplySnapshot?,
     replyLabel: String,
     replyThumbnail: ReplyThumbnail?,
@@ -2507,7 +2498,6 @@ private fun MessageBubbleContent(
                 media = item,
                 threadId = threadId,
                 messageId = message.id,
-                active = isVisible,
                 loadMedia = onLoadMedia,
                 onClick = { if (message.isServerMessage()) onOpenMedia(item) },
                 onLongClick = onLongPress,
@@ -2536,7 +2526,6 @@ private fun MessageBubbleContent(
                     noteTitle = noteTitle,
                     noteAvatarUrl = noteAvatarUrl,
                     noteInitials = noteInitials,
-                    isVisible = isVisible,
                     onEnsureWaveform = onEnsureVoiceWaveform?.let { ensure ->
                         { ensure(message.id, item) }
                     },
