@@ -73,8 +73,10 @@ class DemoScreenshotTest {
 
         longPress("see you at 8")
         session.tap("Edit")
+        session.awaitText("Edit message")
+        hideKeyboardAndReturnToChat()
         session.capture("07-edit-light")
-        session.tap("Cancel")
+        session.nodeWithDescription("Cancel edit").performClick()
         session.awaitGone("Edit message")
 
         longPress("see you at 8")

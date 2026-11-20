@@ -105,6 +105,7 @@ import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -140,7 +141,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -478,6 +478,7 @@ fun ChatScreen(
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var editMessageId by remember { mutableStateOf<String?>(null) }
+    var draftBeforeEdit by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
     // Only the newest outgoing bubble shows a read receipt. Tapping any
@@ -495,10 +496,25 @@ fun ChatScreen(
     val pickerAccentColor = MaterialTheme.colorScheme.primary.toArgb()
     val keyboard = LocalSoftwareKeyboardController.current
 
+    fun cancelEditing() {
+        val restore = draftBeforeEdit
+        editMessageId = null
+        draftBeforeEdit = null
+        if (restore != null) draft.setTextAndPlaceCursorAtEnd(restore)
+    }
+
+    fun startEditing(message: ChatMessage) {
+        replyTarget = null
+        if (editMessageId == null) draftBeforeEdit = draft.text.toString()
+        editMessageId = message.id
+        draft.setTextAndPlaceCursorAtEnd(message.text)
+    }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MAX_STAGED_MEDIA),
     ) { uris ->
         if (uris.isNotEmpty()) {
+            cancelEditing()
             replyTarget = null
             stageMedia(uris)
         }
@@ -507,6 +523,7 @@ fun ChatScreen(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
+            cancelEditing()
             replyTarget = null
             stageMedia(listOf(uri))
         }
@@ -548,6 +565,7 @@ fun ChatScreen(
         keyboard?.hide()
         val request = CameraCaptureRequest(
             onCaptured = { uri ->
+                cancelEditing()
                 replyTarget = null
                 stageMedia(listOf(uri))
             },
@@ -574,6 +592,7 @@ fun ChatScreen(
                 val request = MediaPickerRequest(
                     maxSelectionLimit = room,
                     onGrantUris = { uris ->
+                        cancelEditing()
                         replyTarget = null
                         stageMedia(uris)
                     },
@@ -612,6 +631,13 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(editMessageId) {
+        if (editMessageId != null) {
+            composerFocus.requestFocus()
+            keyboard?.show()
+        }
+    }
+
     fun hasMicPermission(): Boolean = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.RECORD_AUDIO,
@@ -626,6 +652,7 @@ fun ChatScreen(
         voicePlayer.pause()
         // Voice notes send without reply metadata, so drop a pending quote
         // rather than implying the recording will carry one.
+        cancelEditing()
         replyTarget = null
         recordingLocked = false
         recordingCancel = false
@@ -681,6 +708,11 @@ fun ChatScreen(
     }
 
     val editMessage = editMessageId?.let { id -> messages.firstOrNull { it.id == id } }
+    LaunchedEffect(editMessage) {
+        if (editMessageId != null && (editMessage == null || !editMessage.canEdit())) {
+            cancelEditing()
+        }
+    }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val lastOutgoingId = lastOutgoingMessageId(transcript)
@@ -759,6 +791,16 @@ fun ChatScreen(
     }
 
     fun sendMessage() {
+        val editing = editMessage
+        if (editing != null) {
+            val text = editedText(editing, draft.text.toString())
+            if (text != null) {
+                haptic.confirm()
+                onEdit(editing.id, text)
+            }
+            cancelEditing()
+            return
+        }
         val text = draft.text.trim().toString()
         if (text.isEmpty() && stagedMedia.isEmpty()) return
 
@@ -773,7 +815,7 @@ fun ChatScreen(
     val typing = rememberUpdatedState(onTyping)
     LaunchedEffect(draft) {
         snapshotFlow { draft.text }.collect { text ->
-            if (text.isNotBlank()) typing.value()
+            if (text.isNotBlank() && editMessageId == null) typing.value()
         }
     }
 
@@ -861,6 +903,7 @@ fun ChatScreen(
                     onSend = ::sendMessage,
                     // Keyboard GIFs and stickers join the strip like a picked image.
                     onCommitMedia = { uri ->
+                        cancelEditing()
                         replyTarget = null
                         stageMedia(listOf(uri))
                     },
@@ -868,6 +911,8 @@ fun ChatScreen(
                     replyingToLabel = replyLabel,
                     replyingToThumbnail = replyTarget?.replyThumbnail(),
                     onCancelReply = { replyTarget = null },
+                    editingMessage = editMessage,
+                    onCancelEdit = ::cancelEditing,
                 focusRequester = composerFocus,
                 onCamera = ::takePhoto,
                 attachmentsEnabled = attachmentsEnabled,
@@ -1039,7 +1084,10 @@ fun ChatScreen(
                                     }
                                 },
                                 onLongPress = { actionMessageId = it.id },
-                                onReply = { replyTarget = it },
+                                onReply = {
+                                    cancelEditing()
+                                    replyTarget = it
+                                },
                                 onJumpToQuoted = ::jumpToQuotedMessage,
                                 highlightedMessageId = quotedMessageId,
                                 lastOutgoingId = lastOutgoingId,
@@ -1068,6 +1116,7 @@ fun ChatScreen(
                                 onReplyAt = { messageId ->
                                     actionMessageId = null
                                     messages.firstOrNull { it.id == messageId }?.let {
+                                        cancelEditing()
                                         replyTarget = it
                                     }
                                 },
@@ -1077,7 +1126,7 @@ fun ChatScreen(
                                 },
                                 onEditAt = { messageId ->
                                     actionMessageId = null
-                                    editMessageId = messageId
+                                    messages.firstOrNull { it.id == messageId }?.let(::startEditing)
                                 },
                                 onUnsendAt = { messageId ->
                                     actionMessageId = null
@@ -1258,17 +1307,6 @@ fun ChatScreen(
                 onReact(message.id, emoji)
             },
             onDismiss = { emojiPickerMessageId = null },
-        )
-    }
-
-    editMessage?.let { message ->
-        EditMessageDialog(
-            message = message,
-            onSave = { text ->
-                editMessageId = null
-                onEdit(message.id, text)
-            },
-            onDismiss = { editMessageId = null },
         )
     }
 
@@ -3004,58 +3042,6 @@ private fun MessageMenu(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun EditMessageDialog(
-    message: ChatMessage,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var text by remember(message.id) { mutableStateOf(message.text) }
-    val trimmed = text.trim()
-    val canSave = trimmed.isNotEmpty() && trimmed != message.text
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Rounded.Edit,
-                contentDescription = null,
-            )
-        },
-        title = { Text(stringResource(R.string.chat_edit_title)) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { if (it.length <= MAX_MESSAGE_LENGTH) text = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.chat_edit_field)) },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                ),
-                maxLines = 6,
-            )
-        },
-        confirmButton = {
-            Button(
-                enabled = canSave,
-                shapes = ButtonDefaults.shapes(),
-                onClick = { onSave(trimmed) },
-            ) {
-                Text(stringResource(R.string.chat_edit_save))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                shapes = ButtonDefaults.shapes(),
-                onClick = onDismiss,
-            ) {
-                Text(stringResource(R.string.chat_cancel))
-            }
-        },
-    )
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
 private fun UnsendMessageDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -3339,6 +3325,8 @@ private fun MessageComposer(
     replyingToLabel: String,
     replyingToThumbnail: ReplyThumbnail?,
     onCancelReply: () -> Unit,
+    editingMessage: ChatMessage?,
+    onCancelEdit: () -> Unit,
     focusRequester: FocusRequester,
     onCamera: () -> Unit,
     onPickMedia: () -> Unit,
@@ -3357,7 +3345,8 @@ private fun MessageComposer(
     modifier: Modifier = Modifier,
 ) {
     val showSend = draft.text.isNotBlank() || stagedMedia.isNotEmpty()
-    val showActions = attachmentsEnabled
+    val editing = editingMessage != null
+    val showActions = attachmentsEnabled && !editing
     val recording = recorder.isRecording
     val bubbles = LocalMessageBubbleColors.current
     val motion = MaterialTheme.motionScheme
@@ -3366,6 +3355,8 @@ private fun MessageComposer(
     // frame the exit animation still draws.
     var shownReply by remember { mutableStateOf(replyArgs) }
     LaunchedEffect(replyArgs) { if (replyArgs != null) shownReply = replyArgs }
+    var shownEdit by remember { mutableStateOf(editingMessage) }
+    LaunchedEffect(editingMessage) { if (editingMessage != null) shownEdit = editingMessage }
     var shownStagedMedia by remember { mutableStateOf(stagedMedia) }
     LaunchedEffect(stagedMedia) {
         if (stagedMedia.isNotEmpty()) shownStagedMedia = stagedMedia
@@ -3417,6 +3408,16 @@ private fun MessageComposer(
                         .inputOnlyWhen(isTarget),
                 ) {
                     AnimatedVisibility(
+                        visible = editingMessage != null,
+                        enter = expandVertically(motion.defaultSpatialSpec()) +
+                            fadeIn(motion.defaultEffectsSpec()),
+                        exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                            fadeOut(motion.defaultEffectsSpec()),
+                    ) {
+                        val message = editingMessage ?: shownEdit ?: return@AnimatedVisibility
+                        EditComposerBar(message = message, onCancel = onCancelEdit)
+                    }
+                    AnimatedVisibility(
                         visible = replyingTo != null,
                         enter = expandVertically(motion.defaultSpatialSpec()) +
                             fadeIn(motion.defaultEffectsSpec()),
@@ -3433,7 +3434,7 @@ private fun MessageComposer(
                         )
                     }
                     AnimatedVisibility(
-                        visible = stagedMedia.isNotEmpty(),
+                        visible = stagedMedia.isNotEmpty() && !editing,
                         enter = expandVertically(motion.defaultSpatialSpec()) +
                             fadeIn(motion.defaultEffectsSpec()),
                         exit = shrinkVertically(motion.defaultSpatialSpec()) +
@@ -3530,7 +3531,7 @@ private fun MessageComposer(
                                                 .inputOnlyWhen(isInputTarget)
                                                 .focusRequester(focusRequester)
                                                 .then(
-                                                    if (attachmentsEnabled) {
+                                                    if (attachmentsEnabled && !editing) {
                                                         Modifier.contentReceiver(contentReceiver)
                                                     } else {
                                                         Modifier
@@ -3609,7 +3610,7 @@ private fun MessageComposer(
                         }
                         Spacer(Modifier.width(8.dp))
                         AnimatedContent(
-                            targetState = showSend || !attachmentsEnabled,
+                            targetState = showSend || !attachmentsEnabled || editing,
                             transitionSpec = {
                                 val enter = fadeIn(motion.fastEffectsSpec()) +
                                     scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f)
@@ -3622,22 +3623,45 @@ private fun MessageComposer(
                         ) { send ->
                             val isTarget = transition.targetState == EnterExitState.Visible
                             if (send) {
-                                FilledIconButton(
-                                    onClick = onSend,
-                                    shapes = IconButtonDefaults.shapes(),
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .inputOnlyWhen(isTarget),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = bubbles.composerAccent,
-                                        contentColor = bubbles.onComposerAccent,
-                                    ),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                                        contentDescription = stringResource(R.string.chat_send),
-                                        modifier = Modifier.size(20.dp),
-                                    )
+                                if (editingMessage != null) {
+                                    FilledIconButton(
+                                        onClick = onSend,
+                                        enabled = draft.text.isNotBlank(),
+                                        shapes = IconButtonDefaults.shapes(),
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .inputOnlyWhen(isTarget),
+                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                            containerColor = bubbles.composerAccent,
+                                            contentColor = bubbles.onComposerAccent,
+                                        ),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = stringResource(
+                                                R.string.chat_edit_save,
+                                            ),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                } else {
+                                    FilledIconButton(
+                                        onClick = onSend,
+                                        shapes = IconButtonDefaults.shapes(),
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .inputOnlyWhen(isTarget),
+                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                            containerColor = bubbles.composerAccent,
+                                            contentColor = bubbles.onComposerAccent,
+                                        ),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Send,
+                                            contentDescription = stringResource(R.string.chat_send),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
                                 }
                             } else {
                                 MicButton(
@@ -3981,6 +4005,68 @@ private fun ReplyComposerBar(
                 Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = stringResource(R.string.chat_reply_cancel),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Edit bar above the composer. The edited text lives in the composer field, so
+ * this only names the action and repeats the original for context.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun EditComposerBar(
+    message: ChatMessage,
+    onCancel: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.chat_edit_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(
+                onClick = onCancel,
+                shapes = IconButtonDefaults.shapes(),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.chat_edit_cancel),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
