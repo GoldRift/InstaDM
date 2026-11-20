@@ -27,10 +27,13 @@ import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.service.suppressesNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -48,6 +51,7 @@ data class ActiveThreadState(
     val threadId: String = "",
     val messages: List<ChatMessage> = emptyList(),
     val loaded: Boolean = false,
+    val hasMoreLocal: Boolean = false,
     val isLoadingOlder: Boolean = false,
     val olderError: Boolean = false,
 ) {
@@ -56,10 +60,28 @@ data class ActiveThreadState(
         return conversation.copy(
             messages = messages,
             messagesLoaded = loaded,
+            hasMoreOlder = hasMoreLocal || conversation.hasMoreOlder,
             isLoadingOlder = isLoadingOlder,
             olderError = olderError,
         )
     }
+}
+
+/**
+ * Turns a `LIMIT windowSize + 1` newest-first Room snapshot into chronological
+ * order plus whether older local rows remain outside the window.
+ */
+internal fun <T> sliceThreadWindow(
+    descRows: List<T>,
+    windowSize: Int,
+): Pair<List<T>, Boolean> {
+    val hasMoreLocal = descRows.size > windowSize
+    val count = if (hasMoreLocal) windowSize else descRows.size
+    val chronological = ArrayList<T>(count)
+    for (index in count - 1 downTo 0) {
+        chronological += descRows[index]
+    }
+    return chronological to hasMoreLocal
 }
 
 /** A message that arrived in another chat while the reader was in one. */
@@ -100,6 +122,10 @@ private const val TYPING_PING_MS = 5_000L
 /** How long the in-app banner for another chat stays before it hides itself. */
 private const val BANNER_TTL_MS = 5_000L
 
+/** Initial local Room window for an open thread, and step per older expansion. */
+private const val INITIAL_THREAD_WINDOW = 100
+private const val THREAD_WINDOW_STEP = 100
+
 /**
  * Compose state for the inbox and open threads. Network and Go calls run in
  * [ProtocolRepository]; this class only applies JSON and realtime results to UI
@@ -129,6 +155,8 @@ class InboxState(
     private val waveformExtracting = Collections.synchronizedSet(mutableSetOf<String>())
     private var openThreadId: String? = null
     private var messageCollector: Job? = null
+    private var threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
+    private var networkLoadOlderInFlight = false
     private var refreshInFlight = false
 
     var conversations by mutableStateOf<List<Conversation>>(emptyList())
@@ -468,19 +496,31 @@ class InboxState(
      * Makes [threadId] the one open chat fed by the database. Opening another
      * thread releases the previous observer, so chats do not accumulate.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun openThread(threadId: String) {
         if (banner?.threadId == threadId) dismissBanner()
         if (openThreadId == threadId && messageCollector?.isActive == true) return
         messageCollector?.cancel()
         openThreadId = threadId
+        networkLoadOlderInFlight = false
+        threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
         if (activeThread.threadId != threadId) {
             activeThread = ActiveThreadState(threadId = threadId)
         }
+        val windowFlow = threadWindowSize
         messageCollector = scope.launch {
-            chatStore.observeThread(threadId)
-                .map { rows -> rows.map { it.toChatMessage() } }
+            windowFlow
+                .flatMapLatest { limit ->
+                    chatStore.observeThreadWindow(threadId, limit + 1)
+                        .map { rows ->
+                            val (windowed, hasMoreLocal) = sliceThreadWindow(rows, limit)
+                            windowed.map { it.toChatMessage() } to hasMoreLocal
+                        }
+                }
                 .flowOn(Dispatchers.Default)
-                .collect { stored -> applyThreadMessages(threadId, stored) }
+                .collect { (stored, hasMoreLocal) ->
+                    applyThreadMessages(threadId, stored, hasMoreLocal)
+                }
         }
     }
 
@@ -488,6 +528,7 @@ class InboxState(
     fun closeThread(threadId: String) {
         if (openThreadId != threadId) return
         openThreadId = null
+        networkLoadOlderInFlight = false
         messageCollector?.cancel()
         messageCollector = null
         if (activeThread.threadId == threadId) {
@@ -498,47 +539,74 @@ class InboxState(
     /**
      * Applies mapped messages for the open thread on the UI thread.
      */
-    private fun applyThreadMessages(threadId: String, stored: List<ChatMessage>) {
+    private fun applyThreadMessages(
+        threadId: String,
+        stored: List<ChatMessage>,
+        hasMoreLocal: Boolean,
+    ) {
         updateActiveThread(threadId) { current ->
             current.copy(
                 messages = stored,
                 loaded = stored.isNotEmpty() || current.loaded,
+                hasMoreLocal = hasMoreLocal,
+                isLoadingOlder = if (networkLoadOlderInFlight) current.isLoadingOlder else false,
             )
         }
     }
 
     /**
-     * Fetches the next page of older messages. The Go core addresses pages by
-     * the `oldest_cursor` of the previously loaded page and returns a new
-     * cursor plus its own `has_more_older` flag.
+     * Fetches the next page of older messages, expanding the local Room window
+     * first before pulling another page from Instagram.
      */
     fun loadOlder(threadId: String) {
         val conversation = conversation(threadId) ?: return
         val threadState = activeThread.takeIf { it.threadId == threadId } ?: return
         if (!threadState.loaded || threadState.isLoadingOlder) return
+
+        if (threadState.hasMoreLocal) {
+            updateActiveThread(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
+            threadWindowSize.value += THREAD_WINDOW_STEP
+            return
+        }
         if (!conversation.hasMoreOlder || conversation.oldestCursor.isBlank()) return
 
         val cursor = conversation.oldestCursor
+        networkLoadOlderInFlight = true
         updateActiveThread(threadId) { it.copy(isLoadingOlder = true, olderError = false) }
         scope.launch {
-            runCatching {
-                val json = repository.loadOlder(threadId, cursor)
-                chatStore.ingestOlderPage(json)
-            }.onSuccess { page ->
-                // Apply the page's cursor before clearing the in-flight flag: the
-                // list re-arms as soon as it clears, and a stale cursor would
-                // request the same page again.
-                if (page != null && page.added == 0) delay(OVERLAP_PAGE_DELAY_MS)
-                updateConversation(threadId) { current ->
-                    current.copy(
-                        oldestCursor = page?.oldestCursor ?: current.oldestCursor,
-                        hasMoreOlder = page?.hasMoreOlder ?: false,
-                    )
+            try {
+                runCatching {
+                    val json = repository.loadOlder(threadId, cursor)
+                    // Expand the local window before ingesting so the new page lands in one emission.
+                    if (openThreadId == threadId) {
+                        threadWindowSize.value += THREAD_WINDOW_STEP
+                    }
+                    chatStore.ingestOlderPage(json)
+                }.onSuccess { page ->
+                    if (page != null && page.added > THREAD_WINDOW_STEP && openThreadId == threadId) {
+                        threadWindowSize.value += page.added - THREAD_WINDOW_STEP
+                    }
+                    // Apply the page's cursor before clearing the in-flight flag: the
+                    // list re-arms as soon as it clears, and a stale cursor would
+                    // request the same page again.
+                    if (page != null && page.added == 0) delay(OVERLAP_PAGE_DELAY_MS)
+                    updateConversation(threadId) { current ->
+                        current.copy(
+                            oldestCursor = page?.oldestCursor ?: current.oldestCursor,
+                            hasMoreOlder = page?.hasMoreOlder ?: false,
+                        )
+                    }
+                    networkLoadOlderInFlight = false
+                    updateActiveThread(threadId) { it.copy(isLoadingOlder = false) }
+                }.onFailure { error ->
+                    errorMessage = describeError(error)
+                    networkLoadOlderInFlight = false
+                    updateActiveThread(threadId) {
+                        it.copy(isLoadingOlder = false, olderError = true)
+                    }
                 }
-                updateActiveThread(threadId) { it.copy(isLoadingOlder = false) }
-            }.onFailure { error ->
-                errorMessage = describeError(error)
-                updateActiveThread(threadId) { it.copy(isLoadingOlder = false, olderError = true) }
+            } finally {
+                networkLoadOlderInFlight = false
             }
         }
     }

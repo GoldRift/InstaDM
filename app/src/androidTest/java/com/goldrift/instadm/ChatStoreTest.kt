@@ -887,6 +887,35 @@ class ChatStoreTest {
         assertEquals(listOf(0.3f, 0.7f), parseWaveform(pageAttachment.waveform))
     }
 
+    @Test
+    fun observeThreadWindowReturnsNewestVisibleRowsAndSkipsReactionLogs() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-1" },
+                  "messages": [
+                    { "id": "mid.1", "sender_fbid": 222, "timestamp_ms": 1000, "text": "one", "kind": "text", "is_from_viewer": false },
+                    { "id": "mid.2", "sender_fbid": 222, "timestamp_ms": 2000, "text": "two", "kind": "text", "is_from_viewer": false },
+                    { "id": "mid.log", "sender_fbid": 222, "timestamp_ms": 2500, "text": "Reacted", "kind": "reaction-log", "is_from_viewer": false },
+                    { "id": "mid.3", "sender_fbid": 222, "timestamp_ms": 3000, "text": "three", "kind": "text", "is_from_viewer": false },
+                    { "id": "mid.4", "sender_fbid": 222, "timestamp_ms": 4000, "text": "four", "kind": "text", "is_from_viewer": false }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val window = store.observeThreadWindow("thread-1", limit = 2).first()
+        assertEquals(listOf("mid.4", "mid.3"), window.map { it.message.id })
+
+        val wider = store.observeThreadWindow("thread-1", limit = 5).first()
+        assertEquals(listOf("mid.4", "mid.3", "mid.2", "mid.1"), wider.map { it.message.id })
+    }
+
     private suspend fun ChatStore.conversationThread(threadId: String) =
         db.threads().thread(threadId) ?: error("missing thread $threadId")
 

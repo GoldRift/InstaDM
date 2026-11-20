@@ -26,6 +26,19 @@ interface MessageDao {
     )
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>>
 
+    /**
+     * Newest [limit] visible transcript rows in descending order, backed by the
+     * `(thread_id, timestamp_ms, id)` index so large threads do not scan or sort
+     * the full history on every write.
+     */
+    @Transaction
+    @Query(
+        "SELECT * FROM messages WHERE thread_id = :threadId " +
+            "AND status != 'deleted' AND kind != 'reaction-log' " +
+            "ORDER BY timestamp_ms DESC, id DESC LIMIT :limit",
+    )
+    fun observeThreadWindowDesc(threadId: String, limit: Int): Flow<List<MessageWithMedia>>
+
     @Transaction
     @Query(
         "SELECT * FROM messages WHERE thread_id = :threadId AND status != 'deleted' " +

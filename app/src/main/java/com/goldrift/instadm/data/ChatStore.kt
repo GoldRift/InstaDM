@@ -78,6 +78,10 @@ class ChatStore(
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
         messageDao.observeThread(threadId)
 
+    /** Observes the newest [limit] visible messages in descending order. */
+    fun observeThreadWindow(threadId: String, limit: Int): Flow<List<MessageWithMedia>> =
+        messageDao.observeThreadWindowDesc(threadId, limit)
+
     fun observeThreadMeta(threadId: String): Flow<ThreadWithParticipants?> =
         threadDao.observeThread(threadId)
 

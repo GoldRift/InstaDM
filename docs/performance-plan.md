@@ -98,7 +98,7 @@ not `debug`:
     date formatters in `formatMessageTime`, `formatInboxTime`, and
     `formatRevealedTimestamp`, and hoist `Regex("\\s+")` in `initialsOf`.
 
-- [ ] **2.3 Window `MessageDao.observeThread`**
+- [x] **2.3 Window `MessageDao.observeThread`**
   - Files: `MessageDao.kt`, `ChatStore.kt`, `InboxState.kt`.
   - Change: Query the newest `LIMIT :limit` non-deleted, non-reaction-log rows
     and expand the local window on scroll/quote-jump before fetching older
