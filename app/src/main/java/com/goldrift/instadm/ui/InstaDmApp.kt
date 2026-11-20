@@ -17,7 +17,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,6 +60,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
@@ -220,10 +220,10 @@ fun InstaDmApp(
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val wide = LocalWindowInfo.current.containerDpSize.width >= TwoPaneMinWidth
+    Box(Modifier.fillMaxSize()) {
         // The bar floats over the screens so the surface shows around it: the
         // inbox keeps its own colour and the note sits on top like a player.
-        val wide = maxWidth >= TwoPaneMinWidth
         // Only the detail pane of a wide inbox counts as "reading" a chat.
         val visibleThreadId = currentChatThreadId
             ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide }
@@ -298,6 +298,7 @@ fun InstaDmApp(
 
             composable(Routes.Inbox) {
                 MainPane(
+                    wide = wide,
                     inboxState = inboxState,
                     likeEmoji = settings.doubleTapEmoji,
                     readReceiptsEnabled = settings.sendReadReceipts,
@@ -561,6 +562,7 @@ fun InstaDmApp(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MainPane(
+    wide: Boolean,
     inboxState: InboxState,
     likeEmoji: String,
     readReceiptsEnabled: Boolean,
@@ -592,45 +594,44 @@ private fun MainPane(
     onOpenMediaPicker: (MediaPickerRequest) -> Unit,
     onLogout: () -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        if (maxWidth < TwoPaneMinWidth) {
-            InboxScreen(
-                conversations = inboxState.conversations,
-                status = inboxState.status,
-                errorMessage = inboxState.errorMessage,
-                shareHint = shareHint,
-                pendingUpdate = pendingUpdate,
-                showUpdateBadge = showUpdateBadge,
-                updateState = updateState,
-                onUpdateSeen = onUpdateSeen,
-                onInstallUpdate = onInstallUpdate,
-                onRefresh = onRefresh,
-                onLogin = onLogin,
-                onConversationClick = onOpenChat,
-                viewerName = inboxState.viewerName,
-                viewerAvatarUrl = inboxState.viewerAvatarUrl,
-                hasMoreConversations = inboxState.hasMoreConversations,
-                isLoadingMore = inboxState.isLoadingMoreConversations,
-                moreError = inboxState.moreConversationsError,
-                onLoadMore = inboxState::loadMoreConversations,
-                onRetryMore = inboxState::retryMoreConversations,
-                onSearch = onSearch,
-                onSettings = onSettings,
-                onLogout = onLogout,
-                isTyping = inboxState::isTyping,
-                typingParticipants = inboxState::typingParticipants,
-                onDismissError = inboxState::clearError,
-                onDismissShare = onShareConsumed,
-                listBottomInset = listBottomInset,
-            )
-            return@BoxWithConstraints
-        }
+    if (!wide) {
+        InboxScreen(
+            conversations = inboxState.conversations,
+            status = inboxState.status,
+            errorMessage = inboxState.errorMessage,
+            shareHint = shareHint,
+            pendingUpdate = pendingUpdate,
+            showUpdateBadge = showUpdateBadge,
+            updateState = updateState,
+            onUpdateSeen = onUpdateSeen,
+            onInstallUpdate = onInstallUpdate,
+            onRefresh = onRefresh,
+            onLogin = onLogin,
+            onConversationClick = onOpenChat,
+            viewerName = inboxState.viewerName,
+            viewerAvatarUrl = inboxState.viewerAvatarUrl,
+            hasMoreConversations = inboxState.hasMoreConversations,
+            isLoadingMore = inboxState.isLoadingMoreConversations,
+            moreError = inboxState.moreConversationsError,
+            onLoadMore = inboxState::loadMoreConversations,
+            onRetryMore = inboxState::retryMoreConversations,
+            onSearch = onSearch,
+            onSettings = onSettings,
+            onLogout = onLogout,
+            isTyping = inboxState::isTyping,
+            typingParticipants = inboxState::typingParticipants,
+            onDismissError = inboxState::clearError,
+            onDismissShare = onShareConsumed,
+            listBottomInset = listBottomInset,
+        )
+        return
+    }
 
-        // Back closes the detail pane before it leaves the inbox.
-        BackHandler(enabled = selectedChatId != null) { onSelectChat(null) }
-        val selected = selectedChatId?.let { inboxState.conversation(it) }
+    // Back closes the detail pane before it leaves the inbox.
+    BackHandler(enabled = selectedChatId != null) { onSelectChat(null) }
+    val selected = selectedChatId?.let { inboxState.conversation(it) }
 
-        Row(Modifier.fillMaxSize()) {
+    Row(Modifier.fillMaxSize()) {
             InboxScreen(
                 conversations = inboxState.conversations,
                 status = inboxState.status,
@@ -708,9 +709,8 @@ private fun MainPane(
                     onOpenMedia = onOpenMedia,
                     onOpenCamera = onOpenCamera,
                     onOpenMediaPicker = onOpenMediaPicker,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

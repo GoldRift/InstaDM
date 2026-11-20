@@ -1,5 +1,6 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.clampedPreviewHeightPx
 import com.goldrift.instadm.ui.chat.isOpenableLink
 import com.goldrift.instadm.ui.chat.shareLinkLabel
 import org.junit.Assert.assertEquals
@@ -59,5 +60,17 @@ class LinkPreviewTest {
     @Test
     fun leavesUnparseableLinksAlone() {
         assertEquals("not a url", shareLinkLabel("not a url"))
+    }
+
+    @Test
+    fun clampsLinkPreviewHeightToMaxHeight() {
+        // Landscape 16:9 at 320px wide -> 180px tall (under 200px cap).
+        assertEquals(180, clampedPreviewHeightPx(widthPx = 320, aspectRatio = 16f / 9f, maxHeightPx = 200))
+        // Square 1:1 at 260px wide -> capped at 200px.
+        assertEquals(200, clampedPreviewHeightPx(widthPx = 260, aspectRatio = 1f, maxHeightPx = 200))
+        // Portrait 3:4 at 260px wide -> capped at 200px.
+        assertEquals(200, clampedPreviewHeightPx(widthPx = 260, aspectRatio = 0.75f, maxHeightPx = 200))
+        // Non-positive aspect ratio falls back safely to maxHeightPx.
+        assertEquals(200, clampedPreviewHeightPx(widthPx = 260, aspectRatio = 0f, maxHeightPx = 200))
     }
 }

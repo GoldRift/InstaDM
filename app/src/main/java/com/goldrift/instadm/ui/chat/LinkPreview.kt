@@ -4,7 +4,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +26,10 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,16 +37,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
-import coil.request.ImageRequest
+import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
 import java.net.URI
+import kotlin.math.roundToInt
 
 /**
  * True for a link the app can hand to another activity. Only http(s) URLs are
@@ -155,6 +161,33 @@ fun ShareCard(
     }
 }
 
+internal fun clampedPreviewHeightPx(
+    widthPx: Int,
+    aspectRatio: Float,
+    maxHeightPx: Int,
+): Int {
+    if (maxHeightPx <= 0) return 0
+    if (widthPx <= 0 || aspectRatio <= 0f || aspectRatio.isNaN()) return maxHeightPx
+    return (widthPx / aspectRatio).roundToInt().coerceIn(0, maxHeightPx)
+}
+
+private fun Modifier.clampedAspectRatio(ratio: Float, maxHeight: Dp): Modifier =
+    layout { measurable, constraints ->
+        val maxHeightPx = maxHeight.roundToPx()
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
+        val desiredHeight = clampedPreviewHeightPx(width, ratio, maxHeightPx)
+            .coerceIn(constraints.minHeight, constraints.maxHeight)
+        val placeable = measurable.measure(
+            constraints.copy(
+                minHeight = desiredHeight,
+                maxHeight = desiredHeight,
+            ),
+        )
+        layout(placeable.width, placeable.height) {
+            placeable.placeRelative(0, 0)
+        }
+    }
+
 /** Preview image of a shared link, opened as a web page. */
 @Composable
 private fun LinkPreview(
@@ -166,24 +199,20 @@ private fun LinkPreview(
 ) {
     // Height comes from the clamped aspect ratio, so a square or portrait
     // preview can never outgrow its box and paint over the link beneath it.
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val height = (maxWidth / media.aspectRatio)
-            .coerceAtMost(MaxPreviewHeight)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(height)
-                .clip(shareShape(hasLink))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .combinedClickable(
-                    onClickLabel = stringResource(R.string.chat_link_open),
-                    onLongClickLabel = longClickLabel,
-                    onLongClick = onLongClick,
-                    onClick = onOpen,
-                ),
-        ) {
-            SharePreviewImage(media)
-        }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clampedAspectRatio(media.aspectRatio, MaxPreviewHeight)
+            .clip(shareShape(hasLink))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onClickLabel = stringResource(R.string.chat_link_open),
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = onOpen,
+            ),
+    ) {
+        SharePreviewImage(media)
     }
 }
 
@@ -247,25 +276,25 @@ private fun ReelCover(
 @Composable
 private fun SharePreviewImage(media: MessageMedia) {
     if (media.thumbnailUrl.isBlank()) return
-    val context = LocalContext.current
-    SubcomposeAsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(media.thumbnailUrl)
-            .crossfade(true)
-            .build(),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier.fillMaxSize(),
-        loading = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                LoadingIndicator(
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-        },
-        // A signed preview URL can expire; the link text remains.
-        error = {},
-    )
+    var loading by remember(media.thumbnailUrl) { mutableStateOf(true) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = media.thumbnailUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            // A signed preview URL can expire; the link text remains.
+            onState = { state ->
+                loading = state is AsyncImagePainter.State.Loading ||
+                    state is AsyncImagePainter.State.Empty
+            },
+        )
+        if (loading) {
+            LoadingIndicator(
+                modifier = Modifier.size(28.dp),
+            )
+        }
+    }
 }
 
 /** The target URL line under a share, tappable when it is a web link. */

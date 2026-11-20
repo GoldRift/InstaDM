@@ -69,7 +69,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
@@ -168,6 +169,17 @@ fun MediaThumbnail(
     }
 }
 
+private enum class ImageLoadState { Loading, Loaded, Error }
+
+private fun AsyncImagePainter.State.toLoadState(): ImageLoadState = when (this) {
+    is AsyncImagePainter.State.Empty,
+    is AsyncImagePainter.State.Loading,
+    -> ImageLoadState.Loading
+
+    is AsyncImagePainter.State.Success -> ImageLoadState.Loaded
+    is AsyncImagePainter.State.Error -> ImageLoadState.Error
+}
+
 @Composable
 private fun StickerImage(
     media: MessageMedia,
@@ -178,6 +190,14 @@ private fun StickerImage(
     val context = LocalContext.current
     val longClickLabel = stringResource(R.string.chat_message_actions)
     val description = media.altText.ifBlank { stringResource(R.string.chat_sticker) }
+    val request = remember(context, media.stickerUrl) {
+        ImageRequest.Builder(context)
+            .data(media.stickerUrl)
+            // A crossfade restarts the animation from frame zero.
+            .crossfade(false)
+            .build()
+    }
+    var failed by remember(media.stickerUrl) { mutableStateOf(false) }
     Box(
         modifier = modifier
             .sizeIn(maxWidth = 160.dp, maxHeight = 160.dp)
@@ -189,18 +209,16 @@ private fun StickerImage(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        SubcomposeAsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(media.stickerUrl)
-                // A crossfade restarts the animation from frame zero.
-                .crossfade(false)
-                .build(),
+        AsyncImage(
+            model = request,
             contentDescription = description,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
-            loading = {},
-            error = { MediaPlaceholder(isLoading = false) },
+            onState = { state -> failed = state is AsyncImagePainter.State.Error },
         )
+        if (failed) {
+            MediaPlaceholder(isLoading = false)
+        }
     }
 }
 
@@ -209,25 +227,28 @@ private fun ThumbnailImage(
     media: MessageMedia,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     if (media.thumbnailUrl.isBlank()) {
         // Videos and reels without a preview still get the play card; images
         // show a broken-attachment glyph.
         if (!media.isVideo) MediaPlaceholder(isLoading = false)
-    } else {
-        SubcomposeAsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(media.thumbnailUrl)
-                .crossfade(true)
-                .build(),
+        return
+    }
+    var loadState by remember(media.thumbnailUrl) { mutableStateOf(ImageLoadState.Loading) }
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = media.thumbnailUrl,
             contentDescription = stringResource(R.string.chat_media_open),
             contentScale = ContentScale.Crop,
-            modifier = modifier,
-            loading = { MediaPlaceholder(isLoading = true) },
+            modifier = Modifier.fillMaxSize(),
+            onState = { state -> loadState = state.toLoadState() },
+        )
+        when (loadState) {
+            ImageLoadState.Loading -> MediaPlaceholder(isLoading = true)
             // An expired preview should not cover the play card with a broken
             // image; the viewer can still resolve a fresh URL.
-            error = { if (!media.isVideo) MediaPlaceholder(isLoading = false) },
-        )
+            ImageLoadState.Error -> if (!media.isVideo) MediaPlaceholder(isLoading = false)
+            ImageLoadState.Loaded -> Unit
+        }
     }
 }
 
@@ -560,14 +581,20 @@ private fun LocalVisualThumbnail(
         contentAlignment = Alignment.Center,
     ) {
         if (media.kind == "image") {
-            SubcomposeAsyncImage(
-                model = media.uri.toUri(),
+            val uri = remember(media.uri) { media.uri.toUri() }
+            var loadState by remember(media.uri) { mutableStateOf(ImageLoadState.Loading) }
+            AsyncImage(
+                model = uri,
                 contentDescription = stringResource(R.string.chat_media_open),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                loading = { MediaPlaceholder(isLoading = true) },
-                error = { MediaPlaceholder(isLoading = false) },
+                onState = { state -> loadState = state.toLoadState() },
             )
+            when (loadState) {
+                ImageLoadState.Loading -> MediaPlaceholder(isLoading = true)
+                ImageLoadState.Error -> MediaPlaceholder(isLoading = false)
+                ImageLoadState.Loaded -> Unit
+            }
         } else {
             Box(
                 modifier = Modifier

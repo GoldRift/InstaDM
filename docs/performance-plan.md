@@ -29,7 +29,7 @@ not `debug`:
     locally via `Modifier.onVisibilityChanged` in `InlineGif` and
     `VoiceNoteBubble`.
 
-- [ ] **1.2 Remove `SubcomposeLayout` from `LazyColumn` items and `MainPane`**
+- [x] **1.2 Remove `SubcomposeLayout` from `LazyColumn` items and `MainPane`**
   - Files: `MediaViewer.kt`, `LinkPreview.kt`, `InstaDmApp.kt`.
   - Problem: `ThumbnailImage`, `StickerImage`, `LocalVisualThumbnail`, and
     `SharePreviewImage` use `SubcomposeAsyncImage`; `LinkPreview` uses
