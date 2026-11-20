@@ -237,19 +237,21 @@ fun calendarDaysBetween(
 
 /**
  * Whether a group incoming bubble starts a sender run (avatar and name). A
- * notice between bubbles breaks the run even when the actor matches the
- * previous sender, so the next bubble is attributed again.
+ * notice or time divider between bubbles breaks the run even when the actor
+ * matches the previous sender, so the next bubble is attributed again.
  */
 fun startsGroupSenderRun(
     previous: ChatMessage?,
     message: ChatMessage,
     isGroup: Boolean,
     showDayHeader: Boolean,
+    showTimeGap: Boolean = false,
 ): Boolean =
     isGroup &&
         message.sender == MessageSender.Them &&
         (
             showDayHeader ||
+                showTimeGap ||
                 previous == null ||
                 previous.isAdminNotice() ||
                 previous.sender != MessageSender.Them ||

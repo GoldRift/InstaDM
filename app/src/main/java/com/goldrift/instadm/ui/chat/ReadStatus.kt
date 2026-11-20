@@ -44,26 +44,27 @@ fun applyReadReceiptToMessages(
 }
 
 /**
- * The newest message the viewer sent. Its sent/seen ticks stay under the bubble
- * as a persistent receipt, while older outgoing bubbles only reveal theirs when
- * the viewer taps them. Activity notices are receipts for the thread, not
- * messages the viewer sent, so they never own the ticks.
+ * The newest message the viewer sent. Only this bubble carries the persistent
+ * sent/seen receipt; older messages only show their timestamp when tapped.
+ * Activity notices are receipts for the thread, not messages the viewer sent,
+ * so they never own the receipt.
  */
 fun lastOutgoingMessageId(messages: List<ChatMessage>): String? =
     messages.lastOrNull { it.sender == MessageSender.Me && !it.isAdminNotice() }?.id
 
 /**
- * Whether this bubble shows its sent/seen ticks: always for the newest outgoing
- * message, and for any outgoing message the viewer tapped in this chat session.
- * Other outgoing bubbles keep their tap-to-reveal affordance hidden.
+ * Whether this bubble shows the sent/seen read receipt. Only the newest
+ * outgoing non-admin message displays a receipt.
  */
-fun ChatMessage.showsStatusTicks(
-    lastOutgoingId: String?,
-    revealedId: String?,
-): Boolean =
-    sender == MessageSender.Me &&
-        !isAdminNotice() &&
-        (id == lastOutgoingId || id == revealedId)
+fun ChatMessage.showsReadReceipt(lastOutgoingId: String?): Boolean =
+    sender == MessageSender.Me && !isAdminNotice() && id == lastOutgoingId
+
+/**
+ * Whether tapping this bubble can reveal its timestamp. Any non-admin message
+ * with a known timestamp or formatted time label supports tap-to-reveal.
+ */
+fun ChatMessage.canRevealTimestamp(): Boolean =
+    !isAdminNotice() && (timestampMs > 0 || timestamp.isNotBlank())
 
 /**
  * True when mark-read can target this message. Optimistic sends and mapped

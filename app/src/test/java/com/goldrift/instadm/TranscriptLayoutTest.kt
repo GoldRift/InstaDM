@@ -1,0 +1,169 @@
+package com.goldrift.instadm
+
+import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.ReplySnapshot
+import com.goldrift.instadm.ui.chat.ADMIN_KIND
+import com.goldrift.instadm.ui.chat.CALL_KIND
+import com.goldrift.instadm.ui.chat.CLUSTER_GAP_MS
+import com.goldrift.instadm.ui.chat.ChatMessage
+import com.goldrift.instadm.ui.chat.ClusterPosition
+import com.goldrift.instadm.ui.chat.MessageSender
+import com.goldrift.instadm.ui.chat.TIME_GAP_DIVIDER_MS
+import com.goldrift.instadm.ui.chat.TranscriptDivider
+import com.goldrift.instadm.ui.chat.clusterPosition
+import com.goldrift.instadm.ui.chat.formatRevealedTimestamp
+import com.goldrift.instadm.ui.chat.sameSenderCluster
+import com.goldrift.instadm.ui.chat.transcriptDividerBefore
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
+
+class TranscriptLayoutTest {
+    private val zone = TimeZone.getTimeZone("UTC")
+
+    private fun at(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long =
+        Calendar.getInstance(zone).apply {
+            clear()
+            set(year, month - 1, day, hour, minute, 0)
+        }.timeInMillis
+
+    private fun message(
+        id: String = "mid.1",
+        text: String = "hello",
+        sender: MessageSender = MessageSender.Me,
+        timestampMs: Long = at(2026, 11, 19, 20, 14),
+        timestamp: String = "8:14 PM",
+        kind: String = "text",
+        senderFbid: Long = 100L,
+        media: List<MessageMedia> = emptyList(),
+        reply: ReplySnapshot? = null,
+    ) = ChatMessage(
+        id = id,
+        text = text,
+        sender = sender,
+        timestamp = timestamp,
+        timestampMs = timestampMs,
+        kind = kind,
+        senderFbid = senderFbid,
+        media = media,
+        reply = reply,
+    )
+
+    @Test
+    fun firstMessageOrNewCalendarDayShowsDayDivider() {
+        val yesterday = message(id = "1", timestampMs = at(2026, 11, 18, 23, 55))
+        val today = message(id = "2", timestampMs = at(2026, 11, 19, 0, 5))
+
+        assertEquals(TranscriptDivider.Day, transcriptDividerBefore(null, today, zone))
+        assertEquals(TranscriptDivider.Day, transcriptDividerBefore(yesterday, today, zone))
+        assertEquals(
+            TranscriptDivider.Day,
+            transcriptDividerBefore(message(id = "0", timestampMs = 0), today, zone),
+        )
+    }
+
+    @Test
+    fun sameDayGapAtOrAboveTwentyMinutesShowsTimeGapDivider() {
+        val base = at(2026, 11, 19, 16, 0)
+        val first = message(id = "1", timestampMs = base)
+        val nineteenMinLater = message(id = "2", timestampMs = base + TIME_GAP_DIVIDER_MS - 1_000L)
+        val twentyMinLater = message(id = "3", timestampMs = base + TIME_GAP_DIVIDER_MS)
+
+        assertEquals(TranscriptDivider.None, transcriptDividerBefore(first, nineteenMinLater, zone))
+        assertEquals(TranscriptDivider.TimeGap, transcriptDividerBefore(first, twentyMinLater, zone))
+    }
+
+    @Test
+    fun messageWithoutTimestampShowsNoDivider() {
+        val previous = message(id = "1", timestampMs = at(2026, 11, 19, 16, 0))
+        val undated = message(id = "2", timestampMs = 0L)
+
+        assertEquals(TranscriptDivider.None, transcriptDividerBefore(previous, undated, zone))
+        assertEquals(TranscriptDivider.None, transcriptDividerBefore(null, undated, zone))
+    }
+
+    @Test
+    fun revealedTimestampFormatsTodaySameYearAndPriorYear() {
+        val now = at(2026, 11, 19, 21, 0)
+        val today = at(2026, 11, 19, 20, 14)
+        val twoDaysAgo = at(2026, 11, 17, 20, 14)
+        val lastYear = at(2025, 11, 17, 20, 14)
+
+        assertEquals(
+            "8:14 PM",
+            formatRevealedTimestamp(today, "fallback", now, zone, Locale.US),
+        )
+        assertEquals(
+            "Nov 17 · 8:14 PM",
+            formatRevealedTimestamp(twoDaysAgo, "fallback", now, zone, Locale.US),
+        )
+        assertEquals(
+            "Nov 17, 2025 · 8:14 PM",
+            formatRevealedTimestamp(lastYear, "fallback", now, zone, Locale.US),
+        )
+        assertEquals(
+            "8:14 PM",
+            formatRevealedTimestamp(0L, "8:14 PM", now, zone, Locale.US),
+        )
+    }
+
+    @Test
+    fun clustersConsecutiveBubblesFromSameSenderWithinClusterWindow() {
+        val base = at(2026, 11, 19, 20, 0)
+        val m1 = message(id = "1", sender = MessageSender.Me, timestampMs = base)
+        val m2 = message(id = "2", sender = MessageSender.Me, timestampMs = base + 60_000L)
+        val m3 = message(id = "3", sender = MessageSender.Me, timestampMs = base + 120_000L)
+
+        assertTrue(sameSenderCluster(m1, m2, zone))
+        assertEquals(ClusterPosition.First, clusterPosition(null, m1, m2, zone))
+        assertEquals(ClusterPosition.Middle, clusterPosition(m1, m2, m3, zone))
+        assertEquals(ClusterPosition.Last, clusterPosition(m2, m3, null, zone))
+    }
+
+    @Test
+    fun clusterBreaksOnGapSenderMemberNoticeOrStandaloneMedia() {
+        val base = at(2026, 11, 19, 20, 0)
+        val m1 = message(id = "1", sender = MessageSender.Them, senderFbid = 10L, timestampMs = base)
+        val sameSoon = message(id = "2", sender = MessageSender.Them, senderFbid = 10L, timestampMs = base + 30_000L)
+        val afterClusterGap = message(
+            id = "3",
+            sender = MessageSender.Them,
+            senderFbid = 10L,
+            timestampMs = base + CLUSTER_GAP_MS,
+        )
+        val otherMember = message(id = "4", sender = MessageSender.Them, senderFbid = 20L, timestampMs = base + 10_000L)
+        val mine = message(id = "5", sender = MessageSender.Me, timestampMs = base + 10_000L)
+        val notice = message(id = "6", sender = MessageSender.Them, senderFbid = 10L, timestampMs = base + 10_000L, kind = ADMIN_KIND)
+        val call = message(id = "7", sender = MessageSender.Them, senderFbid = 10L, timestampMs = base + 10_000L, kind = CALL_KIND)
+        val sticker = message(
+            id = "8",
+            text = "",
+            sender = MessageSender.Them,
+            senderFbid = 10L,
+            timestampMs = base + 10_000L,
+            media = listOf(MessageMedia(type = "sticker", url = "https://example.com/s.webp")),
+        )
+        val jumboEmoji = message(
+            id = "9",
+            text = "❤️",
+            sender = MessageSender.Them,
+            senderFbid = 10L,
+            timestampMs = base + 10_000L,
+        )
+
+        assertTrue(sameSenderCluster(m1, sameSoon, zone))
+        assertFalse(sameSenderCluster(m1, afterClusterGap, zone))
+        assertFalse(sameSenderCluster(m1, otherMember, zone))
+        assertFalse(sameSenderCluster(m1, mine, zone))
+        assertFalse(sameSenderCluster(m1, notice, zone))
+        assertFalse(sameSenderCluster(m1, call, zone))
+        assertFalse(sameSenderCluster(m1, sticker, zone))
+        assertFalse(sameSenderCluster(m1, jumboEmoji, zone))
+        assertEquals(ClusterPosition.Solo, clusterPosition(m1, sticker, sameSoon, zone))
+        assertEquals(ClusterPosition.Solo, clusterPosition(m1, jumboEmoji, sameSoon, zone))
+    }
+}

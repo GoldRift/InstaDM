@@ -1,16 +1,19 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.ui.chat.ADMIN_GROUP_KIND
+import com.goldrift.instadm.ui.chat.ADMIN_KIND
 import com.goldrift.instadm.ui.chat.ADMIN_RESTRICTED_KIND
 import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
+import com.goldrift.instadm.ui.chat.canRevealTimestamp
 import com.goldrift.instadm.ui.chat.lastOutgoingMessageId
 import com.goldrift.instadm.ui.chat.publishesReadReceipt
 import com.goldrift.instadm.ui.chat.requestReadWatermark
 import com.goldrift.instadm.ui.chat.shouldPublishReadReceipt
-import com.goldrift.instadm.ui.chat.showsStatusTicks
+import com.goldrift.instadm.ui.chat.showsReadReceipt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -25,11 +28,12 @@ class ReadStatusTest {
         seen: Boolean = false,
         pending: Boolean = false,
         kind: String = "",
+        timestamp: String = "",
     ) = ChatMessage(
         id = id,
         text = id,
         sender = sender,
-        timestamp = "",
+        timestamp = timestamp,
         timestampMs = timestampMs,
         seen = seen,
         pending = pending,
@@ -138,7 +142,7 @@ class ReadStatusTest {
     }
 
     @Test
-    fun onlyTheNewestOutgoingMessageOwnsThePersistentTicks() {
+    fun onlyTheNewestOutgoingMessageShowsTheReadReceipt() {
         val older = message("mid.older", MessageSender.Me, 1_000)
         val incoming = message("mid.incoming", MessageSender.Them, 2_000)
         val newest = message("mid.newest", MessageSender.Me, 3_000)
@@ -147,29 +151,30 @@ class ReadStatusTest {
         val lastOutgoingId = lastOutgoingMessageId(messages)
 
         assertEquals("mid.newest", lastOutgoingId)
-        assertTrue(newest.showsStatusTicks(lastOutgoingId, revealedId = null))
-        assertFalse(older.showsStatusTicks(lastOutgoingId, revealedId = null))
-        assertFalse(incoming.showsStatusTicks(lastOutgoingId, revealedId = null))
+        assertTrue(newest.showsReadReceipt(lastOutgoingId))
+        assertFalse(older.showsReadReceipt(lastOutgoingId))
+        assertFalse(incoming.showsReadReceipt(lastOutgoingId))
     }
 
     @Test
-    fun aTappedOutgoingMessageRevealsItsTicks() {
-        val older = message("mid.older", MessageSender.Me, 1_000)
-        val newest = message("mid.newest", MessageSender.Me, 2_000)
-        val lastOutgoingId = lastOutgoingMessageId(listOf(older, newest))
-
-        assertTrue(older.showsStatusTicks(lastOutgoingId, revealedId = "mid.older"))
-        // The persistent newest bubble keeps its ticks either way.
-        assertTrue(newest.showsStatusTicks(lastOutgoingId, revealedId = "mid.older"))
-        // Revealing an incoming message never invents ticks for it.
-        assertFalse(
-            message("mid.incoming", MessageSender.Them, 3_000)
-                .showsStatusTicks(lastOutgoingId, revealedId = "mid.incoming"),
-        )
+    fun nonAdminMessagesWithATimeCanRevealTheirTimestamp() {
+        assertTrue(message("mid.in", MessageSender.Them, 1_000).canRevealTimestamp())
+        assertTrue(message("mid.out", MessageSender.Me, 2_000).canRevealTimestamp())
+        assertTrue(message("mid.fallback", MessageSender.Them, 0, timestamp = "8:14 PM").canRevealTimestamp())
+        assertFalse(message("mid.notime", MessageSender.Me, 0, timestamp = "").canRevealTimestamp())
     }
 
     @Test
-    fun adminNoticesDoNotOwnTheViewerTicks() {
+    fun adminNoticesCannotRevealATimestamp() {
+        val kinds = listOf(ADMIN_KIND, ADMIN_GROUP_KIND, ADMIN_RESTRICTED_KIND, CALL_KIND)
+        for (kind in kinds) {
+            val notice = message("mid.$kind", MessageSender.Them, 1_000, kind = kind, timestamp = "8:14 PM")
+            assertFalse(kind, notice.canRevealTimestamp())
+        }
+    }
+
+    @Test
+    fun adminNoticesDoNotOwnTheReadReceipt() {
         val outgoing = message("mid.out", MessageSender.Me, 1_000)
         val restricted = message(
             "mid.restricted",
@@ -182,17 +187,17 @@ class ReadStatusTest {
         val lastOutgoingId = lastOutgoingMessageId(listOf(outgoing, restricted, call))
 
         assertEquals("mid.out", lastOutgoingId)
-        assertTrue(outgoing.showsStatusTicks(lastOutgoingId, revealedId = null))
-        assertFalse(restricted.showsStatusTicks(lastOutgoingId, revealedId = restricted.id))
-        assertFalse(call.showsStatusTicks(lastOutgoingId, revealedId = call.id))
+        assertTrue(outgoing.showsReadReceipt(lastOutgoingId))
+        assertFalse(restricted.showsReadReceipt(lastOutgoingId))
+        assertFalse(call.showsReadReceipt(lastOutgoingId))
     }
 
     @Test
-    fun threadsWithoutOutgoingMessagesHaveNoTickOwner() {
+    fun threadsWithoutOutgoingMessagesHaveNoReceiptOwner() {
         val messages = listOf(message("mid.1", MessageSender.Them, 1_000))
 
         assertEquals(null, lastOutgoingMessageId(messages))
         assertEquals(null, lastOutgoingMessageId(emptyList()))
-        assertFalse(messages[0].showsStatusTicks(null, revealedId = null))
+        assertFalse(messages[0].showsReadReceipt(null))
     }
 }

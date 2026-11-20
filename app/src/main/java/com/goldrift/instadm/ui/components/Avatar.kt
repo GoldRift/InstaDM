@@ -76,18 +76,7 @@ fun Avatar(
             .background(avatarColor(colorSeed), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = initials,
-            style = if (size >= 40.dp) {
-                MaterialTheme.typography.titleMedium.copy(
-                    fontSize = (size.value * 0.42f).sp,
-                    fontWeight = FontWeight.Normal,
-                )
-            } else {
-                MaterialTheme.typography.labelSmall
-            },
-            color = OnAvatarPalette,
-        )
+        AvatarInitials(initials = initials, size = size)
         if (!imageUrl.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -169,18 +158,7 @@ private fun AvatarCollage(
         contentAlignment = Alignment.Center,
     ) {
         // Drawn first so it shows through if a tile fails and renders nothing.
-        Text(
-            text = initials,
-            style = if (size >= 40.dp) {
-                MaterialTheme.typography.titleMedium.copy(
-                    fontSize = (size.value * 0.42f).sp,
-                    fontWeight = FontWeight.Normal,
-                )
-            } else {
-                MaterialTheme.typography.labelSmall
-            },
-            color = OnAvatarPalette,
-        )
+        AvatarInitials(initials = initials, size = size)
         when (shown.size) {
             2 -> Row(Modifier.matchParentSize()) {
                 CollageTile(shown[0], Modifier.weight(1f).fillMaxHeight())
@@ -210,6 +188,29 @@ private fun AvatarCollage(
             }
         }
     }
+}
+
+@Composable
+private fun AvatarInitials(initials: String, size: Dp) {
+    val (displayText, style) = when {
+        size < 20.dp -> initials.take(1) to MaterialTheme.typography.labelSmall.copy(
+            fontSize = (size.value * 0.52f).sp,
+            lineHeight = size.value.sp,
+            letterSpacing = 0.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        size >= 40.dp -> initials to MaterialTheme.typography.titleMedium.copy(
+            fontSize = (size.value * 0.42f).sp,
+            fontWeight = FontWeight.Normal,
+        )
+        else -> initials to MaterialTheme.typography.labelSmall
+    }
+    Text(
+        text = displayText,
+        style = style,
+        color = OnAvatarPalette,
+        maxLines = 1,
+    )
 }
 
 @Composable

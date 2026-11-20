@@ -76,5 +76,14 @@ class ChatListTest {
                 showDayHeader = false,
             ),
         )
+        assertTrue(
+            startsGroupSenderRun(
+                previous = previous,
+                message = next,
+                isGroup = true,
+                showDayHeader = false,
+                showTimeGap = true,
+            ),
+        )
     }
 }

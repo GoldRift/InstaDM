@@ -5,8 +5,9 @@
     <string name="chat_yesterday">Yesterday</string>
     <string name="chat_seen">Seen</string>
     <string name="chat_sent">Sent</string>
-    <string name="chat_show_status">Show sent and read status</string>
-    <string name="chat_hide_status">Hide sent and read status</string>
+    <string name="chat_inline_time_suffix">" · %1$s"</string>
+    <string name="chat_show_timestamp">Show message time</string>
+    <string name="chat_hide_timestamp">Hide message time</string>
     <string name="chat_no_messages">No messages yet</string>
     <string name="chat_scroll_to_bottom">Scroll to latest message</string>
     <string name="chat_activity">Chat activity</string>
@@ -51,7 +52,7 @@
     <string name="picker_done_count">Done (%1$d)</string>
     <string name="picker_close">Close photo picker</string>
     <string name="picker_open_camera">Open camera</string>
-    <string name="chat_media_failed">Couldn\'t send. Tap to retry.</string>
+    <string name="chat_media_failed">Couldn\'t send · Retry</string>
     <string name="chat_media_too_large">That file is %1$s; the limit is %2$s.</string>
     <string name="chat_media_unsupported">Unsupported file type (%1$s).</string>
     <string name="chat_media_empty">That file is empty.</string>

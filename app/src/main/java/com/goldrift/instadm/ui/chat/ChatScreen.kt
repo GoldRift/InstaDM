@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -104,7 +106,6 @@ import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Image
@@ -250,10 +251,36 @@ import kotlin.math.roundToInt
 /** Bubble corner radius, shared with nested share cards so their curves line up. */
 internal val BubbleCornerRadius = 24.dp
 
+/** Tight inner corner radius between consecutive bubbles from the same sender. */
+private val ClusterInnerCornerRadius = 6.dp
+
 /** Inset between a bubble's edge and an inline attachment. */
 internal val AttachmentInset = 4.dp
 
 private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
+
+private fun bubbleShape(isMine: Boolean, position: ClusterPosition): RoundedCornerShape {
+    val inner = ClusterInnerCornerRadius
+    val outer = BubbleCornerRadius
+    return when (position) {
+        ClusterPosition.Solo -> BubbleShape
+        ClusterPosition.First -> if (isMine) {
+            RoundedCornerShape(topStart = outer, topEnd = outer, bottomEnd = inner, bottomStart = outer)
+        } else {
+            RoundedCornerShape(topStart = outer, topEnd = outer, bottomEnd = outer, bottomStart = inner)
+        }
+        ClusterPosition.Middle -> if (isMine) {
+            RoundedCornerShape(topStart = outer, topEnd = inner, bottomEnd = inner, bottomStart = outer)
+        } else {
+            RoundedCornerShape(topStart = inner, topEnd = outer, bottomEnd = outer, bottomStart = inner)
+        }
+        ClusterPosition.Last -> if (isMine) {
+            RoundedCornerShape(topStart = outer, topEnd = inner, bottomEnd = outer, bottomStart = outer)
+        } else {
+            RoundedCornerShape(topStart = inner, topEnd = outer, bottomEnd = outer, bottomStart = outer)
+        }
+    }
+}
 
 
 /** Horizontal drag needed to start a reply, and the distance the bubble follows. */
@@ -441,11 +468,10 @@ fun ChatScreen(
     var editMessageId by remember { mutableStateOf<String?>(null) }
     var unsendMessageId by remember { mutableStateOf<String?>(null) }
     var emojiPickerMessageId by remember { mutableStateOf<String?>(null) }
-    // Only the newest outgoing bubble keeps its sent/seen ticks. Tapping an
-    // older outgoing message reveals its ticks for this visit to the chat; the
-    // reveal is deliberately not saved and resets when the chat is left or the
-    // conversation pane switches threads.
-    var revealedStatusMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
+    // Only the newest outgoing bubble shows a read receipt. Tapping any
+    // non-admin bubble toggles its inline timestamp for this visit; the reveal
+    // resets when leaving the chat or switching threads.
+    var revealedTimestampMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     var recordingLocked by remember { mutableStateOf(false) }
     var recordingCancel by remember { mutableStateOf(false) }
     val voiceRecorder = remember { VoiceRecorder(context) }
@@ -982,18 +1008,14 @@ fun ChatScreen(
                                 onJumpToQuoted = ::jumpToQuotedMessage,
                                 highlightedMessageId = quotedMessageId,
                                 lastOutgoingId = lastOutgoingId,
-                                revealedStatusMessageId = revealedStatusMessageId,
-                                onToggleStatus = { messageId ->
-                                    // The newest outgoing bubble always shows its
-                                    // receipt, so only older ones can be toggled.
-                                    if (messageId != lastOutgoingId) {
-                                        revealedStatusMessageId =
-                                            if (revealedStatusMessageId == messageId) {
-                                                null
-                                            } else {
-                                                messageId
-                                            }
-                                    }
+                                revealedTimestampMessageId = revealedTimestampMessageId,
+                                onToggleTimestamp = { messageId ->
+                                    revealedTimestampMessageId =
+                                        if (revealedTimestampMessageId == messageId) {
+                                            null
+                                        } else {
+                                            messageId
+                                        }
                                 },
                                 actionMessageId = actionMessageId,
                                 onDismissActions = { actionMessageId = null },
@@ -1219,8 +1241,8 @@ private fun MessageList(
     onJumpToQuoted: (messageId: String) -> Unit,
     highlightedMessageId: String?,
     lastOutgoingId: String?,
-    revealedStatusMessageId: String?,
-    onToggleStatus: (messageId: String) -> Unit,
+    revealedTimestampMessageId: String?,
+    onToggleTimestamp: (messageId: String) -> Unit,
     actionMessageId: String?,
     onDismissActions: () -> Unit,
     onReactAt: (messageId: String, emoji: String) -> Unit,
@@ -1272,16 +1294,18 @@ private fun MessageList(
         reverseLayout = true,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         if (isTyping) {
             item(key = "typing", contentType = "typing") {
                 TypingBubble(
                     senders = typingSenders,
-                    modifier = Modifier.animateItem(
-                        fadeInSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-                        placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-                    ),
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .animateItem(
+                            fadeInSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                            placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                        ),
                 )
             }
         }
@@ -1294,6 +1318,7 @@ private fun MessageList(
             val adminNotice = message.isAdminNotice()
             val originalIndex = messages.lastIndex - reverseIndex
             val previous = messages.getOrNull(originalIndex - 1)
+            val next = messages.getOrNull(originalIndex + 1)
             val member = if (isGroup) {
                 participants.firstOrNull { it.fbid == message.senderFbid }
             } else {
@@ -1311,15 +1336,19 @@ private fun MessageList(
                 ?: senderName.takeIf { it.isNotBlank() }?.let(::initialsOf)
                 .orEmpty()
             val senderAvatarUrl = member?.avatarUrl.orEmpty()
-            // The list is reversed, so the oldest message of a calendar day sits
-            // at the top of that day's block. A header at the top of this item
-            // therefore separates it from the previous (older) day.
-            val showDayHeader = message.timestampMs > 0 &&
-                (
-                    previous == null ||
-                        previous.timestampMs <= 0 ||
-                        calendarDaysBetween(previous.timestampMs, message.timestampMs) > 0
-                    )
+            // The list is reversed, so the oldest message of a day or time block
+            // sits at the top of that block. A header at the top of this item
+            // separates it from the older message above it.
+            val divider = transcriptDividerBefore(previous, message)
+            val showDayHeader = divider == TranscriptDivider.Day
+            val showTimeGap = divider == TranscriptDivider.TimeGap
+            val clusterPos = clusterPosition(previous, message, next)
+            val joinedWithPrevious = previous != null && sameSenderCluster(previous, message)
+            val topSpacing = when {
+                previous == null || divider != TranscriptDivider.None -> 0.dp
+                joinedWithPrevious -> 2.dp
+                else -> 10.dp
+            }
             // Direct chats show no avatars beside bubbles.
             // Groups attribute the first bubble of each sender run with the
             // member's picture and name, like Instagram's own group threads.
@@ -1328,6 +1357,7 @@ private fun MessageList(
                 message = message,
                 isGroup = isGroup,
                 showDayHeader = showDayHeader,
+                showTimeGap = showTimeGap,
             )
             // A run without any resolved identity still keeps the gutter so
             // every incoming bubble lines up with the ones around it.
@@ -1342,8 +1372,8 @@ private fun MessageList(
                 messagesById[stored.id]?.toReplySnapshot() ?: stored
             }
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
-            val showStatusTicks = !adminNotice &&
-                message.showsStatusTicks(lastOutgoingId, revealedStatusMessageId)
+            val showReadReceipt = !adminNotice && message.showsReadReceipt(lastOutgoingId)
+            val timestampRevealed = !adminNotice && revealedTimestampMessageId == message.id
 
             Column(
                 modifier = Modifier.animateItem(
@@ -1353,6 +1383,11 @@ private fun MessageList(
             ) {
                 if (showDayHeader) {
                     DayHeader(timestampMs = message.timestampMs)
+                } else if (showTimeGap) {
+                    TimeGapHeader(timestampMs = message.timestampMs)
+                }
+                if (topSpacing > 0.dp) {
+                    Spacer(Modifier.height(topSpacing))
                 }
                 if (adminNotice) {
                     AdminNoticeRow(
@@ -1370,6 +1405,7 @@ private fun MessageList(
                         senderColorSeed = member?.fbid?.toString() ?: senderInitials,
                         showAvatar = showAvatar,
                         reserveAvatarGutter = reserveAvatarGutter,
+                        clusterPosition = clusterPos,
                         threadId = threadId,
                         isVisible = message.id in visibleMessageIds,
                         onOpenMedia = { media -> onOpenMedia(message.id, media) },
@@ -1387,13 +1423,12 @@ private fun MessageList(
                         },
                         highlighted = message.id == highlightedMessageId,
                         onReply = { onReply(message) },
-                        showStatusTicks = showStatusTicks,
-                        // The newest outgoing bubble's ticks are always on, so only
-                        // older outgoing bubbles advertise a tap-to-reveal action.
-                        onToggleStatus = if (message.id == lastOutgoingId) {
-                            null
+                        showReadReceipt = showReadReceipt,
+                        timestampRevealed = timestampRevealed,
+                        onToggleTimestamp = if (message.canRevealTimestamp()) {
+                            { onToggleTimestamp(message.id) }
                         } else {
-                            { onToggleStatus(message.id) }
+                            null
                         },
                         actionsExpanded = actionMessageId == message.id,
                         onDismissActions = onDismissActions,
@@ -1519,6 +1554,7 @@ private fun MessageRow(
     senderColorSeed: String,
     showAvatar: Boolean,
     reserveAvatarGutter: Boolean,
+    clusterPosition: ClusterPosition,
     threadId: String,
     isVisible: Boolean,
     onOpenMedia: (MessageMedia) -> Unit,
@@ -1528,8 +1564,9 @@ private fun MessageRow(
     onQuoteClick: (() -> Unit)?,
     highlighted: Boolean,
     onReply: () -> Unit,
-    showStatusTicks: Boolean,
-    onToggleStatus: (() -> Unit)?,
+    showReadReceipt: Boolean,
+    timestampRevealed: Boolean,
+    onToggleTimestamp: (() -> Unit)?,
     actionsExpanded: Boolean,
     onDismissActions: () -> Unit,
     onReact: (String) -> Unit,
@@ -1552,10 +1589,8 @@ private fun MessageRow(
     val isMine = message.sender == MessageSender.Me
     // The tap, double-tap, and long-press detectors live in a pointerInput keyed
     // only on the message, so read the current callbacks through state rather
-    // than capturing the ones present when the bubble first composed. Without
-    // this a bubble composed while it was the newest send would never become
-    // tappable once a newer message took the tick row.
-    val currentOnToggleStatus by rememberUpdatedState(onToggleStatus)
+    // than capturing the ones present when the bubble first composed.
+    val currentOnToggleTimestamp by rememberUpdatedState(onToggleTimestamp)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnLike by rememberUpdatedState(onLike)
     val canShowActions by rememberUpdatedState(message.isServerMessage())
@@ -1577,11 +1612,7 @@ private fun MessageRow(
     )
     // A sticker is its own artwork: drawing the message bubble behind it turns
     // transparent stickers into a colored tile.
-    val stickerOnly = message.media.isNotEmpty() &&
-        message.media.all { it.isSticker } &&
-        message.text.isBlank() &&
-        message.reply == null &&
-        message.localMedia == null
+    val stickerOnly = message.isStickerOnly()
     val canReply = message.canReply()
     val messageStatus = when {
         message.failed -> MessageStatus.Failed
@@ -1658,8 +1689,8 @@ private fun MessageRow(
                 )
             }
             val actionsLabel = stringResource(R.string.chat_message_actions)
-            val showStatusLabel = stringResource(R.string.chat_show_status)
-            val hideStatusLabel = stringResource(R.string.chat_hide_status)
+            val showTimeLabel = stringResource(R.string.chat_show_timestamp)
+            val hideTimeLabel = stringResource(R.string.chat_hide_timestamp)
             Box {
                 val dragProgress =
                     (settledOffset / replyThreshold).coerceIn(0f, 1f)
@@ -1705,12 +1736,12 @@ private fun MessageRow(
                             )
                         }
                         .semantics {
-                            onToggleStatus?.let { toggle ->
+                            onToggleTimestamp?.let { toggle ->
                                 onClick(
-                                    label = if (showStatusTicks) {
-                                        hideStatusLabel
+                                    label = if (timestampRevealed) {
+                                        hideTimeLabel
                                     } else {
-                                        showStatusLabel
+                                        showTimeLabel
                                     },
                                 ) {
                                     toggle()
@@ -1725,16 +1756,14 @@ private fun MessageRow(
                         .pointerInput(message.id, message.isServerMessage()) {
                             detectTapGestures(
                                 onTap = {
-                                    // Only older bubbles own a toggle; tapping
-                                    // the newest one is not a receipt change.
-                                    currentOnToggleStatus?.let { toggle ->
+                                    currentOnToggleTimestamp?.let { toggle ->
                                         haptic.segmentTick()
                                         toggle()
                                     }
                                 },
                                 // A double tap likes the message, so a single
-                                // tap now waits out the double-tap timeout; the
-                                // tick reveal can absorb that delay.
+                                // tap waits out the double-tap timeout; the
+                                // timestamp reveal can absorb that delay.
                                 onDoubleTap = if (message.canReact()) {
                                     {
                                         haptic.confirm()
@@ -1751,7 +1780,7 @@ private fun MessageRow(
                                 },
                             )
                         },
-                    shape = BubbleShape,
+                    shape = bubbleShape(isMine, clusterPosition),
                     color = if (stickerOnly) {
                         Color.Transparent
                     } else if (isMine) {
@@ -1804,84 +1833,141 @@ private fun MessageRow(
                 viewerAvatarUrl = viewerAvatarUrl,
             )
 
-            // Failure and in-flight states stay actionable on every bubble. The
-            // sent/seen ticks are a receipt, so they belong only to the newest
-            // outgoing bubble or one the viewer tapped to inspect.
+            val revealedTime = remember(message.timestampMs, message.timestamp, timestampRevealed) {
+                if (timestampRevealed) {
+                    formatRevealedTimestamp(message.timestampMs, message.timestamp)
+                } else {
+                    ""
+                }
+            }
+            val showStatus = isMine && (message.failed || message.pending || showReadReceipt)
+            val showTime = timestampRevealed && revealedTime.isNotBlank()
             AnimatedVisibility(
-                visible = isMine &&
-                    (message.failed || message.pending || showStatusTicks),
+                visible = showStatus || showTime,
                 enter = expandVertically(motion.fastSpatialSpec()) +
                     fadeIn(motion.fastEffectsSpec()),
                 exit = shrinkVertically(motion.fastSpatialSpec()) +
                     fadeOut(motion.fastEffectsSpec()),
             ) {
-                val tickTint by animateColorAsState(
-                    targetValue = if (message.seen) {
-                        bubbles.accent
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    animationSpec = motion.fastEffectsSpec(),
-                    label = "statusTickTint",
-                )
                 Row(
-                    modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                    modifier = Modifier.padding(
+                        top = if (isMine && message.failed) 4.dp else 2.dp,
+                        start = if (isMine) 0.dp else 4.dp,
+                        end = if (isMine) 4.dp else 0.dp,
+                    ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AnimatedContent(
-                        targetState = messageStatus,
-                        transitionSpec = {
-                            val enter = fadeIn(motion.fastEffectsSpec()) +
-                                scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f)
-                            val exit = fadeOut(motion.fastEffectsSpec()) +
-                                scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f)
-                            (enter togetherWith exit).using(SizeTransform(clip = false))
-                        },
-                        label = "messageStatus",
-                    ) { status ->
-                        val isTarget = transition.targetState == EnterExitState.Visible
-                        when (status) {
-                            MessageStatus.Failed -> Row(
-                                modifier = Modifier
-                                    .minimumInteractiveComponentSize()
-                                    .clip(MaterialTheme.shapes.extraSmall)
-                                    .inputOnlyWhen(isTarget)
-                                    .clickable(role = Role.Button, onClick = onRetry)
-                                    .padding(horizontal = 3.dp, vertical = 1.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
+                    if (showStatus) {
+                        AnimatedContent(
+                            targetState = messageStatus,
+                            transitionSpec = {
+                                val enter = fadeIn(motion.fastEffectsSpec()) +
+                                    scaleIn(motion.fastSpatialSpec(), initialScale = 0.85f)
+                                val exit = fadeOut(motion.fastEffectsSpec()) +
+                                    scaleOut(motion.fastSpatialSpec(), targetScale = 0.85f)
+                                (enter togetherWith exit).using(SizeTransform(clip = false))
+                            },
+                            label = "messageStatus",
+                        ) { status ->
+                            val isTarget = transition.targetState == EnterExitState.Visible
+                            when (status) {
+                                MessageStatus.Failed -> Surface(
+                                    onClick = onRetry,
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .inputOnlyWhen(isTarget),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            horizontal = 10.dp,
+                                            vertical = 4.dp,
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = stringResource(R.string.chat_media_failed),
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+
+                                MessageStatus.Pending -> LoadingIndicator(
                                     modifier = Modifier.size(14.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Spacer(Modifier.width(3.dp))
-                                Text(
-                                    text = stringResource(R.string.chat_media_failed),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.error,
+
+                                MessageStatus.Sent -> Text(
+                                    text = stringResource(R.string.chat_sent),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFeatureSettings = "tnum",
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+
+                                MessageStatus.Seen -> Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (!isGroup) {
+                                        Avatar(
+                                            initials = contact.initials,
+                                            size = 14.dp,
+                                            imageUrl = contact.avatarUrl,
+                                            colorSeed = contact.id.ifBlank { contact.name },
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.chat_seen),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFeatureSettings = "tnum",
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-
-                            MessageStatus.Pending -> LoadingIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-
-                            MessageStatus.Sent, MessageStatus.Seen -> Icon(
-                                imageVector = Icons.Rounded.DoneAll,
-                                contentDescription = stringResource(
-                                    if (status == MessageStatus.Seen) {
-                                        R.string.chat_seen
-                                    } else {
-                                        R.string.chat_sent
-                                    },
-                                ),
-                                tint = tickTint,
-                                modifier = Modifier.size(14.dp),
-                            )
                         }
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showTime,
+                        enter = if (showStatus) {
+                            expandHorizontally(motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec())
+                        } else {
+                            EnterTransition.None
+                        },
+                        exit = if (showStatus) {
+                            shrinkHorizontally(motion.fastSpatialSpec()) +
+                                fadeOut(motion.fastEffectsSpec())
+                        } else {
+                            ExitTransition.None
+                        },
+                    ) {
+                        val timeText = if (showStatus && !message.failed) {
+                            stringResource(R.string.chat_inline_time_suffix, revealedTime)
+                        } else {
+                            revealedTime
+                        }
+                        Text(
+                            text = timeText,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFeatureSettings = "tnum",
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = if (showStatus && message.failed) {
+                                Modifier.padding(start = 6.dp)
+                            } else {
+                                Modifier
+                            },
+                        )
                     }
                 }
             }
@@ -2814,6 +2900,26 @@ private fun DayHeader(timestampMs: Long) {
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             )
         }
+    }
+}
+
+/** Centered plain time divider shown after a 20-minute same-day gap. */
+@Composable
+private fun TimeGapHeader(timestampMs: Long) {
+    val label = remember(timestampMs) {
+        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
