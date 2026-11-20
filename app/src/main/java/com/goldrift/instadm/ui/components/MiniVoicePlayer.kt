@@ -1,13 +1,16 @@
 package com.goldrift.instadm.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,17 +19,25 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconButtonShapes
+import androidx.compose.material3.IconToggleButtonShapes
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,8 +46,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -44,7 +55,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +69,7 @@ import com.goldrift.instadm.ui.chat.formatMediaDuration
 import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
 import com.goldrift.instadm.ui.chat.shouldDismissDownward
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -104,19 +115,8 @@ fun MiniVoicePlayer(
     val motion = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    // The bar's control matches the bubble's: a squircle while playing and a
-    // faint tonal wash.
-    val controlCorner by animateFloatAsState(
-        targetValue = if (playing) 30f else 50f,
-        animationSpec = motion.fastSpatialSpec(),
-        label = "miniControlCorner",
-    )
-    val controlFill by animateFloatAsState(
-        targetValue = if (playing) 0.12f else 0f,
-        animationSpec = motion.fastEffectsSpec(),
-        label = "miniControlFill",
-    )
     val speedLabel = formatPlaybackSpeed(player.playbackSpeed)
+    val speedActive = abs(player.playbackSpeed - 1f) > 0.01f
     val speedDescription = stringResource(R.string.chat_voice_speed, speedLabel)
     val closeLabel = stringResource(R.string.mini_player_close)
     val flingVelocityPx = with(LocalDensity.current) { 800.dp.toPx() }
@@ -242,55 +242,86 @@ fun MiniVoicePlayer(
                 )
             }
             Spacer(Modifier.width(6.dp))
-            Box(
+            ToggleButton(
+                checked = speedActive,
+                onCheckedChange = {
+                    haptic.segmentTick()
+                    player.cycleSpeed()
+                },
+                shapes = ToggleButtonShapes(
+                    shape = CircleShape,
+                    pressedShape = RoundedCornerShape(8.dp),
+                    checkedShape = RoundedCornerShape(10.dp),
+                ),
+                colors = ToggleButtonDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                    .clickable(role = Role.Button) {
-                        haptic.segmentTick()
-                        player.cycleSpeed()
-                    }
-                    .semantics { contentDescription = speedDescription }
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center,
+                    .height(30.dp)
+                    .widthIn(min = 38.dp)
+                    .semantics { contentDescription = speedDescription },
             ) {
-                Text(
-                    text = speedLabel,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                AnimatedContent(
+                    targetState = speedLabel,
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                            fadeIn(motion.fastEffectsSpec()))
+                            .togetherWith(
+                                scaleOut(targetScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                                    fadeOut(motion.fastEffectsSpec()),
+                            )
+                    },
+                    label = "miniSpeedLabel",
+                ) { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    )
+                }
             }
-            Spacer(Modifier.width(2.dp))
-            IconButton(
-                onClick = {
+            Spacer(Modifier.width(4.dp))
+            FilledTonalIconToggleButton(
+                checked = playing,
+                onCheckedChange = {
                     haptic.toggle(!playing)
                     player.toggle()
                 },
+                shapes = IconToggleButtonShapes(
+                    shape = CircleShape,
+                    pressedShape = RoundedCornerShape(10.dp),
+                    checkedShape = RoundedCornerShape(12.dp),
+                ),
+                colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = LocalContentColor.current,
+                    checkedContainerColor = LocalContentColor.current.copy(alpha = 0.12f),
+                    checkedContentColor = LocalContentColor.current,
+                ),
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .semantics { contentDescription = controlLabel },
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(percent = controlCorner.roundToInt()))
-                        .background(LocalContentColor.current.copy(alpha = controlFill)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    VoicePlayPauseIcon(
-                        playing = playing,
-                        loading = false,
-                        failed = false,
-                        tint = LocalContentColor.current,
-                        iconSize = 22.dp,
-                    )
-                }
+                VoicePlayPauseIcon(
+                    playing = playing,
+                    loading = false,
+                    failed = false,
+                    tint = LocalContentColor.current,
+                    iconSize = 22.dp,
+                )
             }
             IconButton(
                 onClick = {
                     haptic.toggle(false)
                     player.stop()
                 },
+                shapes = IconButtonShapes(
+                    shape = CircleShape,
+                    pressedShape = RoundedCornerShape(10.dp),
+                ),
                 modifier = Modifier
                     .size(36.dp)
                     .semantics { contentDescription = closeLabel },

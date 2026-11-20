@@ -31,6 +31,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,19 +62,26 @@ import androidx.compose.material.icons.rounded.Replay5
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconButtonShapes
+import androidx.compose.material3.IconToggleButtonShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -148,7 +156,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -462,9 +469,6 @@ private fun MediaViewerContent(
                     onReadyFile = { file ->
                         if (isCurrentPage) currentReadyFile = file
                     },
-                    onShare = { file ->
-                        shareMediaFile(context, file, item)
-                    },
                     pageCount = request.items.size,
                     pageIndex = pageIndex,
                 )
@@ -535,9 +539,13 @@ private fun ViewerTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val topBarButtonShapes = IconButtonShapes(
+                shape = CircleShape,
+                pressedShape = RoundedCornerShape(14.dp),
+            )
             FilledTonalIconButton(
                 onClick = onClose,
-                shape = CircleShape,
+                shapes = topBarButtonShapes,
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
                     contentColor = MaterialTheme.colorScheme.onSurface,
@@ -625,7 +633,7 @@ private fun ViewerTopBar(
                                 ).show()
                             }
                     },
-                    shape = CircleShape,
+                    shapes = topBarButtonShapes,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -642,7 +650,7 @@ private fun ViewerTopBar(
             if (readyFile != null) {
                 FilledTonalIconButton(
                     onClick = { onShare(readyFile) },
-                    shape = CircleShape,
+                    shapes = topBarButtonShapes,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -674,7 +682,6 @@ private fun MediaViewerPage(
     onSetChromeVisible: (Boolean) -> Unit,
     onZoomChange: (Float) -> Unit,
     onReadyFile: (File?) -> Unit,
-    onShare: (File) -> Unit,
     pageCount: Int,
     pageIndex: Int,
 ) {
@@ -732,7 +739,6 @@ private fun MediaViewerPage(
                         voicePlayer = voicePlayer,
                         onToggleChrome = onToggleChrome,
                         onSetChromeVisible = onSetChromeVisible,
-                        onShare = { onShare(current.file) },
                     )
                 } else {
                     ZoomableImagePage(
@@ -1036,7 +1042,6 @@ private fun ExpressiveVideoPlayer(
     voicePlayer: VoicePlayer,
     onToggleChrome: () -> Unit,
     onSetChromeVisible: (Boolean) -> Unit,
-    onShare: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1303,7 +1308,6 @@ private fun ExpressiveVideoPlayer(
                             playPauseState.onClick()
                             interactionTick++
                         },
-                        onShare = onShare,
                     )
                 } else {
                     VideoTransportDock(
@@ -1368,48 +1372,20 @@ private fun ExpressiveVideoPlayer(
 private fun GifTransportPill(
     isPlaying: Boolean,
     onTogglePlay: () -> Unit,
-    onShare: () -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = Modifier.pointerInput(Unit) {
-            // Keep vertical drags on transport controls from pulling the media into dismiss.
+            // Keep vertical drags on the control from pulling the media into dismiss.
             detectVerticalDragGestures { change, _ -> change.consume() }
         },
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            MorphingPlayPauseButton(
-                isPlaying = isPlaying,
-                isEnded = false,
-                onClick = onTogglePlay,
-                size = 44.dp,
-            )
-            Text(
-                text = stringResource(R.string.media_viewer_gif_badge),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            FilledTonalIconButton(
-                onClick = onShare,
-                shape = CircleShape,
-                modifier = Modifier.size(44.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Share,
-                    contentDescription = stringResource(R.string.media_viewer_share),
-                )
-            }
-        }
+        MorphingPlayPauseButton(
+            isPlaying = isPlaying,
+            isEnded = false,
+            onClick = onTogglePlay,
+            size = 56.dp,
+        )
     }
 }
 
@@ -1448,11 +1424,12 @@ private fun VideoTransportDock(
         }
     }
 
-    val muteCorner by animateFloatAsState(
-        targetValue = if (isMuted) 30f else 50f,
-        animationSpec = motion.fastSpatialSpec(),
-        label = "muteCorner",
-    )
+    val scope = rememberCoroutineScope()
+    val rewindKick = remember { Animatable(0f) }
+    val forwardKick = remember { Animatable(0f) }
+    val rewindInteraction = remember { MutableInteractionSource() }
+    val playInteraction = remember { MutableInteractionSource() }
+    val forwardInteraction = remember { MutableInteractionSource() }
 
     Surface(
         modifier = Modifier
@@ -1531,7 +1508,11 @@ private fun VideoTransportDock(
                 FilledTonalIconToggleButton(
                     checked = isMuted,
                     onCheckedChange = { onToggleMute() },
-                    shape = RoundedCornerShape(percent = muteCorner.roundToInt()),
+                    shapes = IconToggleButtonShapes(
+                        shape = CircleShape,
+                        pressedShape = RoundedCornerShape(10.dp),
+                        checkedShape = RoundedCornerShape(14.dp),
+                    ),
                     colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1540,106 +1521,166 @@ private fun VideoTransportDock(
                     ),
                     modifier = Modifier.size(44.dp),
                 ) {
-                    Icon(
-                        imageVector = if (isMuted) {
-                            Icons.AutoMirrored.Rounded.VolumeOff
-                        } else {
-                            Icons.AutoMirrored.Rounded.VolumeUp
+                    AnimatedContent(
+                        targetState = isMuted,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.7f, animationSpec = motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec()))
+                                .togetherWith(
+                                    scaleOut(targetScale = 0.7f, animationSpec = motion.fastSpatialSpec()) +
+                                        fadeOut(motion.fastEffectsSpec()),
+                                )
                         },
-                        contentDescription = stringResource(
-                            if (isMuted) R.string.media_viewer_unmute else R.string.media_viewer_mute,
-                        ),
-                    )
+                        label = "muteGlyph",
+                    ) { muted ->
+                        Icon(
+                            imageVector = if (muted) {
+                                Icons.AutoMirrored.Rounded.VolumeOff
+                            } else {
+                                Icons.AutoMirrored.Rounded.VolumeUp
+                            },
+                            contentDescription = stringResource(
+                                if (muted) R.string.media_viewer_unmute else R.string.media_viewer_mute,
+                            ),
+                        )
+                    }
                 }
 
-                Row(
+                val seekButtonShapes = IconButtonShapes(
+                    shape = CircleShape,
+                    pressedShape = RoundedCornerShape(12.dp),
+                )
+                ButtonGroup(
+                    overflowIndicator = {},
+                    expandedRatio = 0.18f,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    FilledTonalIconButton(
-                        onClick = onSeekBack,
-                        enabled = durationMs > 0L,
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Replay5,
-                            contentDescription = stringResource(R.string.media_viewer_seek_back),
-                        )
-                    }
-
-                    MorphingPlayPauseButton(
-                        isPlaying = isPlaying,
-                        isEnded = isEnded,
-                        onClick = onTogglePlay,
-                        size = 56.dp,
+                    customItem(
+                        buttonGroupContent = {
+                            FilledTonalIconButton(
+                                onClick = {
+                                    onSeekBack()
+                                    scope.launch {
+                                        rewindKick.snapTo(-28f)
+                                        rewindKick.animateTo(0f, motion.fastSpatialSpec())
+                                    }
+                                },
+                                shapes = seekButtonShapes,
+                                enabled = durationMs > 0L,
+                                interactionSource = rewindInteraction,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                modifier = Modifier
+                                    .animateWidth(rewindInteraction, compressionLimit = 8.dp)
+                                    .size(44.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Replay5,
+                                    contentDescription = stringResource(R.string.media_viewer_seek_back),
+                                    modifier = Modifier.graphicsLayer {
+                                        rotationZ = rewindKick.value
+                                    },
+                                )
+                            }
+                        },
+                        menuContent = {},
                     )
 
-                    FilledTonalIconButton(
-                        onClick = onSeekForward,
-                        enabled = durationMs > 0L,
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Forward5,
-                            contentDescription = stringResource(R.string.media_viewer_seek_forward),
-                        )
-                    }
+                    customItem(
+                        buttonGroupContent = {
+                            MorphingPlayPauseButton(
+                                isPlaying = isPlaying,
+                                isEnded = isEnded,
+                                onClick = onTogglePlay,
+                                size = 56.dp,
+                                interactionSource = playInteraction,
+                                modifier = Modifier.animateWidth(
+                                    playInteraction,
+                                    compressionLimit = 8.dp,
+                                ),
+                            )
+                        },
+                        menuContent = {},
+                    )
+
+                    customItem(
+                        buttonGroupContent = {
+                            FilledTonalIconButton(
+                                onClick = {
+                                    onSeekForward()
+                                    scope.launch {
+                                        forwardKick.snapTo(28f)
+                                        forwardKick.animateTo(0f, motion.fastSpatialSpec())
+                                    }
+                                },
+                                shapes = seekButtonShapes,
+                                enabled = durationMs > 0L,
+                                interactionSource = forwardInteraction,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                modifier = Modifier
+                                    .animateWidth(forwardInteraction, compressionLimit = 8.dp)
+                                    .size(44.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Forward5,
+                                    contentDescription = stringResource(R.string.media_viewer_seek_forward),
+                                    modifier = Modifier.graphicsLayer {
+                                        rotationZ = forwardKick.value
+                                    },
+                                )
+                            }
+                        },
+                        menuContent = {},
+                    )
                 }
 
                 val speedLabel = formatPlaybackSpeed(playbackSpeed)
                 val speedDescription = stringResource(R.string.media_viewer_speed, speedLabel)
                 val speedActive = abs(playbackSpeed - 1f) > 0.01f
-                Surface(
-                    onClick = onCycleSpeed,
-                    shape = RoundedCornerShape(percent = if (speedActive) 34 else 50),
-                    color = if (speedActive) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHighest
-                    },
-                    contentColor = if (speedActive) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                ToggleButton(
+                    checked = speedActive,
+                    onCheckedChange = { onCycleSpeed() },
+                    shapes = ToggleButtonShapes(
+                        shape = CircleShape,
+                        pressedShape = RoundedCornerShape(10.dp),
+                        checkedShape = RoundedCornerShape(14.dp),
+                    ),
+                    colors = ToggleButtonDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     modifier = Modifier
                         .height(44.dp)
-                        .widthIn(min = 52.dp)
+                        .widthIn(min = 54.dp)
                         .semantics { contentDescription = speedDescription },
                 ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AnimatedContent(
-                            targetState = speedLabel,
-                            transitionSpec = {
-                                (scaleIn(initialScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
-                                    fadeIn(motion.fastEffectsSpec()))
-                                    .togetherWith(
-                                        scaleOut(targetScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
-                                            fadeOut(motion.fastEffectsSpec()),
-                                    )
-                            },
-                            label = "videoSpeedLabel",
-                        ) { label ->
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontFeatureSettings = "tnum",
-                                ),
-                            )
-                        }
+                    AnimatedContent(
+                        targetState = speedLabel,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec()))
+                                .togetherWith(
+                                    scaleOut(targetScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                                        fadeOut(motion.fastEffectsSpec()),
+                                )
+                        },
+                        label = "videoSpeedLabel",
+                    ) { label ->
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontFeatureSettings = "tnum",
+                            ),
+                        )
                     }
                 }
             }
@@ -1654,13 +1695,10 @@ private fun MorphingPlayPauseButton(
     isEnded: Boolean,
     onClick: () -> Unit,
     size: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+    interactionSource: MutableInteractionSource? = null,
 ) {
     val motion = MaterialTheme.motionScheme
-    val cornerPercent by animateFloatAsState(
-        targetValue = if (isPlaying) 28f else 50f,
-        animationSpec = motion.fastSpatialSpec(),
-        label = "videoPlayCorner",
-    )
     val actionLabel = stringResource(
         when {
             isEnded -> R.string.media_viewer_replay
@@ -1674,38 +1712,46 @@ private fun MorphingPlayPauseButton(
         else -> PlayGlyphState.Play
     }
 
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(percent = cornerPercent.roundToInt()),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        modifier = Modifier
+    FilledIconToggleButton(
+        checked = isPlaying,
+        onCheckedChange = { onClick() },
+        shapes = IconToggleButtonShapes(
+            shape = CircleShape,
+            pressedShape = RoundedCornerShape(12.dp),
+            checkedShape = RoundedCornerShape(18.dp),
+        ),
+        colors = IconButtonDefaults.filledIconToggleButtonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+        interactionSource = interactionSource,
+        modifier = modifier
             .size(size)
             .semantics { contentDescription = actionLabel },
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            AnimatedContent(
-                targetState = iconState,
-                transitionSpec = {
-                    (scaleIn(initialScale = 0.65f, animationSpec = motion.fastSpatialSpec()) +
-                        fadeIn(motion.fastEffectsSpec()))
-                        .togetherWith(
-                            scaleOut(targetScale = 0.65f, animationSpec = motion.fastSpatialSpec()) +
-                                fadeOut(motion.fastEffectsSpec()),
-                        )
+        AnimatedContent(
+            targetState = iconState,
+            transitionSpec = {
+                (scaleIn(initialScale = 0.65f, animationSpec = motion.fastSpatialSpec()) +
+                    fadeIn(motion.fastEffectsSpec()))
+                    .togetherWith(
+                        scaleOut(targetScale = 0.65f, animationSpec = motion.fastSpatialSpec()) +
+                            fadeOut(motion.fastEffectsSpec()),
+                    )
+            },
+            label = "videoPlayPauseGlyph",
+        ) { glyph ->
+            Icon(
+                imageVector = when (glyph) {
+                    PlayGlyphState.Play -> Icons.Rounded.PlayArrow
+                    PlayGlyphState.Pause -> Icons.Rounded.Pause
+                    PlayGlyphState.Replay -> Icons.Rounded.Replay
                 },
-                label = "videoPlayPauseGlyph",
-            ) { glyph ->
-                Icon(
-                    imageVector = when (glyph) {
-                        PlayGlyphState.Play -> Icons.Rounded.PlayArrow
-                        PlayGlyphState.Pause -> Icons.Rounded.Pause
-                        PlayGlyphState.Replay -> Icons.Rounded.Replay
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(if (size >= 52.dp) 30.dp else 24.dp),
-                )
-            }
+                contentDescription = null,
+                modifier = Modifier.size(if (size >= 52.dp) 30.dp else 24.dp),
+            )
         }
     }
 }

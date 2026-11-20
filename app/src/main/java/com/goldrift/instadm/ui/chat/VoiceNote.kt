@@ -24,6 +24,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,7 +41,10 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButtonShapes
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -89,6 +94,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** What the mini player bar shows about the note currently on the player. */
@@ -477,17 +483,6 @@ fun VoiceNoteBubble(
     val longClickLabel = stringResource(R.string.chat_message_actions)
     val contentColor = LocalContentColor.current
     val motion = MaterialTheme.motionScheme
-    // Playing squashes the round control into a squircle and deepens its fill.
-    val controlCorner by animateFloatAsState(
-        targetValue = if (isPlaying) 30f else 50f,
-        animationSpec = motion.fastSpatialSpec(),
-        label = "voiceControlCorner",
-    )
-    val controlFill by animateFloatAsState(
-        targetValue = if (isPlaying) 0.26f else 0.16f,
-        animationSpec = motion.fastEffectsSpec(),
-        label = "voiceControlFill",
-    )
     val controlDescription = stringResource(
         when {
             failed -> R.string.chat_voice_error
@@ -505,32 +500,34 @@ fun VoiceNoteBubble(
                 onLongClick = onLongClick,
                 onClick = {},
             )
-            .padding(horizontal = 6.dp, vertical = 5.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
+        FilledTonalIconToggleButton(
+            checked = isPlaying,
+            onCheckedChange = { togglePlayback() },
+            shapes = IconToggleButtonShapes(
+                shape = CircleShape,
+                pressedShape = RoundedCornerShape(10.dp),
+                checkedShape = RoundedCornerShape(12.dp),
+            ),
+            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                containerColor = contentColor.copy(alpha = 0.16f),
+                contentColor = contentColor,
+                checkedContainerColor = contentColor.copy(alpha = 0.26f),
+                checkedContentColor = contentColor,
+            ),
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable(role = Role.Button) { togglePlayback() }
+                .size(40.dp)
                 .semantics { contentDescription = controlDescription },
-            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(percent = controlCorner.roundToInt()))
-                    .background(contentColor.copy(alpha = controlFill)),
-                contentAlignment = Alignment.Center,
-            ) {
-                VoicePlayPauseIcon(
-                    playing = isPlaying,
-                    loading = loading,
-                    failed = failed,
-                    tint = contentColor,
-                    iconSize = 22.dp,
-                )
-            }
+            VoicePlayPauseIcon(
+                playing = isPlaying,
+                loading = loading,
+                failed = failed,
+                tint = contentColor,
+                iconSize = 22.dp,
+            )
         }
 
         Spacer(Modifier.width(8.dp))
@@ -564,6 +561,18 @@ fun VoiceNoteBubble(
 
         val speedLabel = formatPlaybackSpeed(player.playbackSpeed)
         val speedDescription = stringResource(R.string.chat_voice_speed, speedLabel)
+        val speedActive = abs(player.playbackSpeed - 1f) > 0.01f
+        val speedInteraction = remember { MutableInteractionSource() }
+        val speedPressed by speedInteraction.collectIsPressedAsState()
+        val speedCorner by animateFloatAsState(
+            targetValue = when {
+                speedPressed -> 24f
+                speedActive -> 34f
+                else -> 50f
+            },
+            animationSpec = motion.fastSpatialSpec(),
+            label = "voiceSpeedCorner",
+        )
         AnimatedVisibility(
             visible = isActive,
             enter = fadeIn(motion.fastEffectsSpec()) + expandHorizontally(motion.fastSpatialSpec()),
@@ -573,9 +582,13 @@ fun VoiceNoteBubble(
                 Spacer(Modifier.width(6.dp))
                 Box(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(contentColor.copy(alpha = 0.14f))
-                        .clickable(role = Role.Button) {
+                        .clip(RoundedCornerShape(percent = speedCorner.roundToInt()))
+                        .background(contentColor.copy(alpha = if (speedActive) 0.24f else 0.14f))
+                        .clickable(
+                            interactionSource = speedInteraction,
+                            indication = null,
+                            role = Role.Button,
+                        ) {
                             haptic.segmentTick()
                             player.cycleSpeed()
                         }
@@ -583,13 +596,26 @@ fun VoiceNoteBubble(
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = speedLabel,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFeatureSettings = "tnum",
-                        ),
-                        color = contentColor,
-                    )
+                    AnimatedContent(
+                        targetState = speedLabel,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec()))
+                                .togetherWith(
+                                    scaleOut(targetScale = 0.8f, animationSpec = motion.fastSpatialSpec()) +
+                                        fadeOut(motion.fastEffectsSpec()),
+                                )
+                        },
+                        label = "voiceSpeedLabel",
+                    ) { label ->
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFeatureSettings = "tnum",
+                            ),
+                            color = contentColor,
+                        )
+                    }
                 }
             }
         }
