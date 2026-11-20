@@ -81,6 +81,8 @@ import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.chat.InboxStatus
+import com.goldrift.instadm.ui.chat.MediaViewerOverlay
+import com.goldrift.instadm.ui.chat.MediaViewerRequest
 import com.goldrift.instadm.ui.chat.toReplySnapshot
 import com.goldrift.instadm.ui.chat.VoicePlayer
 import com.goldrift.instadm.ui.components.MiniVoicePlayer
@@ -139,6 +141,7 @@ fun InstaDmApp(
     var focusMessage by remember { mutableStateOf<Pair<String, String>?>(null) }
     // Reported by the open chat, so the bar can float just above its composer.
     var composerHeight by remember { mutableStateOf(0.dp) }
+    var mediaViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
     var shareTargetId by remember { mutableStateOf<String?>(null) }
     val awaitingShareTarget = pendingShare != null && shareTargetId == null
@@ -211,6 +214,7 @@ fun InstaDmApp(
             visibleThreadId = visibleThreadId,
             enabled = settings.voiceBackgroundPlayback,
             finished = voicePlayer.finished,
+            mediaViewerOpen = mediaViewerRequest != null,
         )
         // The bar floats over the list, so the list keeps its last row clear.
         val listBottomInset =
@@ -307,6 +311,7 @@ fun InstaDmApp(
                     },
                     onSearch = { navController.navigate(Routes.Search) },
                     onSettings = { navController.navigate(Routes.Settings) },
+                    onOpenMedia = { mediaViewerRequest = it },
                     onLogout = {
                         inboxState.logout()
                         voicePlayer.stop()
@@ -414,6 +419,7 @@ fun InstaDmApp(
                                 launchSingleTop = true
                             }
                         },
+                        onOpenMedia = { mediaViewerRequest = it },
                     )
                 }
             }
@@ -470,6 +476,16 @@ fun InstaDmApp(
                 onDismiss = inboxState::dismissBanner,
             )
         }
+
+        MediaViewerOverlay(
+            request = mediaViewerRequest,
+            loadMedia = { threadId, messageId, media ->
+                inboxState.downloadMedia(threadId, messageId, media)
+            },
+            voicePlayer = voicePlayer,
+            dynamicColor = settings.dynamicColor,
+            onDismiss = { mediaViewerRequest = null },
+        )
     }
 
     LaunchedEffect(
@@ -535,6 +551,7 @@ private fun MainPane(
     onOpenChat: (String) -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    onOpenMedia: (MediaViewerRequest) -> Unit,
     onLogout: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -632,6 +649,7 @@ private fun MainPane(
                     onClaimShare = { onClaimShare(selected.id) },
                     onSharedContentConsumed = onShareConsumed,
                     onBack = { onSelectChat(null) },
+                    onOpenMedia = onOpenMedia,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -770,6 +788,7 @@ private fun ChatDestination(
     onSharedContentConsumed: () -> Unit,
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
+    onOpenMedia: (MediaViewerRequest) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val threadId = conversation.id
@@ -844,6 +863,7 @@ private fun ChatDestination(
         focusMessageId = focusMessageId,
         onFocusHandled = onFocusHandled,
         onComposerHeight = onComposerHeight,
+        onOpenMediaViewer = onOpenMedia,
         modifier = modifier,
     )
 }

@@ -1,12 +1,10 @@
 package com.goldrift.instadm.ui.chat
 
 import android.net.Uri
-import android.widget.MediaController
 import android.widget.VideoView
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,28 +16,24 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.BrokenImage
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -52,24 +46,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.MessageMedia
 import java.io.File
 import java.util.Locale
-
-/** Which attachment the full-screen viewer is showing. */
-data class MediaViewerTarget(
-    val messageId: String,
-    val media: MessageMedia,
-)
 
 /** Downloads one attachment and returns the local file. */
 typealias MediaLoader =
@@ -574,164 +559,6 @@ private fun LocalFileCard(
             }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun MediaViewerDialog(
-    threadId: String,
-    target: MediaViewerTarget,
-    loadMedia: MediaLoader?,
-    onDismiss: () -> Unit,
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        var state by remember(target) { mutableStateOf<MediaLoadState>(MediaLoadState.Loading) }
-
-        LaunchedEffect(target) {
-            val loader = loadMedia
-            if (loader == null) {
-                state = MediaLoadState.Failed
-                return@LaunchedEffect
-            }
-            state = runCatching {
-                loader(threadId, target.messageId, target.media)
-            }.fold(
-                onSuccess = { MediaLoadState.Ready(it) },
-                onFailure = { MediaLoadState.Failed },
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .clickable(enabled = state !is MediaLoadState.Ready) { onDismiss() },
-        ) {
-            when (val current = state) {
-                MediaLoadState.Loading -> ContainedLoadingIndicator(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(52.dp),
-                )
-
-                MediaLoadState.Failed -> Text(
-                    text = stringResource(
-                        if (target.media.isReel) R.string.chat_reel_error else R.string.chat_media_error,
-                    ),
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp),
-                )
-
-                is MediaLoadState.Ready -> {
-                    if (target.media.isVideo) {
-                        VideoPlayer(
-                            file = current.file,
-                            loop = target.media.type == "gif" || target.media.isReel,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        ImageViewer(
-                            file = current.file,
-                            contentDescription = target.media.altText.ifBlank {
-                                stringResource(R.string.chat_media_photo)
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-            }
-
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.chat_media_close),
-                    tint = Color.White,
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ImageViewer(
-    file: File,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-) {
-    SubcomposeAsyncImage(
-        model = file,
-        contentDescription = contentDescription,
-        contentScale = ContentScale.Fit,
-        modifier = modifier.padding(horizontal = 8.dp, vertical = 48.dp),
-        loading = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                ContainedLoadingIndicator(modifier = Modifier.size(52.dp))
-            }
-        },
-        error = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.chat_media_error),
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(24.dp),
-                )
-            }
-        },
-    )
-}
-
-@Composable
-private fun VideoPlayer(
-    file: File,
-    loop: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    key(file, loop) {
-        AndroidView(
-            factory = { viewContext ->
-                VideoView(viewContext).apply {
-                    setVideoURI(Uri.fromFile(file))
-                    setMediaController(
-                        MediaController(viewContext).also { controller ->
-                            controller.setAnchorView(this)
-                        },
-                    )
-                    setOnPreparedListener { mediaPlayer ->
-                        mediaPlayer.isLooping = loop
-                        start()
-                    }
-                    requestFocus()
-                }
-            },
-            modifier = modifier,
-            onRelease = { view -> view.stopPlayback() },
-        )
-    }
-}
-
-private sealed interface MediaLoadState {
-    data object Loading : MediaLoadState
-    data class Ready(val file: File) : MediaLoadState
-    data object Failed : MediaLoadState
 }
 
 internal fun formatMediaDuration(milliseconds: Int): String {

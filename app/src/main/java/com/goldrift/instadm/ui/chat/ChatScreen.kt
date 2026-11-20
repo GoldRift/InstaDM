@@ -312,6 +312,7 @@ fun ChatScreen(
     onFocusHandled: () -> Unit = {},
     /** Height of the message box, so the player bar can float just above it. */
     onComposerHeight: (Dp) -> Unit = {},
+    onOpenMediaViewer: ((MediaViewerRequest) -> Unit)? = null,
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -418,7 +419,7 @@ fun ChatScreen(
         stageMedia(share.uris)
         onSharedContentConsumed()
     }
-    var viewerTarget by remember { mutableStateOf<MediaViewerTarget?>(null) }
+    var fallbackViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var editMessageId by remember { mutableStateOf<String?>(null) }
@@ -860,7 +861,35 @@ fun ChatScreen(
                                 onLoadOlder = onLoadOlder,
                                 onRetryOlder = onRetryOlder,
                                 onOpenMedia = { messageId, media ->
-                                    viewerTarget = MediaViewerTarget(messageId, media)
+                                    val message = messages.firstOrNull { it.id == messageId }
+                                    val items = message?.media
+                                        ?.filter { !it.viewOnce && (it.isVisual || it.isReel) }
+                                        ?.takeIf { it.isNotEmpty() }
+                                        ?: listOf(media)
+                                    val initialIndex = items.indexOfFirst {
+                                        it.partIndex == media.partIndex && it.type == media.type
+                                    }.coerceAtLeast(0)
+                                    val senderName = when {
+                                        message == null -> conversation.contact.name
+                                        message.sender == MessageSender.Me ->
+                                            resources.getString(R.string.chat_you)
+                                        else -> message.senderName.ifBlank {
+                                            conversation.contact.name
+                                        }
+                                    }
+                                    val request = MediaViewerRequest(
+                                        threadId = conversation.id,
+                                        messageId = messageId,
+                                        items = items,
+                                        initialIndex = initialIndex,
+                                        senderName = senderName,
+                                        timestamp = message?.timestamp.orEmpty(),
+                                    )
+                                    if (onOpenMediaViewer != null) {
+                                        onOpenMediaViewer(request)
+                                    } else {
+                                        fallbackViewerRequest = request
+                                    }
                                 },
                                 onLongPress = { actionMessageId = it.id },
                                 onReply = { replyTarget = it },
@@ -969,12 +998,13 @@ fun ChatScreen(
         }
     }
 
-    viewerTarget?.let { target ->
-        MediaViewerDialog(
-            threadId = conversation.id,
-            target = target,
+    if (onOpenMediaViewer == null) {
+        MediaViewerOverlay(
+            request = fallbackViewerRequest,
             loadMedia = onLoadMedia,
-            onDismiss = { viewerTarget = null },
+            voicePlayer = voicePlayer,
+            dynamicColor = true,
+            onDismiss = { fallbackViewerRequest = null },
         )
     }
 
