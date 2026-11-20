@@ -792,6 +792,7 @@ class ChatStoreTest {
             RealtimeMessage(
                 id = "mid.voice.rt",
                 offlineThreadingId = realtimeOtid,
+                text = "",
                 senderFbid = 111,
                 senderName = "Me",
                 isFromViewer = true,
