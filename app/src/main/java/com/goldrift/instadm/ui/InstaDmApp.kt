@@ -76,11 +76,15 @@ import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.RealtimeService
+import com.goldrift.instadm.ui.chat.CameraCaptureOverlay
+import com.goldrift.instadm.ui.chat.CameraCaptureRequest
 import com.goldrift.instadm.ui.chat.ChatBanner
 import com.goldrift.instadm.ui.chat.ChatScreen
 import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.InboxState
 import com.goldrift.instadm.ui.chat.InboxStatus
+import com.goldrift.instadm.ui.chat.MediaPickerOverlay
+import com.goldrift.instadm.ui.chat.MediaPickerRequest
 import com.goldrift.instadm.ui.chat.MediaViewerOverlay
 import com.goldrift.instadm.ui.chat.MediaViewerRequest
 import com.goldrift.instadm.ui.chat.toReplySnapshot
@@ -142,6 +146,8 @@ fun InstaDmApp(
     // Reported by the open chat, so the bar can float just above its composer.
     var composerHeight by remember { mutableStateOf(0.dp) }
     var mediaViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
+    var cameraCaptureRequest by remember { mutableStateOf<CameraCaptureRequest?>(null) }
+    var mediaPickerRequest by remember { mutableStateOf<MediaPickerRequest?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
     var shareTargetId by remember { mutableStateOf<String?>(null) }
     val awaitingShareTarget = pendingShare != null && shareTargetId == null
@@ -215,6 +221,7 @@ fun InstaDmApp(
             enabled = settings.voiceBackgroundPlayback,
             finished = voicePlayer.finished,
             mediaViewerOpen = mediaViewerRequest != null,
+            cameraOpen = cameraCaptureRequest != null || mediaPickerRequest != null,
         )
         // The bar floats over the list, so the list keeps its last row clear.
         val listBottomInset =
@@ -312,6 +319,8 @@ fun InstaDmApp(
                     onSearch = { navController.navigate(Routes.Search) },
                     onSettings = { navController.navigate(Routes.Settings) },
                     onOpenMedia = { mediaViewerRequest = it },
+                    onOpenCamera = { cameraCaptureRequest = it },
+                    onOpenMediaPicker = { mediaPickerRequest = it },
                     onLogout = {
                         inboxState.logout()
                         voicePlayer.stop()
@@ -420,6 +429,8 @@ fun InstaDmApp(
                             }
                         },
                         onOpenMedia = { mediaViewerRequest = it },
+                        onOpenCamera = { cameraCaptureRequest = it },
+                        onOpenMediaPicker = { mediaPickerRequest = it },
                     )
                 }
             }
@@ -485,6 +496,18 @@ fun InstaDmApp(
             voicePlayer = voicePlayer,
             dynamicColor = settings.dynamicColor,
             onDismiss = { mediaViewerRequest = null },
+        )
+
+        CameraCaptureOverlay(
+            request = cameraCaptureRequest,
+            voicePlayer = voicePlayer,
+            dynamicColor = settings.dynamicColor,
+            onDismiss = { cameraCaptureRequest = null },
+        )
+
+        MediaPickerOverlay(
+            request = mediaPickerRequest,
+            onDismiss = { mediaPickerRequest = null },
         )
     }
 
@@ -552,6 +575,8 @@ private fun MainPane(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onOpenMedia: (MediaViewerRequest) -> Unit,
+    onOpenCamera: (CameraCaptureRequest) -> Unit,
+    onOpenMediaPicker: (MediaPickerRequest) -> Unit,
     onLogout: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -650,6 +675,8 @@ private fun MainPane(
                     onSharedContentConsumed = onShareConsumed,
                     onBack = { onSelectChat(null) },
                     onOpenMedia = onOpenMedia,
+                    onOpenCamera = onOpenCamera,
+                    onOpenMediaPicker = onOpenMediaPicker,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -789,6 +816,8 @@ private fun ChatDestination(
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
     onOpenMedia: (MediaViewerRequest) -> Unit = {},
+    onOpenCamera: (CameraCaptureRequest) -> Unit = {},
+    onOpenMediaPicker: (MediaPickerRequest) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val threadId = conversation.id
@@ -864,6 +893,8 @@ private fun ChatDestination(
         onFocusHandled = onFocusHandled,
         onComposerHeight = onComposerHeight,
         onOpenMediaViewer = onOpenMedia,
+        onOpenCamera = onOpenCamera,
+        onOpenMediaPicker = onOpenMediaPicker,
         modifier = modifier,
     )
 }

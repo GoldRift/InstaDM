@@ -5,17 +5,14 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
@@ -37,6 +34,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -92,8 +90,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Audiotrack
@@ -104,8 +100,10 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
@@ -139,10 +137,10 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -155,7 +153,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -204,7 +204,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.goldrift.instadm.R
-import com.goldrift.instadm.data.CameraCapture
 import com.goldrift.instadm.data.DEFAULT_DOUBLE_TAP_EMOJI
 import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.PickedMedia
@@ -228,10 +227,11 @@ import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.components.toggle
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.theme.LocalMessageBubbleColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
@@ -313,6 +313,8 @@ fun ChatScreen(
     /** Height of the message box, so the player bar can float just above it. */
     onComposerHeight: (Dp) -> Unit = {},
     onOpenMediaViewer: ((MediaViewerRequest) -> Unit)? = null,
+    onOpenCamera: ((CameraCaptureRequest) -> Unit)? = null,
+    onOpenMediaPicker: ((MediaPickerRequest) -> Unit)? = null,
 ) {
     val messages = conversation.messages
     // Like/reaction activity logs stay in the inbox preview and notifications;
@@ -420,6 +422,8 @@ fun ChatScreen(
         onSharedContentConsumed()
     }
     var fallbackViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
+    var fallbackCameraRequest by remember { mutableStateOf<CameraCaptureRequest?>(null) }
+    var fallbackPickerRequest by remember { mutableStateOf<MediaPickerRequest?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var editMessageId by remember { mutableStateOf<String?>(null) }
@@ -430,8 +434,6 @@ fun ChatScreen(
     // reveal is deliberately not saved and resets when the chat is left or the
     // conversation pane switches threads.
     var revealedStatusMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
-    var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
-    var capturePath by rememberSaveable { mutableStateOf<String?>(null) }
     var recordingLocked by remember { mutableStateOf(false) }
     var recordingCancel by remember { mutableStateOf(false) }
     val voiceRecorder = remember { VoiceRecorder(context) }
@@ -440,21 +442,9 @@ fun ChatScreen(
     val composerFocus = remember { FocusRequester() }
     var quotedMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     var pendingQuoteJumpId by remember(conversation.id) { mutableStateOf<String?>(null) }
+    val pickerAccentColor = MaterialTheme.colorScheme.primary.toArgb()
+    val keyboard = LocalSoftwareKeyboardController.current
 
-    val cameraLauncher = rememberLauncherForActivityResult(
-        TakePictureWithWritePermission(),
-    ) { success ->
-        val uri = captureUri
-        val path = capturePath
-        captureUri = null
-        capturePath = null
-        if (success && uri != null) {
-            replyTarget = null
-            stageMedia(listOf(uri.toUri()))
-        } else if (path != null) {
-            runCatching { File(path).delete() }
-        }
-    }
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MAX_STAGED_MEDIA),
     ) { uris ->
@@ -463,23 +453,96 @@ fun ChatScreen(
             stageMedia(uris)
         }
     }
-
-    fun takePhoto() {
-        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        if (intent.resolveActivity(context.packageManager) == null) {
-            Toast.makeText(context, R.string.chat_camera_unavailable, Toast.LENGTH_SHORT).show()
-            return
+    val singleGalleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            replyTarget = null
+            stageMedia(listOf(uri))
         }
-        val target = CameraCapture.newTarget(context)
-        captureUri = target.uri.toString()
-        capturePath = target.file.absolutePath
-        cameraLauncher.launch(target.uri)
     }
 
-    fun pickMedia() {
-        galleryLauncher.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+    fun launchSystemPicker() {
+        val room = MAX_STAGED_MEDIA - stagedMedia.size
+        if (room <= 0) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.chat_staged_limit, MAX_STAGED_MEDIA),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        val request = buildVisualMediaRequest(
+            accentColorArgb = pickerAccentColor,
+            maxItems = room,
         )
+        if (room == 1) {
+            singleGalleryLauncher.launch(request)
+        } else {
+            galleryLauncher.launch(request)
+        }
+    }
+
+    lateinit var pickMedia: () -> Unit
+
+    fun takePhoto() {
+        val room = MAX_STAGED_MEDIA - stagedMedia.size
+        if (room <= 0) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.chat_staged_limit, MAX_STAGED_MEDIA),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        keyboard?.hide()
+        val request = CameraCaptureRequest(
+            onCaptured = { uri ->
+                replyTarget = null
+                stageMedia(listOf(uri))
+            },
+            onOpenPicker = { pickMedia() },
+        )
+        if (onOpenCamera != null) {
+            onOpenCamera(request)
+        } else {
+            fallbackCameraRequest = request
+        }
+    }
+
+    pickMedia = {
+        val room = MAX_STAGED_MEDIA - stagedMedia.size
+        if (room <= 0) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.chat_staged_limit, MAX_STAGED_MEDIA),
+                Toast.LENGTH_SHORT,
+            ).show()
+        } else {
+            keyboard?.hide()
+            if (isEmbeddedPhotoPickerSupported()) {
+                val request = MediaPickerRequest(
+                    maxSelectionLimit = room,
+                    onGrantUris = { uris ->
+                        replyTarget = null
+                        stageMedia(uris)
+                    },
+                    onRevokeUris = { uris ->
+                        val revoked = uris.toSet()
+                        stagedMedia = stagedMedia.filterNot { it.uri in revoked }
+                    },
+                    onOpenCamera = { takePhoto() },
+                    onFallbackToSystemPicker = { launchSystemPicker() },
+                )
+                if (onOpenMediaPicker != null) {
+                    onOpenMediaPicker(request)
+                } else {
+                    fallbackPickerRequest = request
+                }
+            } else {
+                launchSystemPicker()
+            }
+        }
     }
 
     val micPermission = rememberLauncherForActivityResult(
@@ -489,7 +552,6 @@ fun ChatScreen(
             Toast.makeText(context, R.string.chat_mic_permission, Toast.LENGTH_LONG).show()
         }
     }
-    val keyboard = LocalSoftwareKeyboardController.current
 
     // Starting a reply jumps into the composer, matching the affordance of the
     // quoted bar once the gesture settles.
@@ -739,7 +801,7 @@ fun ChatScreen(
                 focusRequester = composerFocus,
                 onCamera = ::takePhoto,
                 attachmentsEnabled = attachmentsEnabled,
-                onPickMedia = ::pickMedia,
+                onPickMedia = { pickMedia() },
                 stagedMedia = stagedMedia,
                 onRemoveStagedMedia = { picked -> stagedMedia = stagedMedia - picked },
                 onMoveStagedMedia = { from, to -> stagedMedia = stagedMedia.moved(from, to) },
@@ -1005,6 +1067,22 @@ fun ChatScreen(
             voicePlayer = voicePlayer,
             dynamicColor = true,
             onDismiss = { fallbackViewerRequest = null },
+        )
+    }
+
+    if (onOpenCamera == null) {
+        CameraCaptureOverlay(
+            request = fallbackCameraRequest,
+            voicePlayer = voicePlayer,
+            dynamicColor = true,
+            onDismiss = { fallbackCameraRequest = null },
+        )
+    }
+
+    if (onOpenMediaPicker == null) {
+        MediaPickerOverlay(
+            request = fallbackPickerRequest,
+            onDismiss = { fallbackPickerRequest = null },
         )
     }
 
@@ -2739,6 +2817,7 @@ private fun MessageComposer(
     }
     // Keyboard GIFs and stickers arrive through commitContent, which
     // BasicTextField hands over as an image URI.
+    val haptic = LocalHapticFeedback.current
     val commitMedia = rememberUpdatedState(onCommitMedia)
     val contentReceiver = remember {
         ReceiveContentListener { content ->
@@ -2824,29 +2903,30 @@ private fun MessageComposer(
                             Row(
                                 modifier = Modifier
                                     .heightIn(min = 48.dp)
-                                    .padding(horizontal = 4.dp, vertical = 0.dp),
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (showActions && !recording) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clickable(
-                                                role = Role.Button,
-                                                onClick = onCamera,
-                                            ),
-                                        contentAlignment = Alignment.Center,
+                                    IconButton(
+                                        onClick = {
+                                            haptic.segmentTick()
+                                            onCamera()
+                                        },
+                                        shapes = IconButtonDefaults.shapes(),
+                                        colors = IconButtonDefaults.iconButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        modifier = Modifier.size(44.dp),
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.PhotoCamera,
+                                            imageVector = Icons.Rounded.PhotoCamera,
                                             contentDescription = stringResource(
                                                 R.string.chat_attach_camera,
                                             ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp),
+                                            modifier = Modifier.size(22.dp),
                                         )
                                     }
-                                    Spacer(Modifier.width(6.dp))
+                                    Spacer(Modifier.width(4.dp))
                                 }
 
                                 if (recording) {
@@ -2906,22 +2986,23 @@ private fun MessageComposer(
                                 }
 
                                 if (showActions && !recording) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clickable(
-                                                role = Role.Button,
-                                                onClick = onPickMedia,
-                                            ),
-                                        contentAlignment = Alignment.Center,
+                                    IconButton(
+                                        onClick = {
+                                            haptic.segmentTick()
+                                            onPickMedia()
+                                        },
+                                        shapes = IconButtonDefaults.shapes(),
+                                        colors = IconButtonDefaults.iconButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        modifier = Modifier.size(44.dp),
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.Image,
+                                            imageVector = Icons.Rounded.Image,
                                             contentDescription = stringResource(
                                                 R.string.chat_attach_gallery,
                                             ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp),
+                                            modifier = Modifier.size(22.dp),
                                         )
                                     }
                                 }
@@ -2978,6 +3059,7 @@ private fun MessageComposer(
 }
 
 /** Picked attachments waiting for Send; long-press a thumb to drag it into place. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun StagedMediaStrip(
     media: List<PickedMedia>,
@@ -2986,8 +3068,10 @@ private fun StagedMediaStrip(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val motion = MaterialTheme.motionScheme
     val stepPx = with(density) { (STAGED_MEDIA_SIZE + STAGED_MEDIA_GAP).toPx() }
     val edgePx = with(density) { STAGED_MEDIA_EDGE.toPx() }
     val moveLeft = stringResource(R.string.chat_staged_move_left)
@@ -3029,12 +3113,26 @@ private fun StagedMediaStrip(
     ) {
         itemsIndexed(media, key = { _, picked -> picked.uri.toString() }) { index, picked ->
             val dragging = index == draggedIndex
+            val dragScale by animateFloatAsState(
+                targetValue = if (dragging) 1.08f else 1f,
+                animationSpec = motion.fastSpatialSpec(),
+                label = "stagedDragScale",
+            )
             Box(
                 modifier = Modifier
+                    .animateItem(
+                        fadeInSpec = motion.fastEffectsSpec(),
+                        placementSpec = motion.defaultSpatialSpec(),
+                        fadeOutSpec = motion.fastEffectsSpec(),
+                    )
                     .size(STAGED_MEDIA_SIZE)
                     .zIndex(if (dragging) 1f else 0f)
                     .offset {
                         IntOffset(if (dragging) dragOffset.roundToInt() else 0, 0)
+                    }
+                    .graphicsLayer {
+                        scaleX = dragScale
+                        scaleY = dragScale
                     }
                     .pointerInput(picked.uri, index) {
                         detectDragGesturesAfterLongPress(
@@ -3090,50 +3188,111 @@ private fun StagedMediaStrip(
                         )
                     },
             ) {
-                val thumbShape = RoundedCornerShape(12.dp)
+                val thumbShape = RoundedCornerShape(14.dp)
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     shape = thumbShape,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ) {
-                    if (picked.kind == "image") {
-                        AsyncImage(
-                            model = picked.uri,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (picked.kind == "video") {
-                                    Icons.Rounded.Videocam
-                                } else {
-                                    Icons.Rounded.Audiotrack
-                                },
+                    when (picked.kind) {
+                        "image" -> {
+                            AsyncImage(
+                                model = picked.uri,
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp),
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
                             )
+                        }
+                        "video" -> {
+                            val videoFrame by produceState<Bitmap?>(null, picked.uri) {
+                                value = withContext(Dispatchers.IO) {
+                                    val retriever = MediaMetadataRetriever()
+                                    try {
+                                        retriever.setDataSource(context, picked.uri)
+                                        retriever.getFrameAtTime(
+                                            0L,
+                                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                        )
+                                    } catch (_: Exception) {
+                                        null
+                                    } finally {
+                                        runCatching { retriever.release() }
+                                    }
+                                }
+                            }
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                val frame = videoFrame
+                                if (frame != null) {
+                                    Image(
+                                        bitmap = frame.asImageBitmap(),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Videocam,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                                if (picked.durationMs > 0) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color.Black.copy(alpha = 0.68f),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(4.dp),
+                                    ) {
+                                        Text(
+                                            text = formatMediaDuration(picked.durationMs),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontFeatureSettings = "tnum",
+                                            ),
+                                            color = Color.White,
+                                            modifier = Modifier.padding(
+                                                horizontal = 5.dp,
+                                                vertical = 1.dp,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Audiotrack,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
-                Box(
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(2.dp)
                         .size(20.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface)
-                        .clickable(role = Role.Button) { onRemove(picked) },
-                    contentAlignment = Alignment.Center,
+                        .clickable(role = Role.Button) {
+                            haptic.segmentTick()
+                            onRemove(picked)
+                        },
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.chat_staged_remove),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(14.dp),
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.chat_staged_remove),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
                 }
             }
         }
@@ -3515,21 +3674,4 @@ private fun ChatScreenDarkPreview() {
             voicePlayer = player,
         )
     }
-}
-
-/**
- * `TakePicture` does not grant the camera app write access to the output URI, so
- * the FileProvider target fails on some devices. Add both flags explicitly.
- */
-private class TakePictureWithWritePermission : ActivityResultContract<Uri, Boolean>() {
-    override fun createIntent(context: Context, input: Uri): Intent =
-        Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            .putExtra(MediaStore.EXTRA_OUTPUT, input)
-            .addFlags(
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-
-    override fun parseResult(resultCode: Int, intent: Intent?): Boolean =
-        resultCode == Activity.RESULT_OK
 }
