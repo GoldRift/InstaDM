@@ -43,5 +43,14 @@ class MiniPlayerVisibilityTest {
         assertFalse(
             showVoiceMiniPlayer(null, visibleThreadId = "sofia", enabled = true, finished = false),
         )
+        assertFalse(
+            showVoiceMiniPlayer(
+                note,
+                visibleThreadId = "sofia",
+                enabled = true,
+                finished = false,
+                mediaViewerOpen = true,
+            ),
+        )
     }
 }

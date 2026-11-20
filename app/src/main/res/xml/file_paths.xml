@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="outgoing" path="outgoing/" />
+    <cache-path name="media" path="media/" />
+    <cache-path name="demo-media" path="demo-media/" />
+    <files-path name="outbox" path="outbox/" />
 </paths>
