@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -694,6 +695,7 @@ private val SmallAppBarHeight = 64.dp
  * clipping at large font sizes. Swiping it up dismisses it the way the voice
  * player swipes down.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun IncomingChatBanner(
     banner: ChatBanner,
@@ -787,7 +789,10 @@ private fun IncomingChatBanner(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onDismiss) {
+            IconButton(
+                onClick = onDismiss,
+                shapes = IconButtonDefaults.shapes(),
+            ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = stringResource(R.string.banner_dismiss),

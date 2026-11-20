@@ -18,25 +18,30 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +53,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -112,8 +119,11 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButtonShapes
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -133,6 +143,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -157,7 +169,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -712,6 +723,7 @@ fun ChatScreen(
         val text = draft.text.trim().toString()
         if (text.isEmpty() && stagedMedia.isEmpty()) return
 
+        haptic.confirm()
         if (text.isNotEmpty()) onSend(text, replyTarget)
         if (stagedMedia.isNotEmpty()) onSendMedia(stagedMedia)
         stagedMedia = emptyList()
@@ -862,7 +874,18 @@ fun ChatScreen(
             Column(Modifier.fillMaxSize()) {
                 LiveAnnouncement(arrivalAnnouncement)
                 LiveAnnouncement(typingAnnouncement)
-                if (errorMessage != null) {
+                var lastErrorMessage by remember { mutableStateOf(errorMessage) }
+                if (errorMessage != null && errorMessage != lastErrorMessage) {
+                    SideEffect { lastErrorMessage = errorMessage }
+                }
+                AnimatedVisibility(
+                    visible = errorMessage != null,
+                    enter = expandVertically(motion.defaultSpatialSpec()) +
+                        fadeIn(motion.defaultEffectsSpec()),
+                    exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                        fadeOut(motion.defaultEffectsSpec()),
+                ) {
+                    val message = errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
                     Surface(
                         modifier = Modifier.semantics {
                             liveRegion = LiveRegionMode.Polite
@@ -870,7 +893,7 @@ fun ChatScreen(
                         color = MaterialTheme.colorScheme.errorContainer,
                     ) {
                         Text(
-                            text = errorMessage,
+                            text = message,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
@@ -1089,6 +1112,7 @@ fun ChatScreen(
     emojiPickerMessage?.let { message ->
         EmojiPickerDialog(
             onPick = { emoji ->
+                haptic.confirm()
                 emojiPickerMessageId = null
                 onReact(message.id, emoji)
             },
@@ -1529,6 +1553,7 @@ private fun MessageRow(
     val currentOnToggleStatus by rememberUpdatedState(onToggleStatus)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnLike by rememberUpdatedState(onLike)
+    val canShowActions by rememberUpdatedState(message.isServerMessage())
     val bubbles = LocalMessageBubbleColors.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -1692,7 +1717,7 @@ private fun MessageRow(
                                 true
                             }
                         }
-                        .pointerInput(message.id) {
+                        .pointerInput(message.id, message.isServerMessage()) {
                             detectTapGestures(
                                 onTap = {
                                     // Only older bubbles own a toggle; tapping
@@ -1713,7 +1738,12 @@ private fun MessageRow(
                                 } else {
                                     null
                                 },
-                                onLongPress = { currentOnLongPress() },
+                                onLongPress = {
+                                    if (canShowActions) {
+                                        haptic.longPress()
+                                        currentOnLongPress()
+                                    }
+                                },
                             )
                         },
                     shape = BubbleShape,
@@ -2359,10 +2389,11 @@ private fun ReactionBar(
             }
         }
     }
-    fun Modifier.reveal(index: Int): Modifier = graphicsLayer {
+    fun Modifier.reveal(index: Int, pressScale: State<Float>): Modifier = graphicsLayer {
         val progress = entrance[index].value
-        scaleX = 0.8f + 0.2f * progress
-        scaleY = 0.8f + 0.2f * progress
+        val scale = (0.8f + 0.2f * progress) * pressScale.value
+        scaleX = scale
+        scaleY = scale
         alpha = progress
     }
     Surface(
@@ -2375,12 +2406,21 @@ private fun ReactionBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             QuickReactions.forEachIndexed { index, emoji ->
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val pressScale = animateFloatAsState(
+                    targetValue = if (pressed) 1.25f else 1f,
+                    animationSpec = motion.fastSpatialSpec(),
+                    label = "reactionPress",
+                )
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .reveal(index)
+                        .reveal(index, pressScale)
                         .clip(CircleShape)
                         .clickable(
+                            interactionSource = interaction,
+                            indication = LocalIndication.current,
                             role = Role.Button,
                             onClickLabel = stringResource(R.string.chat_react_with, emoji),
                         ) {
@@ -2392,12 +2432,24 @@ private fun ReactionBar(
                     EmojiGlyph(emoji)
                 }
             }
+            val moreInteraction = remember { MutableInteractionSource() }
+            val morePressed by moreInteraction.collectIsPressedAsState()
+            val morePressScale = animateFloatAsState(
+                targetValue = if (morePressed) 1.25f else 1f,
+                animationSpec = motion.fastSpatialSpec(),
+                label = "reactionMorePress",
+            )
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .reveal(QuickReactions.size)
+                    .reveal(QuickReactions.size, morePressScale)
                     .clip(CircleShape)
-                    .clickable(role = Role.Button, onClick = onMoreEmoji),
+                    .clickable(
+                        interactionSource = moreInteraction,
+                        indication = LocalIndication.current,
+                        role = Role.Button,
+                        onClick = onMoreEmoji,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -2542,13 +2594,17 @@ private fun UnsendMessageDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.chat_unsend_title)) },
         text = { Text(stringResource(R.string.chat_unsend_body)) },
         confirmButton = {
             TextButton(
-                onClick = onConfirm,
+                onClick = {
+                    haptic.reject()
+                    onConfirm()
+                },
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
@@ -2903,89 +2959,130 @@ private fun MessageComposer(
                             Row(
                                 modifier = Modifier
                                     .heightIn(min = 48.dp)
+                                    .animateContentSize(animationSpec = motion.defaultSpatialSpec())
                                     .padding(horizontal = 4.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (showActions && !recording) {
-                                    IconButton(
-                                        onClick = {
-                                            haptic.segmentTick()
-                                            onCamera()
-                                        },
-                                        shapes = IconButtonDefaults.shapes(),
-                                        colors = IconButtonDefaults.iconButtonColors(
-                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        ),
-                                        modifier = Modifier.size(44.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.PhotoCamera,
-                                            contentDescription = stringResource(
-                                                R.string.chat_attach_camera,
+                                AnimatedVisibility(
+                                    visible = showActions && !recording,
+                                    enter = fadeIn(motion.fastEffectsSpec()) +
+                                        expandHorizontally(motion.fastSpatialSpec()) +
+                                        scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f),
+                                    exit = fadeOut(motion.fastEffectsSpec()) +
+                                        shrinkHorizontally(motion.fastSpatialSpec()) +
+                                        scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f),
+                                ) {
+                                    val actionActive =
+                                        transition.targetState == EnterExitState.Visible
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                haptic.segmentTick()
+                                                onCamera()
+                                            },
+                                            shapes = IconButtonDefaults.shapes(),
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                             ),
-                                            modifier = Modifier.size(22.dp),
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .inputOnlyWhen(actionActive),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PhotoCamera,
+                                                contentDescription = stringResource(
+                                                    R.string.chat_attach_camera,
+                                                ),
+                                                modifier = Modifier.size(22.dp),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+                                }
+
+                                AnimatedContent(
+                                    targetState = recording,
+                                    modifier = Modifier.weight(1f),
+                                    transitionSpec = {
+                                        (fadeIn(motion.fastEffectsSpec()) togetherWith
+                                            fadeOut(motion.fastEffectsSpec()))
+                                            .using(SizeTransform(clip = false))
+                                    },
+                                    contentAlignment = Alignment.CenterStart,
+                                    label = "composerInput",
+                                ) { activeRecording ->
+                                    val isInputTarget =
+                                        transition.targetState == EnterExitState.Visible
+                                    if (activeRecording) {
+                                        RecordingStatus(
+                                            recorder = recorder,
+                                            cancelCandidate = cancelCandidate,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .inputOnlyWhen(isInputTarget)
+                                                .padding(start = 12.dp, end = 8.dp),
+                                        )
+                                    } else {
+                                        BasicTextField(
+                                            state = draft,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .inputOnlyWhen(isInputTarget)
+                                                .focusRequester(focusRequester)
+                                                .then(
+                                                    if (attachmentsEnabled) {
+                                                        Modifier.contentReceiver(contentReceiver)
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                )
+                                                .padding(
+                                                    start = if (showActions) 0.dp else 12.dp,
+                                                    end = 8.dp,
+                                                ),
+                                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            ),
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.Sentences,
+                                            ),
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            lineLimits = TextFieldLineLimits.MultiLine(
+                                                minHeightInLines = 1,
+                                                maxHeightInLines = 4,
+                                            ),
+                                            decorator = { innerTextField ->
+                                                Box(contentAlignment = Alignment.CenterStart) {
+                                                    if (draft.text.isEmpty()) {
+                                                        Text(
+                                                            text = stringResource(
+                                                                R.string.chat_message_hint,
+                                                            ),
+                                                            style = MaterialTheme.typography.bodyLarge,
+                                                            color = MaterialTheme.colorScheme
+                                                                .onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            },
                                         )
                                     }
-                                    Spacer(Modifier.width(4.dp))
                                 }
 
-                                if (recording) {
-                                    RecordingStatus(
-                                        recorder = recorder,
-                                        cancelCandidate = cancelCandidate,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(start = 12.dp, end = 8.dp),
-                                    )
-                                } else {
-                                    BasicTextField(
-                                        state = draft,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .focusRequester(focusRequester)
-                                            .then(
-                                                if (attachmentsEnabled) {
-                                                    Modifier.contentReceiver(contentReceiver)
-                                                } else {
-                                                    Modifier
-                                                },
-                                            )
-                                            .padding(
-                                                start = if (showActions) 0.dp else 12.dp,
-                                                end = 8.dp,
-                                            ),
-                                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        ),
-                                        keyboardOptions = KeyboardOptions(
-                                            capitalization = KeyboardCapitalization.Sentences,
-                                        ),
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        lineLimits = TextFieldLineLimits.MultiLine(
-                                            minHeightInLines = 1,
-                                            maxHeightInLines = 4,
-                                        ),
-                                        decorator = { innerTextField ->
-                                            Box(contentAlignment = Alignment.CenterStart) {
-                                                if (draft.text.isEmpty()) {
-                                                    Text(
-                                                        text = stringResource(
-                                                            R.string.chat_message_hint,
-                                                        ),
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        color = MaterialTheme.colorScheme
-                                                            .onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                    )
-                                                }
-                                                innerTextField()
-                                            }
-                                        },
-                                    )
-                                }
-
-                                if (showActions && !recording) {
+                                AnimatedVisibility(
+                                    visible = showActions && !recording,
+                                    enter = fadeIn(motion.fastEffectsSpec()) +
+                                        expandHorizontally(motion.fastSpatialSpec()) +
+                                        scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f),
+                                    exit = fadeOut(motion.fastEffectsSpec()) +
+                                        shrinkHorizontally(motion.fastSpatialSpec()) +
+                                        scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f),
+                                ) {
+                                    val actionActive =
+                                        transition.targetState == EnterExitState.Visible
                                     IconButton(
                                         onClick = {
                                             haptic.segmentTick()
@@ -2995,7 +3092,9 @@ private fun MessageComposer(
                                         colors = IconButtonDefaults.iconButtonColors(
                                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         ),
-                                        modifier = Modifier.size(44.dp),
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .inputOnlyWhen(actionActive),
                                     ) {
                                         Icon(
                                             imageVector = Icons.Rounded.Image,
@@ -3080,6 +3179,7 @@ private fun StagedMediaStrip(
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var scrollJob by remember { mutableStateOf<Job?>(null) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
+    val currentLastIndex by rememberUpdatedState(media.lastIndex)
 
     // Holding a thumb against the strip's edge keeps scrolling the row. The
     // offset follows the scroll so the thumb stays under the finger and the
@@ -3135,16 +3235,28 @@ private fun StagedMediaStrip(
                         scaleY = dragScale
                     }
                     .pointerInput(picked.uri, index) {
+                        var lastDragTarget = index
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 draggedIndex = index
                                 dragOffset = 0f
+                                lastDragTarget = index
                                 stopAutoScroll()
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptic.longPress()
                             },
                             onDrag = { change, amount ->
                                 change.consume()
                                 dragOffset += amount.x
+                                val nextTarget = stagedDragTarget(
+                                    index = index,
+                                    offsetPx = dragOffset,
+                                    stepPx = stepPx,
+                                    lastIndex = currentLastIndex,
+                                )
+                                if (nextTarget != lastDragTarget) {
+                                    lastDragTarget = nextTarget
+                                    haptic.segmentTick()
+                                }
                                 val info = listState.layoutInfo
                                 val item = info.visibleItemsInfo.firstOrNull { it.index == index }
                                 if (item != null && info.viewportSize.width > 0) {
@@ -3161,8 +3273,12 @@ private fun StagedMediaStrip(
                             },
                             onDragEnd = {
                                 stopAutoScroll()
-                                val target =
-                                    stagedDragTarget(index, dragOffset, stepPx, media.lastIndex)
+                                val target = stagedDragTarget(
+                                    index = index,
+                                    offsetPx = dragOffset,
+                                    stepPx = stepPx,
+                                    lastIndex = currentLastIndex,
+                                )
                                 draggedIndex = -1
                                 dragOffset = 0f
                                 onMove(index, target)
@@ -3304,6 +3420,7 @@ private fun StagedMediaStrip(
  * transcript: the accent leading bar and label when the viewer wrote the quoted
  * message, a neutral bar when the other person did.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ReplyComposerBar(
     reply: ReplySnapshot,
@@ -3352,7 +3469,10 @@ private fun ReplyComposerBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onCancel) {
+            IconButton(
+                onClick = onCancel,
+                shapes = IconButtonDefaults.shapes(),
+            ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = stringResource(R.string.chat_reply_cancel),
@@ -3391,10 +3511,15 @@ private fun MicButton(
     val stateLabel = if (recording) stringResource(R.string.chat_mic_recording) else null
     val bubbles = LocalMessageBubbleColors.current
     val motion = MaterialTheme.motionScheme
-    val circleScale by animateFloatAsState(
+    val circleScale = animateFloatAsState(
         targetValue = if (recording) 1.15f else 1f,
         animationSpec = motion.defaultSpatialSpec(),
         label = "micScale",
+    )
+    val cornerPercent by animateIntAsState(
+        targetValue = if (recording) 32 else 50,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "micCorner",
     )
     val containerColor by animateColorAsState(
         targetValue = if (recording) {
@@ -3456,8 +3581,11 @@ private fun MicButton(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .scale(circleScale)
-                .clip(CircleShape)
+                .graphicsLayer {
+                    scaleX = circleScale.value
+                    scaleY = circleScale.value
+                }
+                .clip(RoundedCornerShape(percent = cornerPercent))
                 .background(containerColor),
             contentAlignment = Alignment.Center,
         ) {
@@ -3472,12 +3600,7 @@ private fun MicButton(
 }
 
 @Composable
-private fun RecordingStatus(
-    recorder: VoiceRecorder,
-    cancelCandidate: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val paused = recorder.state == VoiceRecordingState.Paused
+private fun RecordingDot(paused: Boolean) {
     // A paused recording keeps the dot still, so no clock runs.
     val pulse = if (paused) {
         null
@@ -3492,23 +3615,33 @@ private fun RecordingStatus(
             label = "recordingDotAlpha",
         )
     }
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .graphicsLayer { alpha = pulse?.value ?: 1f }
+            .clip(CircleShape)
+            .background(
+                if (paused) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            ),
+    )
+}
+
+@Composable
+private fun RecordingStatus(
+    recorder: VoiceRecorder,
+    cancelCandidate: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val paused = recorder.state == VoiceRecordingState.Paused
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .graphicsLayer { alpha = pulse?.value ?: 1f }
-                .clip(CircleShape)
-                .background(
-                    if (paused) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                ),
-        )
+        RecordingDot(paused = paused)
         Spacer(Modifier.width(8.dp))
         Text(
             text = formatMediaDuration(recorder.elapsedMs.toInt()),
@@ -3540,6 +3673,7 @@ private fun RecordingStatus(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LockedRecordingBar(
     recorder: VoiceRecorder,
@@ -3549,6 +3683,7 @@ private fun LockedRecordingBar(
 ) {
     val paused = recorder.state == VoiceRecordingState.Paused
     val haptic = LocalHapticFeedback.current
+    val bubbles = LocalMessageBubbleColors.current
     val controlDescription = stringResource(
         if (paused) R.string.chat_recording_resume else R.string.chat_recording_pause,
     )
@@ -3559,7 +3694,10 @@ private fun LockedRecordingBar(
             .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onDelete) {
+        IconButton(
+            onClick = onDelete,
+            shapes = IconButtonDefaults.shapes(),
+        ) {
             Icon(
                 imageVector = Icons.Rounded.Delete,
                 contentDescription = stringResource(R.string.chat_recording_delete),
@@ -3577,18 +3715,7 @@ private fun LockedRecordingBar(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (paused) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
-                        ),
-                )
+                RecordingDot(paused = paused)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = formatMediaDuration(recorder.elapsedMs.toInt()),
@@ -3604,25 +3731,44 @@ private fun LockedRecordingBar(
                 )
             }
         }
-        IconButton(
-            onClick = {
+        Spacer(Modifier.width(6.dp))
+        FilledTonalIconToggleButton(
+            checked = !paused,
+            onCheckedChange = {
                 haptic.toggle(paused)
                 if (paused) recorder.resume() else recorder.pause()
             },
-            modifier = Modifier.semantics {
-                contentDescription = controlDescription
-            },
+            shapes = IconToggleButtonShapes(
+                shape = CircleShape,
+                pressedShape = RoundedCornerShape(10.dp),
+                checkedShape = RoundedCornerShape(12.dp),
+            ),
+            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
+            modifier = Modifier
+                .size(40.dp)
+                .semantics { contentDescription = controlDescription },
         ) {
             VoicePlayPauseIcon(
                 playing = !paused,
                 loading = false,
                 failed = false,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                iconSize = 24.dp,
+                tint = LocalContentColor.current,
+                iconSize = 22.dp,
             )
         }
+        Spacer(Modifier.width(6.dp))
         FilledIconButton(
             onClick = onSend,
+            shapes = IconButtonDefaults.shapes(),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = bubbles.composerAccent,
+                contentColor = bubbles.onComposerAccent,
+            ),
             modifier = Modifier.size(48.dp),
         ) {
             Icon(

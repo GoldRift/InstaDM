@@ -11,6 +11,16 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,9 +47,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,6 +114,7 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val motion = MaterialTheme.motionScheme
     val loginError = stringResource(R.string.login_error)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -211,10 +224,17 @@ fun LoginScreen(
                 .imePadding(),
         ) {
             when {
-                pageLoading -> LinearWavyProgressIndicator(
-                    progress = { pageProgress / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                pageLoading -> {
+                    val animatedPageProgress = animateFloatAsState(
+                        targetValue = (pageProgress / 100f).coerceIn(0f, 1f),
+                        animationSpec = WavyProgressIndicatorDefaults.ProgressAnimationSpec,
+                        label = "loginPageProgress",
+                    )
+                    LinearWavyProgressIndicator(
+                        progress = { animatedPageProgress.value },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 validating -> LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             }
@@ -310,12 +330,20 @@ fun LoginScreen(
                     },
                 )
 
-                if (validating) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = validating,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                    enter = fadeIn(motion.defaultEffectsSpec()) +
+                        slideInVertically(motion.defaultSpatialSpec()) { it / 2 } +
+                        scaleIn(motion.defaultSpatialSpec(), initialScale = 0.92f),
+                    exit = fadeOut(motion.fastEffectsSpec()) +
+                        slideOutVertically(motion.fastSpatialSpec()) { it / 2 } +
+                        scaleOut(motion.fastSpatialSpec(), targetScale = 0.92f),
+                ) {
                     Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp)
-                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         shape = MaterialTheme.shapes.medium,
                     ) {
@@ -336,7 +364,18 @@ fun LoginScreen(
                 }
             }
 
-            errorMessage?.let { message ->
+            var lastErrorMessage by remember { mutableStateOf(errorMessage) }
+            if (errorMessage != null && errorMessage != lastErrorMessage) {
+                SideEffect { lastErrorMessage = errorMessage }
+            }
+            AnimatedVisibility(
+                visible = errorMessage != null,
+                enter = expandVertically(motion.defaultSpatialSpec()) +
+                    fadeIn(motion.defaultEffectsSpec()),
+                exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                    fadeOut(motion.defaultEffectsSpec()),
+            ) {
+                val message = errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
                 Surface(
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     color = MaterialTheme.colorScheme.errorContainer,

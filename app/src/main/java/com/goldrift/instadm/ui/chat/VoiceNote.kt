@@ -82,6 +82,7 @@ import androidx.core.net.toUri
 import com.goldrift.instadm.R
 import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.ui.components.longPress
 import com.goldrift.instadm.ui.components.segmentFrequentTick
 import com.goldrift.instadm.ui.components.segmentTick
 import com.goldrift.instadm.ui.components.thresholdActivated
@@ -669,7 +670,14 @@ fun WaveformBars(
                         if (size.width > 0) latestSeek?.invoke(offset.x / size.width)
                     },
                     // A slow drag must scrub, not open the message actions.
-                    onLongPress = { if (dragProgress == null) latestLongClick?.invoke() },
+                    onLongPress = {
+                        if (dragProgress == null) {
+                            latestLongClick?.let { callback ->
+                                haptic.longPress()
+                                callback()
+                            }
+                        }
+                    },
                 )
             }
             .pointerInput(Unit) {
@@ -706,7 +714,9 @@ fun WaveformBars(
         val gap = 2.dp.toPx()
         val count = ((size.width + gap) / (barWidth + gap)).toInt().coerceIn(1, 64)
         val step = if (amplitudes.isEmpty()) 0f else amplitudes.size.toFloat() / count
-        val played = (dragProgress ?: animatedProgress.value).coerceIn(0f, 1f)
+        val currentDrag = dragProgress
+        val played = (currentDrag ?: animatedProgress.value).coerceIn(0f, 1f)
+        val scrubbing = currentDrag != null
         for (index in 0 until count) {
             val amplitude = if (amplitudes.isEmpty()) {
                 0.4f
@@ -718,27 +728,9 @@ fun WaveformBars(
             val base = (size.height * (0.12f + 0.88f * amplitude.coerceIn(0f, 1f)))
                 .coerceIn(3.dp.toPx(), size.height)
             val left = index * (barWidth + gap)
-            val from = index.toFloat() / count
-            val to = (index + 1).toFloat() / count
-            // The bar the playhead is crossing blends between the played and
-            // unplayed alphas and grows slightly, so progress advances without
-            // a column switching on and off.
-            val alpha: Float
-            val height: Float
-            when {
-                to <= played -> {
-                    alpha = 1f
-                    height = base
-                }
-                from >= played -> {
-                    alpha = 0.32f
-                    height = base
-                }
-                else -> {
-                    alpha = 1f - 0.68f * ((played - from) * count)
-                    height = (base * 1.1f).coerceAtMost(size.height)
-                }
-            }
+            val alpha = waveformBarAlpha(index, count, played)
+            val height = (base * waveformBarHeightScale(index, count, played, scrubbing))
+                .coerceAtMost(size.height)
             drawRoundRect(
                 color = contentColor.copy(alpha = alpha),
                 topLeft = Offset(left, (size.height - height) / 2f),
@@ -805,3 +797,40 @@ internal fun scrubTickStep(fraction: Float, steps: Int = 20): Int {
     val scaled = fraction.coerceIn(0f, 1f) * steps
     return scaled.toInt().coerceIn(0, steps - 1)
 }
+
+/** Opacity for waveform bar [index] out of [count] at normalized [played] position. */
+internal fun waveformBarAlpha(index: Int, count: Int, played: Float): Float {
+    if (count <= 0 || index !in 0 until count || played.isNaN()) return UNPLAYED_BAR_ALPHA
+    val clamped = played.coerceIn(0f, 1f)
+    val from = index.toFloat() / count
+    val to = (index + 1).toFloat() / count
+    return when {
+        to <= clamped -> 1f
+        from >= clamped -> UNPLAYED_BAR_ALPHA
+        else -> {
+            val barFraction = ((clamped - from) * count).coerceIn(0f, 1f)
+            UNPLAYED_BAR_ALPHA + (1f - UNPLAYED_BAR_ALPHA) * barFraction
+        }
+    }
+}
+
+/** Height multiplier emphasizing the playhead bar, and its neighbors while scrubbing. */
+internal fun waveformBarHeightScale(
+    index: Int,
+    count: Int,
+    played: Float,
+    scrubbing: Boolean,
+): Float {
+    if (count <= 0 || index !in 0 until count || played.isNaN()) return 1f
+    val clamped = played.coerceIn(0f, 1f)
+    if (!scrubbing && (clamped <= 0f || clamped >= 1f)) return 1f
+    val activeIndex = (clamped * count).toInt().coerceIn(0, count - 1)
+    return when {
+        scrubbing && index == activeIndex -> 1.22f
+        scrubbing && abs(index - activeIndex) == 1 -> 1.1f
+        !scrubbing && index == activeIndex -> 1.1f
+        else -> 1f
+    }
+}
+
+private const val UNPLAYED_BAR_ALPHA = 0.32f

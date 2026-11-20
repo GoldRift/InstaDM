@@ -1,10 +1,13 @@
 package com.goldrift.instadm.ui.inbox
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -61,11 +64,14 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,6 +111,7 @@ import com.goldrift.instadm.ui.chat.unreadBadgeLabel
 import com.goldrift.instadm.ui.components.Avatar
 import com.goldrift.instadm.ui.components.ConversationAvatar
 import com.goldrift.instadm.ui.components.confirm
+import com.goldrift.instadm.ui.components.thresholdActivated
 import com.goldrift.instadm.ui.theme.InstaDMTheme
 import com.goldrift.instadm.ui.update.UpdateDialog
 import com.goldrift.instadm.update.UpdateInstaller
@@ -199,8 +206,43 @@ fun InboxScreen(
             shape = listTopShape,
             color = MaterialTheme.colorScheme.surface,
         ) {
+            val motion = MaterialTheme.motionScheme
             val refreshing = status == InboxStatus.Loading && conversations.isNotEmpty()
             val pullState = rememberPullToRefreshState()
+            val haptic = LocalHapticFeedback.current
+            val currentRefreshing by rememberUpdatedState(refreshing)
+            LaunchedEffect(pullState) {
+                var armed = false
+                snapshotFlow {
+                    when {
+                        currentRefreshing -> -1f
+                        pullState.isAnimating -> -2f
+                        else -> pullState.distanceFraction
+                    }
+                }.collect { raw ->
+                    val step = when (raw) {
+                        -1f -> stepPullRefreshThreshold(
+                            armed = armed,
+                            distanceFraction = 0f,
+                            refreshing = true,
+                        )
+                        -2f -> stepPullRefreshThreshold(
+                            armed = armed,
+                            distanceFraction = pullState.distanceFraction,
+                            refreshing = false,
+                            isAnimating = true,
+                        )
+                        else -> stepPullRefreshThreshold(
+                            armed = armed,
+                            distanceFraction = raw,
+                            refreshing = false,
+                            isAnimating = false,
+                        )
+                    }
+                    armed = step.armed
+                    if (step.fireHaptic) haptic.thresholdActivated()
+                }
+            }
             PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = onRefresh,
@@ -254,7 +296,22 @@ fun InboxScreen(
                     }
 
                     else -> Column(Modifier.fillMaxSize()) {
-                        if (shareHint != null) {
+                        var lastShareHint by remember { mutableStateOf(shareHint) }
+                        if (shareHint != null && shareHint != lastShareHint) {
+                            SideEffect { lastShareHint = shareHint }
+                        }
+                        var lastErrorMessage by remember { mutableStateOf(errorMessage) }
+                        if (errorMessage != null && errorMessage != lastErrorMessage) {
+                            SideEffect { lastErrorMessage = errorMessage }
+                        }
+                        AnimatedVisibility(
+                            visible = shareHint != null,
+                            enter = expandVertically(motion.defaultSpatialSpec()) +
+                                fadeIn(motion.defaultEffectsSpec()),
+                            exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                                fadeOut(motion.defaultEffectsSpec()),
+                        ) {
+                            val hint = shareHint ?: lastShareHint ?: return@AnimatedVisibility
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -262,7 +319,7 @@ fun InboxScreen(
                                 color = MaterialTheme.colorScheme.tertiaryContainer,
                             ) {
                                 Text(
-                                    text = shareHint,
+                                    text = hint,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(12.dp),
@@ -271,7 +328,15 @@ fun InboxScreen(
                                 )
                             }
                         }
-                        if (errorMessage != null) {
+                        AnimatedVisibility(
+                            visible = errorMessage != null,
+                            enter = expandVertically(motion.defaultSpatialSpec()) +
+                                fadeIn(motion.defaultEffectsSpec()),
+                            exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                                fadeOut(motion.defaultEffectsSpec()),
+                        ) {
+                            val message =
+                                errorMessage ?: lastErrorMessage ?: return@AnimatedVisibility
                             Surface(
                                 modifier = Modifier.semantics {
                                     liveRegion = LiveRegionMode.Polite
@@ -279,7 +344,7 @@ fun InboxScreen(
                                 color = MaterialTheme.colorScheme.errorContainer,
                             ) {
                                 Text(
-                                    text = errorMessage,
+                                    text = message,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(12.dp),
@@ -812,6 +877,40 @@ private fun UnreadDot(modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.primary)
             .clearAndSetSemantics { contentDescription = description },
     )
+}
+
+internal data class PullThresholdStep(
+    val armed: Boolean,
+    val fireHaptic: Boolean,
+)
+
+/**
+ * Hysteresis around pull-to-refresh's release threshold so boundary jitter
+ * and post-refresh settle animations only emit one haptic per pull.
+ */
+internal fun stepPullRefreshThreshold(
+    armed: Boolean,
+    distanceFraction: Float,
+    refreshing: Boolean,
+    isAnimating: Boolean = false,
+    triggerFraction: Float = 1f,
+    resetFraction: Float = 0.85f,
+): PullThresholdStep {
+    if (refreshing) return PullThresholdStep(armed = true, fireHaptic = false)
+    if (distanceFraction.isNaN()) return PullThresholdStep(armed = armed, fireHaptic = false)
+    if (isAnimating) {
+        return PullThresholdStep(
+            armed = armed && distanceFraction > resetFraction,
+            fireHaptic = false,
+        )
+    }
+    return when {
+        !armed && distanceFraction >= triggerFraction ->
+            PullThresholdStep(armed = true, fireHaptic = true)
+        armed && distanceFraction <= resetFraction ->
+            PullThresholdStep(armed = false, fireHaptic = false)
+        else -> PullThresholdStep(armed = armed, fireHaptic = false)
+    }
 }
 
 @Preview(name = "Inbox light", showBackground = true, widthDp = 390, heightDp = 844)

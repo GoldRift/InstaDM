@@ -1,5 +1,6 @@
 package com.goldrift.instadm.ui.update
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +12,7 @@ import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -48,10 +50,17 @@ fun UpdateDialog(
                     )
                 }
                 when (state) {
-                    is UpdateState.Downloading -> LinearWavyProgressIndicator(
-                        progress = { state.fraction },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    is UpdateState.Downloading -> {
+                        val animatedProgress = animateFloatAsState(
+                            targetValue = state.fraction.coerceIn(0f, 1f),
+                            animationSpec = WavyProgressIndicatorDefaults.ProgressAnimationSpec,
+                            label = "updateDialogProgress",
+                        )
+                        LinearWavyProgressIndicator(
+                            progress = { animatedProgress.value },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     UpdateState.Installing -> Text(
                         stringResource(R.string.updates_state_installing),
                     )

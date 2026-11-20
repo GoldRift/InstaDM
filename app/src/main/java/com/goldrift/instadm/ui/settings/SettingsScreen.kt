@@ -3,6 +3,7 @@ package com.goldrift.instadm.ui.settings
 import android.os.Build
 import android.widget.Toast
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -59,6 +61,7 @@ import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonSize
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -69,8 +72,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
@@ -363,10 +369,28 @@ fun SettingsScreen(
                             shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
                             trailing = {
                                 when (val current = updateState) {
-                                    is UpdateState.Downloading -> LoadingIndicator(
-                                        progress = { current.fraction },
-                                        modifier = Modifier.size(24.dp),
-                                    )
+                                    is UpdateState.Downloading -> {
+                                        val animatedProgress = animateFloatAsState(
+                                            targetValue = current.fraction.coerceIn(0f, 1f),
+                                            animationSpec = WavyProgressIndicatorDefaults.ProgressAnimationSpec,
+                                            label = "updateDownloadProgress",
+                                        )
+                                        val density = LocalDensity.current
+                                        val stroke = remember(density) {
+                                            Stroke(
+                                                width = with(density) { 2.5.dp.toPx() },
+                                                cap = StrokeCap.Round,
+                                            )
+                                        }
+                                        CircularWavyProgressIndicator(
+                                            progress = { animatedProgress.value },
+                                            modifier = Modifier.size(28.dp),
+                                            stroke = stroke,
+                                            trackStroke = stroke,
+                                            gapSize = 2.dp,
+                                            wavelength = 10.dp,
+                                        )
+                                    }
                                     UpdateState.Checking -> LoadingIndicator(
                                         modifier = Modifier.size(24.dp),
                                     )
