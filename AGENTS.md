@@ -2,7 +2,7 @@
 
 Two build units, no root Go module:
 - `go-core/`: Go module (`github.com/goldrift/instadm/go-core`) with protocol core (`igcore/`), CLI (`cmd/igcli/`), and gomobile wrapper (`mobile/`).
-- `app/`: Android module (`:app`), Jetpack Compose on top of generated `app/libs/igcore.aar`.
+- `app/`: Android module (`:app`), Jetpack Compose on top of generated `app/libs/igcore.aar`. `baselineprofile/` (`:baselineprofile`) only generates the startup profile `:app` consumes.
 
 For detailed Android internals, adb cookie push, and release/ABI flags, see `.agents/reference.md`.
 
@@ -13,7 +13,7 @@ Work on whatever branch is checked out; if asked to create one, use `feat/<slug>
 Before returning to `main`:
 - New or changed behavior has a test that fails without the change.
 - Relevant checks pass.
-- Demo screenshots are regenerated if a captured screen changed.
+- Leave `docs/screenshots/` alone unless you are cutting the release (see Demo build).
 - Rebase onto `main` and `git merge --ff-only`. The user deletes the branch.
 
 ## Checks
@@ -71,7 +71,8 @@ Never run `connectedDebugAndroidTest`, `:app:lintDebug`, or real-account checks 
 
 - `demo` build type (`com.goldrift.instadm.demo`) is offline, fictional, and never reads real sessions. Keep all demo hooks in `src/demo`; never add demo branches to production screens.
 - Visible UI changes require updating `app/src/demo/.../DemoData.kt` (new message kinds, media, threads) and `DemoProtocol.kt` (simulated behavior), and must work in airplane mode.
-- When a captured screen looks different, update `app/src/androidTestDemo/` and expected counts in `scripts/demo-screenshots.sh`, then run `./scripts/demo-screenshots.sh` and commit the refreshed `docs/screenshots/`. Never hand-edit the generated README gallery block. Skip screenshot refresh for non-visual changes, and leave images alone if the emulator is unavailable.
+- When a captured screen looks different, do not regenerate yet. `docs/screenshots/` is pinned to the latest release tag so the README gallery keeps matching the published APK; refreshing it during feature work is misleading and must not land on `main`.
+- Refresh screenshots only in the release commit right before creating a `v*` tag: update `app/src/androidTestDemo/` and expected counts in `scripts/demo-screenshots.sh`, run `./scripts/demo-screenshots.sh` (needs `Medium_Phone_API_37.0` and rewrites both `docs/screenshots/` and the README gallery), and commit the result with the release. Never hand-edit the generated README gallery block, and leave images alone if the emulator is unavailable.
 
 ## Build gotchas
 
