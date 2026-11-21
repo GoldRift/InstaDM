@@ -2350,7 +2350,7 @@ private fun ReplyQuote(
     val color = if (fromViewer) bubbles.quoteFromViewer else bubbles.quoteFromThem
     val contentColor =
         if (fromViewer) bubbles.onQuoteFromViewer else bubbles.onQuoteFromThem
-    val quoteModifier = modifier.widthIn(min = 180.dp)
+    val quoteModifier = modifier.fillMaxWidth()
 
     if (onClick == null) {
         Surface(
