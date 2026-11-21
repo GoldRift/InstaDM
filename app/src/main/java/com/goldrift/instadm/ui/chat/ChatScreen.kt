@@ -2514,12 +2514,10 @@ private fun MessageBubbleContent(
     val hasAttachment = media.isNotEmpty() || shares.isNotEmpty() ||
         viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null ||
         unavailable
-    Column(
-        modifier = Modifier.padding(
-            horizontal = if (hasAttachment || emojiOnly) AttachmentInset else 14.dp,
-            vertical = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp,
-        ),
-    ) {
+    // The quote card keeps as much room at the bubble sides as above it, so it
+    // sits outside the content column's wider text padding.
+    val quoteInset = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp
+    Column {
         if (reply != null) {
             ReplyQuote(
                 reply = reply,
@@ -2527,98 +2525,106 @@ private fun MessageBubbleContent(
                 thumbnail = replyThumbnail,
                 onClick = onQuoteClick,
                 modifier = Modifier.padding(
-                    start = if (hasAttachment) 6.dp else 0.dp,
-                    end = if (hasAttachment) 6.dp else 0.dp,
+                    start = quoteInset,
+                    end = quoteInset,
+                    top = quoteInset,
                     bottom = 8.dp,
                 ),
             )
         }
 
-        viewOnce.forEachIndexed { index, item ->
-            if (index > 0) Spacer(Modifier.height(4.dp))
-            ViewOnceNotice(
-                media = item,
-                onLongClick = onLongPress,
-            )
-        }
-
-        if (viewOnce.isNotEmpty() &&
-            (media.isNotEmpty() || shares.isNotEmpty() || voiceNotes.isNotEmpty())
+        Column(
+            modifier = Modifier.padding(
+                horizontal = if (hasAttachment || emojiOnly) AttachmentInset else 14.dp,
+                vertical = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp,
+            ),
         ) {
-            Spacer(Modifier.height(4.dp))
-        }
+            viewOnce.forEachIndexed { index, item ->
+                if (index > 0) Spacer(Modifier.height(4.dp))
+                ViewOnceNotice(
+                    media = item,
+                    onLongClick = onLongPress,
+                )
+            }
 
-        media.forEachIndexed { index, item ->
-            if (index > 0) Spacer(Modifier.height(4.dp))
-            MediaThumbnail(
-                media = item,
-                threadId = threadId,
-                messageId = message.id,
-                loadMedia = onLoadMedia,
-                onClick = { if (message.isServerMessage()) onOpenMedia(item) },
-                onLongClick = onLongPress,
-            )
-        }
+            if (viewOnce.isNotEmpty() &&
+                (media.isNotEmpty() || shares.isNotEmpty() || voiceNotes.isNotEmpty())
+            ) {
+                Spacer(Modifier.height(4.dp))
+            }
 
-        shares.forEachIndexed { index, item ->
-            if (index > 0 || media.isNotEmpty()) Spacer(Modifier.height(4.dp))
-            ShareCard(
-                media = item,
-                onOpenReel = { if (message.isServerMessage()) onOpenMedia(item) },
-                onLongClick = onLongPress,
-            )
-        }
-
-        if (voiceNotes.isNotEmpty()) {
-            if (media.isNotEmpty() || shares.isNotEmpty()) Spacer(Modifier.height(4.dp))
-            voiceNotes.forEach { item ->
-                VoiceNoteBubble(
+            media.forEachIndexed { index, item ->
+                if (index > 0) Spacer(Modifier.height(4.dp))
+                MediaThumbnail(
                     media = item,
                     threadId = threadId,
                     messageId = message.id,
-                    player = voicePlayer,
                     loadMedia = onLoadMedia,
+                    onClick = { if (message.isServerMessage()) onOpenMedia(item) },
                     onLongClick = onLongPress,
-                    noteTitle = noteTitle,
-                    noteAvatarUrl = noteAvatarUrl,
-                    noteInitials = noteInitials,
-                    onEnsureWaveform = onEnsureVoiceWaveform?.let { ensure ->
-                        { ensure(message.id, item) }
-                    },
                 )
             }
-        }
 
-        if (media.isEmpty() && shares.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
-            LocalMediaThumbnail(
-                media = localMedia,
-                onLongClick = onLongPress,
-            )
-        }
+            shares.forEachIndexed { index, item ->
+                if (index > 0 || media.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                ShareCard(
+                    media = item,
+                    onOpenReel = { if (message.isServerMessage()) onOpenMedia(item) },
+                    onLongClick = onLongPress,
+                )
+            }
 
-        if (unavailable && message.text.isNotBlank()) {
-            UnavailableShareNotice(
-                text = message.text,
-                onLongClick = onLongPress,
-            )
-        } else if (emojiOnly) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 38.sp,
-                    lineHeight = 44.sp,
-                ),
-                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
-            )
-        } else if (message.text.isNotBlank()) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(
-                    horizontal = if (hasAttachment) 10.dp else 0.dp,
-                    vertical = if (hasAttachment) 6.dp else 0.dp,
-                ),
-            )
+            if (voiceNotes.isNotEmpty()) {
+                if (media.isNotEmpty() || shares.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                voiceNotes.forEach { item ->
+                    VoiceNoteBubble(
+                        media = item,
+                        threadId = threadId,
+                        messageId = message.id,
+                        player = voicePlayer,
+                        loadMedia = onLoadMedia,
+                        onLongClick = onLongPress,
+                        noteTitle = noteTitle,
+                        noteAvatarUrl = noteAvatarUrl,
+                        noteInitials = noteInitials,
+                        onEnsureWaveform = onEnsureVoiceWaveform?.let { ensure ->
+                            { ensure(message.id, item) }
+                        },
+                    )
+                }
+            }
+
+            if (media.isEmpty() && shares.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
+                LocalMediaThumbnail(
+                    media = localMedia,
+                    onLongClick = onLongPress,
+                )
+            }
+
+            if (unavailable && message.text.isNotBlank()) {
+                UnavailableShareNotice(
+                    text = message.text,
+                    onLongClick = onLongPress,
+                )
+            } else if (emojiOnly) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 38.sp,
+                        lineHeight = 44.sp,
+                    ),
+                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+                )
+            } else if (message.text.isNotBlank()) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(
+                        horizontal = if (hasAttachment) 10.dp else 0.dp,
+                        vertical = if (hasAttachment) 6.dp else 0.dp,
+                    ),
+                )
+            }
         }
     }
 }
