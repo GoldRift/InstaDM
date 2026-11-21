@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReactionEntity::class,
         OutboxEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
@@ -107,6 +107,20 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 re-arms paging for threads an early-ending page had marked as
+         * complete. A page that stored messages no longer ends a thread, so
+         * these threads fetch on until a page returns nothing.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE threads SET has_more_older = 1 " +
+                        "WHERE oldest_cursor != '' AND has_more_older = 0",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
                 .addMigrations(
@@ -116,6 +130,7 @@ abstract class InstaDmDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
     }

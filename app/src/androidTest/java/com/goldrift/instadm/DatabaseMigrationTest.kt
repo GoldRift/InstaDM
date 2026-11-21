@@ -259,6 +259,51 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun reArmsThreadsAnEarlyEndingPageMarkedComplete() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V6_THREADS)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            db.execSQL(
+                "INSERT INTO threads (id, oldest_cursor, has_more_older) " +
+                    "VALUES ('stranded', 'deep-cursor', 0)",
+            )
+            db.execSQL(
+                "INSERT INTO threads (id, oldest_cursor, has_more_older) " +
+                    "VALUES ('unstarted', '', 0)",
+            )
+            InstaDmDatabase.MIGRATION_7_8.migrate(db)
+            db.query(
+                "SELECT id, has_more_older, oldest_cursor FROM threads ORDER BY id",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("stranded", cursor.getString(0))
+                assertEquals(1, cursor.getInt(1))
+                assertEquals("deep-cursor", cursor.getString(2))
+                assertTrue(cursor.moveToNext())
+                assertEquals("unstarted", cursor.getString(0))
+                assertEquals(0, cursor.getInt(1))
+                assertEquals("", cursor.getString(2))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
     private companion object {
         const val TEST_DB = "instadm-migration-test"
         const val V6_THREADS =

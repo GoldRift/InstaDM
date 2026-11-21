@@ -50,6 +50,31 @@ data class OlderPageResult(
 )
 
 /**
+ * Whether an older page leaves history behind it.
+ *
+ * Messages the page stored prove the history continues, because Instagram
+ * sometimes ends a page early with `has_next_page = false` while older
+ * messages remain. Trusting that flag there stranded the reader at the page's
+ * start for good. A page that stored nothing (an overlap) only continues while
+ * the server still claims more, and a page whose rows the retention prune
+ * removed ends it because the history can no longer be shown.
+ */
+internal fun olderPageHasMore(
+    cursorAdvanced: Boolean,
+    pageMessageCount: Int,
+    added: Int,
+    retained: Int,
+    serverHasMore: Boolean,
+): Boolean {
+    if (!cursorAdvanced) return false
+    return when {
+        retained > 0 -> true
+        added > 0 -> false
+        else -> serverHasMore && pageMessageCount > 0
+    }
+}
+
+/**
  * Owns the Room database and turns normalized Go JSON into entities. The UI
  * observes flows from here; nothing in this class talks to the network.
  *
@@ -162,8 +187,11 @@ class ChatStore(
             if (previous == null || previous.oldestCursor.isBlank()) {
                 threadDao.updateNewestPage(
                     threadId = threadId,
+                    // A cursor names where the page stopped, so older messages
+                    // may follow even when the server ends this page early; only
+                    // an older page that returns nothing proves the start.
                     cursor = parsed.oldestCursor,
-                    hasMore = parsed.hasMoreOlder,
+                    hasMore = parsed.hasMoreOlder || parsed.oldestCursor.isNotBlank(),
                     syncedAt = now,
                     now = now,
                 )
@@ -205,18 +233,24 @@ class ChatStore(
                 (requestedCursor.isBlank() || cursor != requestedCursor)
             messageDao.prune(threadId, retention)
             val retained = (messageDao.count(threadId) - before).coerceAtLeast(0)
-            // At the retention cap a page can be stored and pruned in the same
-            // transaction. Stop rather than fetching history that cannot be shown.
-            val hasMore = parsed.hasMoreOlder &&
-                cursorAdvanced &&
-                (added == 0 || retained > 0)
+            val hasMore = olderPageHasMore(
+                cursorAdvanced = cursorAdvanced,
+                pageMessageCount = parsed.messages.size,
+                added = added,
+                retained = retained,
+                serverHasMore = parsed.hasMoreOlder,
+            )
+            // An empty last page names no cursor; keeping the one that was asked
+            // for leaves the thread readable as "history ends here" instead of
+            // blanking it, which would re-arm paging from the newest page.
+            val nextCursor = cursor.ifBlank { requestedCursor }
             threadDao.updateOlderPage(
                 threadId = threadId,
-                cursor = cursor,
+                cursor = nextCursor,
                 hasMore = hasMore,
                 now = now,
             )
-            OlderPageResult(added = retained, oldestCursor = cursor, hasMoreOlder = hasMore)
+            OlderPageResult(added = retained, oldestCursor = nextCursor, hasMoreOlder = hasMore)
         }
     }
 

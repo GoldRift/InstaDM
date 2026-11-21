@@ -598,6 +598,61 @@ class ChatStoreTest {
     }
 
     @Test
+    fun olderPageThatStoresMessagesKeepsPagingWhenTheServerEndsEarly() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+
+        // Instagram can end a page early: the page still added messages and
+        // named a new cursor, so older history remains behind it.
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [
+                    {
+                      "id": "message-0",
+                      "sender_fbid": 222,
+                      "timestamp_ms": 1699999999000,
+                      "kind": "text",
+                      "text": "hello there"
+                    }
+                  ],
+                  "has_more_older": false,
+                  "oldest_cursor": "page-2-cursor"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val thread = store.conversationThread("thread-1")
+        assertTrue(thread.hasMoreOlder)
+        assertEquals("page-2-cursor", thread.oldestCursor)
+    }
+
+    @Test
+    fun emptyOlderPageEndsPagingAndKeepsTheLastCursor() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+
+        store.ingestOlderPage(
+            JSONObject(
+                """
+                {
+                  "thread_id": "thread-1",
+                  "messages": [],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val thread = store.conversationThread("thread-1")
+        assertFalse(thread.hasMoreOlder)
+        assertEquals("older-cursor", thread.oldestCursor)
+    }
+
+    @Test
     fun threadRefreshKeepsTheDeeperOlderCursor() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))
         store.ingestThread(JSONObject(THREAD))
