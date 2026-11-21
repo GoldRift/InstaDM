@@ -41,6 +41,7 @@ class DemoScreenshotTest {
         session.capture("02-chat-light")
 
         compose.onAllNodesWithContentDescription("Open media")[0].performClick()
+        session.revealMediaControls()
         session.awaitDescription("Close")
         Thread.sleep(700)
         session.capture("03-media-viewer-light")

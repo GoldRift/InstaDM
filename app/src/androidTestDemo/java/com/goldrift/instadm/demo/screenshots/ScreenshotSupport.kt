@@ -2,11 +2,14 @@ package com.goldrift.instadm.demo.screenshots
 
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import com.goldrift.instadm.MainActivity
@@ -84,6 +87,16 @@ internal class ScreenshotSession(
 
     fun back() {
         device.pressBack()
+        rule.waitForIdle()
+    }
+
+    /**
+     * The media viewer opens with its controls hidden; one tap on the media
+     * brings the close button and metadata back.
+     */
+    fun revealMediaControls() {
+        rule.waitForIdle()
+        rule.onRoot().performTouchInput { click(center) }
         rule.waitForIdle()
     }
 

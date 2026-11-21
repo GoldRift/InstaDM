@@ -36,6 +36,7 @@ class DemoDarkScreenshotTest {
         session.capture("02-chat-dark")
 
         compose.onAllNodesWithContentDescription("Open media")[0].performClick()
+        session.revealMediaControls()
         session.awaitDescription("Close")
         Thread.sleep(700)
         session.capture("03-media-viewer-dark")
