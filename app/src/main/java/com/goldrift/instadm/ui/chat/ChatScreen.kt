@@ -267,6 +267,8 @@ private val ClusterInnerCornerRadius = 6.dp
 /** Inset between a bubble's edge and an inline attachment. */
 internal val AttachmentInset = 4.dp
 
+private val QuoteCardShape = RoundedCornerShape(16.dp)
+
 private val BubbleShape = RoundedCornerShape(BubbleCornerRadius)
 private val BubbleShapeMineFirst = RoundedCornerShape(
     topStart = BubbleCornerRadius,
@@ -2348,13 +2350,12 @@ private fun ReplyQuote(
     val color = if (fromViewer) bubbles.quoteFromViewer else bubbles.quoteFromThem
     val contentColor =
         if (fromViewer) bubbles.onQuoteFromViewer else bubbles.onQuoteFromThem
-    val shape = MaterialTheme.shapes.medium
     val quoteModifier = modifier.widthIn(min = 180.dp)
 
     if (onClick == null) {
         Surface(
             modifier = quoteModifier,
-            shape = shape,
+            shape = QuoteCardShape,
             color = color,
             contentColor = contentColor,
         ) {
@@ -2364,7 +2365,7 @@ private fun ReplyQuote(
         Surface(
             onClick = onClick,
             modifier = quoteModifier,
-            shape = shape,
+            shape = QuoteCardShape,
             color = color,
             contentColor = contentColor,
         ) {
@@ -2380,26 +2381,26 @@ private fun ReplyQuoteBody(
     thumbnail: ReplyThumbnail?,
 ) {
     Row(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (thumbnail != null) {
-            ReplyThumbnailBox(thumbnail = thumbnail, size = 40.dp)
+            ReplyThumbnailBox(thumbnail = thumbnail, size = 44.dp)
             Spacer(Modifier.width(10.dp))
         }
         Column {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = replyContent(reply),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -2528,7 +2529,7 @@ private fun MessageBubbleContent(
                 modifier = Modifier.padding(
                     start = if (hasAttachment) 6.dp else 0.dp,
                     end = if (hasAttachment) 6.dp else 0.dp,
-                    bottom = 6.dp,
+                    bottom = 8.dp,
                 ),
             )
         }
