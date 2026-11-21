@@ -44,20 +44,23 @@ fun applyReadReceiptToMessages(
 }
 
 /**
- * The newest message the viewer sent. Only this bubble carries the persistent
- * sent/seen receipt; older messages only show their timestamp when tapped.
- * Activity notices are receipts for the thread, not messages the viewer sent,
- * so they never own the receipt.
+ * The message that owns the persistent sent/seen receipt: the newest non-admin
+ * message, and only while the viewer sent it. An incoming message after it
+ * already proves the other side read everything before, so the receipt is
+ * hidden until the viewer sends again. Activity notices are receipts for the
+ * thread, not messages, so they neither own nor clear the receipt.
  */
-fun lastOutgoingMessageId(messages: List<ChatMessage>): String? =
-    messages.lastOrNull { it.sender == MessageSender.Me && !it.isAdminNotice() }?.id
+fun readReceiptOwnerId(messages: List<ChatMessage>): String? =
+    messages.lastOrNull { !it.isAdminNotice() }
+        ?.takeIf { it.sender == MessageSender.Me }
+        ?.id
 
 /**
  * Whether this bubble shows the sent/seen read receipt. Only the newest
- * outgoing non-admin message displays a receipt.
+ * message, while it is an outgoing non-admin message, displays a receipt.
  */
-fun ChatMessage.showsReadReceipt(lastOutgoingId: String?): Boolean =
-    sender == MessageSender.Me && !isAdminNotice() && id == lastOutgoingId
+fun ChatMessage.showsReadReceipt(ownerId: String?): Boolean =
+    sender == MessageSender.Me && !isAdminNotice() && id == ownerId
 
 /**
  * Whether tapping this bubble can reveal its timestamp. Any non-admin message

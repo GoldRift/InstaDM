@@ -9,7 +9,7 @@ import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
 import com.goldrift.instadm.ui.chat.canRevealTimestamp
-import com.goldrift.instadm.ui.chat.lastOutgoingMessageId
+import com.goldrift.instadm.ui.chat.readReceiptOwnerId
 import com.goldrift.instadm.ui.chat.publishesReadReceipt
 import com.goldrift.instadm.ui.chat.requestReadWatermark
 import com.goldrift.instadm.ui.chat.shouldPublishReadReceipt
@@ -148,12 +148,37 @@ class ReadStatusTest {
         val newest = message("mid.newest", MessageSender.Me, 3_000)
         val messages = listOf(older, incoming, newest)
 
-        val lastOutgoingId = lastOutgoingMessageId(messages)
+        val receiptOwnerId = readReceiptOwnerId(messages)
 
-        assertEquals("mid.newest", lastOutgoingId)
-        assertTrue(newest.showsReadReceipt(lastOutgoingId))
-        assertFalse(older.showsReadReceipt(lastOutgoingId))
-        assertFalse(incoming.showsReadReceipt(lastOutgoingId))
+        assertEquals("mid.newest", receiptOwnerId)
+        assertTrue(newest.showsReadReceipt(receiptOwnerId))
+        assertFalse(older.showsReadReceipt(receiptOwnerId))
+        assertFalse(incoming.showsReadReceipt(receiptOwnerId))
+    }
+
+    @Test
+    fun aReplyAfterTheOutgoingMessageHidesTheReadReceipt() {
+        val outgoing = message("mid.out", MessageSender.Me, 1_000)
+        val reply = message("mid.reply", MessageSender.Them, 2_000)
+        val messages = listOf(outgoing, reply)
+
+        val receiptOwnerId = readReceiptOwnerId(messages)
+
+        assertEquals(null, receiptOwnerId)
+        assertFalse(outgoing.showsReadReceipt(receiptOwnerId))
+        assertFalse(reply.showsReadReceipt(receiptOwnerId))
+    }
+
+    @Test
+    fun anActivityNoticeAfterTheOutgoingMessageKeepsTheReadReceipt() {
+        val outgoing = message("mid.out", MessageSender.Me, 1_000)
+        val call = message("mid.call", MessageSender.Them, 2_000, kind = CALL_KIND)
+
+        val receiptOwnerId = readReceiptOwnerId(listOf(outgoing, call))
+
+        assertEquals("mid.out", receiptOwnerId)
+        assertTrue(outgoing.showsReadReceipt(receiptOwnerId))
+        assertFalse(call.showsReadReceipt(receiptOwnerId))
     }
 
     @Test
@@ -184,20 +209,20 @@ class ReadStatusTest {
         )
         val call = message("mid.call", MessageSender.Me, 3_000, kind = CALL_KIND)
 
-        val lastOutgoingId = lastOutgoingMessageId(listOf(outgoing, restricted, call))
+        val receiptOwnerId = readReceiptOwnerId(listOf(outgoing, restricted, call))
 
-        assertEquals("mid.out", lastOutgoingId)
-        assertTrue(outgoing.showsReadReceipt(lastOutgoingId))
-        assertFalse(restricted.showsReadReceipt(lastOutgoingId))
-        assertFalse(call.showsReadReceipt(lastOutgoingId))
+        assertEquals("mid.out", receiptOwnerId)
+        assertTrue(outgoing.showsReadReceipt(receiptOwnerId))
+        assertFalse(restricted.showsReadReceipt(receiptOwnerId))
+        assertFalse(call.showsReadReceipt(receiptOwnerId))
     }
 
     @Test
     fun threadsWithoutOutgoingMessagesHaveNoReceiptOwner() {
         val messages = listOf(message("mid.1", MessageSender.Them, 1_000))
 
-        assertEquals(null, lastOutgoingMessageId(messages))
-        assertEquals(null, lastOutgoingMessageId(emptyList()))
+        assertEquals(null, readReceiptOwnerId(messages))
+        assertEquals(null, readReceiptOwnerId(emptyList()))
         assertFalse(messages[0].showsReadReceipt(null))
     }
 }

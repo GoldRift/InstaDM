@@ -744,7 +744,7 @@ fun ChatScreen(
     }
     val unsendMessage = unsendMessageId?.let { id -> messages.firstOrNull { it.id == id } }
     val emojiPickerMessage = emojiPickerMessageId?.let { id -> messages.firstOrNull { it.id == id } }
-    val lastOutgoingId = lastOutgoingMessageId(transcript)
+    val receiptOwnerId = readReceiptOwnerId(transcript)
     val replyLabel = replyTarget?.let { message ->
         when {
             message.sender == MessageSender.Me -> stringResource(R.string.chat_you)
@@ -1106,7 +1106,7 @@ fun ChatScreen(
                                 },
                                 onJumpToQuoted = ::jumpToQuotedMessage,
                                 highlightedMessageId = quotedMessageId,
-                                lastOutgoingId = lastOutgoingId,
+                                receiptOwnerId = receiptOwnerId,
                                 revealedTimestampMessageId = revealedTimestampMessageId,
                                 onToggleTimestamp = { messageId ->
                                     revealedTimestampMessageId =
@@ -1472,7 +1472,7 @@ private fun MessageList(
     onReply: (ChatMessage) -> Unit,
     onJumpToQuoted: (messageId: String) -> Unit,
     highlightedMessageId: String?,
-    lastOutgoingId: String?,
+    receiptOwnerId: String?,
     revealedTimestampMessageId: String?,
     onToggleTimestamp: (messageId: String) -> Unit,
     actionMessageId: String?,
@@ -1606,7 +1606,7 @@ private fun MessageList(
             }
             val replyThumbnail = quotedOriginal?.replyThumbnail()
             val replyLabel = reply?.let { replySenderLabel(it, contact) }.orEmpty()
-            val showReadReceipt = !adminNotice && message.showsReadReceipt(lastOutgoingId)
+            val showReadReceipt = !adminNotice && message.showsReadReceipt(receiptOwnerId)
             val timestampRevealed = !adminNotice && revealedTimestampMessageId == message.id
 
             Column(
