@@ -190,6 +190,69 @@ class RealtimeRecorderTest {
     }
 
     @Test
+    fun markReadFromAnotherClientClearsTheUnreadBadgeAndKeepsNewerMessagesUnread() = runBlocking {
+        recorder.apply(
+            RealtimeEvent(
+                type = "message.new",
+                threadId = "thread-1",
+                message = incoming("message-2", "read elsewhere", 1_700_000_005_000),
+            ),
+        )
+        assertEquals(1, store.unreadCount("thread-1"))
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "mark.read",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_005_000,
+            ),
+        )
+
+        assertEquals(0, store.unreadCount("thread-1"))
+        assertEquals(1_700_000_005_000L, db.threads().thread("thread-1")!!.readWatermarkMs)
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "message.new",
+                threadId = "thread-1",
+                message = incoming("message-3", "newer", 1_700_000_006_000),
+            ),
+        )
+        assertEquals(1, store.unreadCount("thread-1"))
+
+        // An older delta must not clear a message newer than its watermark.
+        recorder.apply(
+            RealtimeEvent(
+                type = "mark.read",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_005_000,
+            ),
+        )
+        assertEquals(1, store.unreadCount("thread-1"))
+        assertEquals(1_700_000_005_000L, db.threads().thread("thread-1")!!.readWatermarkMs)
+    }
+
+    @Test
+    fun markReadFromAnotherClientClearsMarkedUnread() = runBlocking {
+        val mailbox = JSONObject(MAILBOX)
+        mailbox.getJSONArray("threads").getJSONObject(0).put("marked_as_unread", true)
+        store.ingestMailbox(mailbox)
+        assertTrue(db.threads().thread("thread-1")!!.markedUnread)
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "mark.read",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_005_000,
+            ),
+        )
+
+        val thread = db.threads().thread("thread-1")!!
+        assertFalse(thread.markedUnread)
+        assertEquals(1_700_000_005_000L, thread.readWatermarkMs)
+    }
+
+    @Test
     fun incomingReactionFetchesTheActivityLogAndNotifies() = runBlocking {
         val notified = Channel<RealtimeEvent>(Channel.UNLIMITED)
         recorder = RealtimeRecorder(

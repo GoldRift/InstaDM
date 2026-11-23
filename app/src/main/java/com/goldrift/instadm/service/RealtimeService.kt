@@ -258,7 +258,7 @@ class RealtimeService : Service() {
                     RealtimeBus.publish(event)
                 }
 
-                "message.edit", "message.delete", "read.receipt",
+                "message.edit", "message.delete", "read.receipt", "mark.read",
                 "reaction.add", "reaction.remove", "typing",
                 -> {
                     RealtimeBus.publish(event)

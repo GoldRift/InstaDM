@@ -39,6 +39,7 @@ class RealtimeRecorder(
             "message.delete" -> deleteMessage(event)
             "reaction.add", "reaction.remove" -> reaction(event)
             "read.receipt" -> readReceipt(event)
+            "mark.read" -> markRead(event)
         }
     }
 
@@ -140,6 +141,14 @@ class RealtimeRecorder(
         } else {
             chatStore.markMessagesSeen(event.threadId, event.timestampMs)
         }
+    }
+
+    private suspend fun markRead(event: RealtimeEvent) {
+        if (event.threadId.isBlank() || event.timestampMs <= 0) return
+        // A read made on another client arrives as mark.read. It carries the
+        // read watermark Instagram itself recorded, so it clears the badge and
+        // the notification exactly like reading the chat here.
+        chatStore.markThreadRead(event.threadId, event.timestampMs)
     }
 
     /**
