@@ -13,6 +13,7 @@ import com.goldrift.instadm.ui.chat.clampImageScale
 import com.goldrift.instadm.ui.chat.doubleTapZoomTarget
 import com.goldrift.instadm.ui.chat.formatPlaybackSpeed
 import com.goldrift.instadm.ui.chat.isDecoderFailureCode
+import com.goldrift.instadm.ui.chat.isViewableChatMedia
 import com.goldrift.instadm.ui.chat.mediaDismissTransform
 import com.goldrift.instadm.ui.chat.nextPlaybackSpeed
 import com.goldrift.instadm.ui.chat.shouldAutoHidePlayerChrome
@@ -392,6 +393,17 @@ class MediaPlayerMathTest {
             listOf("1:01 PM", "1:01 PM", "1:03 PM", "1:06 PM", "1:07 PM", "1:08 PM"),
             request.items.map { it.timestamp },
         )
+    }
+
+    @Test
+    fun musicPreviewIsNotViewableInTheFullScreenViewer() {
+        val music = MessageMedia(
+            type = "music",
+            url = "https://cdn.example.invalid/preview.mp4",
+            previewUrl = "https://cdn.example.invalid/artwork.jpg",
+        )
+
+        assertFalse(isViewableChatMedia(music))
     }
 
     @Test

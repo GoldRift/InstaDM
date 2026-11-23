@@ -170,6 +170,8 @@ fun messageContentType(message: ChatMessage): String {
         message.isStickerOnly() -> "sticker"
         message.isJumboEmoji() -> "jumbo"
         message.media.any { it.isVoiceNote } -> "voice"
+        message.media.any { it.isMusic } -> "music"
+        message.media.any { it.isLiveLocation } -> "location"
         message.media.any { (it.isLink || it.isReel) && !it.viewOnce } -> "share"
         message.media.isNotEmpty() || message.localMedia != null -> "media"
         else -> "text"

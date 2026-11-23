@@ -1,5 +1,8 @@
 package com.goldrift.instadm.ui.chat
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -47,7 +51,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.LiveLocation
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.parseLiveLocation
 import java.net.URI
 import kotlin.math.roundToInt
 
@@ -79,6 +85,24 @@ internal fun shareLinkLabel(raw: String): String {
         instagram -> path
         else -> "$host$path"
     }
+}
+
+/**
+ * `geo:` URI for a live-location pin. The raw Double values are interpolated
+ * rather than formatted, so a comma-decimal locale cannot corrupt the pair.
+ */
+internal fun liveLocationGeoUri(location: LiveLocation): String =
+    "geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}"
+
+/**
+ * Hands a live location to the installed maps app. Returns false when no app
+ * can handle the intent, so the bubble can show its failure toast.
+ */
+internal fun openLocationInMaps(context: Context, location: LiveLocation): Boolean {
+    // FLAG_ACTIVITY_NEW_TASK: the Compose context is not always an Activity.
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(liveLocationGeoUri(location)))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return runCatching { context.startActivity(intent) }.isSuccess
 }
 
 /**
@@ -157,6 +181,81 @@ fun ShareCard(
                 onLongClick = onLongClick,
                 onOpen = openLink,
             )
+        }
+    }
+}
+
+/**
+ * Map snapshot and captions for a live-location share. The whole card opens the
+ * pin in the installed maps app; neither Instagram's dead deep link nor the
+ * static map URL is ever handed to a browser.
+ */
+@Composable
+fun LocationCard(
+    media: MessageMedia,
+    senderName: String,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val location = parseLiveLocation(media.url.ifBlank { media.targetUrl }) ?: return
+    val context = LocalContext.current
+    val openLocation = {
+        if (!openLocationInMaps(context, location)) {
+            Toast.makeText(
+                context,
+                R.string.chat_location_error,
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 260.dp)
+            // Rounding all corners matches a preview without a link strip.
+            .clip(shareShape(hasLink = false))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onClickLabel = stringResource(R.string.chat_location_open),
+                onLongClickLabel = stringResource(R.string.chat_message_actions),
+                onLongClick = onLongClick,
+                onClick = openLocation,
+            ),
+    ) {
+        if (media.thumbnailUrl.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clampedAspectRatio(media.aspectRatio, MaxPreviewHeight),
+            ) {
+                SharePreviewImage(media)
+            }
+        }
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Place,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = stringResource(R.string.chat_live_location),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (senderName.isNotBlank()) {
+                    Text(
+                        text = stringResource(R.string.chat_live_location_sharing, senderName),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

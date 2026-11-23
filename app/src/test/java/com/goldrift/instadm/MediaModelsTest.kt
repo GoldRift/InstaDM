@@ -1,9 +1,13 @@
 package com.goldrift.instadm
 
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.parseLiveLocation
+import com.goldrift.instadm.data.parseMedia
 import com.goldrift.instadm.data.waveformJson
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -215,4 +219,152 @@ class MediaModelsTest {
         assertEquals("", link.thumbnailUrl)
     }
 
+    @Test
+    fun parseMediaKeepsAMusicShareWithItsArtworkTitleAndArtist() {
+        val parsed = parseMedia(
+            JSONArray(
+                """
+                [
+                  {
+                    "type": "music",
+                    "url": "https://cdn.example.invalid/preview.mp4",
+                    "preview_url": "https://cdn.example.invalid/artwork.jpg",
+                    "target_url": "https://www.instagram.com/_u/demoartist",
+                    "title": "Night Drive",
+                    "subtitle": "Demo Artist"
+                  }
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(1, parsed.size)
+        val music = parsed.single()
+        assertEquals("music", music.type)
+        assertEquals("https://cdn.example.invalid/preview.mp4", music.url)
+        assertEquals("https://cdn.example.invalid/artwork.jpg", music.previewUrl)
+        assertEquals("https://www.instagram.com/_u/demoartist", music.targetUrl)
+        assertEquals("Night Drive", music.title)
+        assertEquals("Demo Artist", music.subtitle)
+        assertTrue(music.isMusic)
+    }
+
+    @Test
+    fun musicPreviewIsNotAVisualVideoAndKeepsTheArtworkThumbnail() {
+        val media = MessageMedia(
+            type = "music",
+            url = "https://cdn.example.invalid/preview.mp4",
+            previewUrl = "https://cdn.example.invalid/artwork.jpg",
+        )
+
+        assertFalse(media.isVideo)
+        assertFalse(media.isVisual)
+        assertEquals("https://cdn.example.invalid/artwork.jpg", media.thumbnailUrl)
+        assertFalse(media.isVoiceNote)
+    }
+
+    @Test
+    fun musicWithOnlyArtworkOffersNoPlayback() {
+        val media = MessageMedia(
+            type = "music",
+            url = "",
+            previewUrl = "https://cdn.example.invalid/artwork.jpg",
+        )
+
+        assertEquals("", media.musicAudioUrl)
+        assertTrue(media.isMusic)
+        assertFalse(media.isVisual)
+        assertEquals("https://cdn.example.invalid/artwork.jpg", media.thumbnailUrl)
+    }
+
+    @Test
+    fun musicPreviewMp4IsTheAudioSource() {
+        val media = MessageMedia(
+            type = "music",
+            url = "https://cdn.example.invalid/preview.mp4",
+            previewUrl = "https://cdn.example.invalid/artwork.jpg",
+        )
+
+        assertEquals("https://cdn.example.invalid/preview.mp4", media.musicAudioUrl)
+    }
+
+    @Test
+    fun parsesALiveLocationDeepLink() {
+        val location = parseLiveLocation(
+            "instagram://live_location/?latitude=12.345678901234&longitude=-56.789012345678" +
+                "&session_id=9876543210&xma_update=nav",
+        ) ?: error("expected a live location")
+
+        assertEquals(12.345678901234, location.latitude, 0.0)
+        assertEquals(-56.789012345678, location.longitude, 0.0)
+    }
+
+    @Test
+    fun rejectsALiveLocationWithoutLongitude() {
+        assertNull(
+            parseLiveLocation(
+                "instagram://live_location/?latitude=12.345678901234&session_id=9876543210",
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsALiveLocationDeepLinkWithAWebScheme() {
+        assertNull(parseLiveLocation("https://www.instagram.com/live_location/?latitude=1&longitude=2"))
+    }
+
+    @Test
+    fun rejectsAnInstagramDeepLinkWithAnotherHost() {
+        assertNull(parseLiveLocation("instagram://other/?latitude=1&longitude=2"))
+    }
+
+    @Test
+    fun rejectsAnOutOfRangeLatitude() {
+        assertNull(parseLiveLocation("instagram://live_location/?latitude=999&longitude=2"))
+    }
+
+    @Test
+    fun rejectsAnOutOfRangeLongitude() {
+        assertNull(parseLiveLocation("instagram://live_location/?latitude=1&longitude=181"))
+    }
+
+    @Test
+    fun rejectsAnEmptyLiveLocationString() {
+        assertNull(parseLiveLocation(""))
+    }
+
+    @Test
+    fun rejectsANonNumericLatitude() {
+        assertNull(parseLiveLocation("instagram://live_location/?latitude=abc&longitude=2"))
+    }
+
+    @Test
+    fun recognizesALiveLocationLinkInEitherUrlField() {
+        val deepLink = "instagram://live_location/?latitude=12.345678901234&longitude=-56.789012345678" +
+            "&session_id=9876543210&xma_update=nav"
+        val withUrl = MessageMedia(type = "link", url = deepLink, targetUrl = deepLink)
+        // Live-location URLs are not openable http links, so parseMedia may keep
+        // the item only through its preview; the target URL is enough on its own.
+        val withTargetUrlOnly = MessageMedia(type = "link", url = "", targetUrl = deepLink)
+
+        assertTrue(withUrl.isLiveLocation)
+        assertTrue(withTargetUrlOnly.isLiveLocation)
+    }
+
+    @Test
+    fun ordinaryLinksAndMusicAreNotLiveLocations() {
+        val ordinaryLink = MessageMedia(
+            type = "link",
+            url = "https://example.com/a",
+            targetUrl = "https://example.com/a",
+        )
+        val music = MessageMedia(
+            type = "music",
+            url = "https://cdn.example.invalid/preview.mp4",
+            previewUrl = "https://cdn.example.invalid/artwork.jpg",
+        )
+
+        assertFalse(ordinaryLink.isLiveLocation)
+        assertFalse(music.isLiveLocation)
+    }
 }

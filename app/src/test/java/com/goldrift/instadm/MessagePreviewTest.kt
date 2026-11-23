@@ -8,6 +8,7 @@ import com.goldrift.instadm.ui.chat.PreviewPart
 import com.goldrift.instadm.ui.chat.label
 import com.goldrift.instadm.ui.chat.render
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -106,6 +107,18 @@ class MessagePreviewTest {
     @Test
     fun unknownKindsFallBackToAnAttachment() {
         assertEquals(
+            Res(R.string.inbox_noun_attachment),
+            mediaLabel(kind = "thread-created"),
+        )
+    }
+
+    @Test
+    fun musicUsesTheSongNoun() {
+        assertEquals(
+            Res(R.string.inbox_noun_music),
+            mediaLabel(kind = "music"),
+        )
+        assertNotEquals(
             Res(R.string.inbox_noun_attachment),
             mediaLabel(kind = "music"),
         )

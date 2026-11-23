@@ -51,6 +51,9 @@ data class AttachmentEntity(
     @ColumnInfo(name = "target_id") val targetId: String = "",
     /** Reel shortcode from the share URL, used as a media-info referer. */
     val shortcode: String = "",
+    /** Track title and artist line of a music share, shown on its card. */
+    val title: String = "",
+    val subtitle: String = "",
     /** Public URL of a shared post, story, reel, or page, shown under its preview. */
     @ColumnInfo(name = "target_url") val targetUrl: String = "",
     @ColumnInfo(name = "download_state") val downloadState: String = DOWNLOAD_NONE,

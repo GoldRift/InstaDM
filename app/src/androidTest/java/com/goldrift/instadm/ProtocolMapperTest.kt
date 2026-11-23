@@ -381,4 +381,69 @@ class ProtocolMapperTest {
         assertEquals("https://www.instagram.com/p/POST123/", media.url)
         assertEquals("https://cdn.example.invalid/post.jpg", media.thumbnailUrl)
     }
+
+    @Test
+    fun mapsMusicTitleAndArtistThroughThePersistedAttachment() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.music",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_005_000,
+                kind = "music",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.music",
+                    partIndex = 0,
+                    kind = "music",
+                    url = "https://cdn.example.invalid/preview.mp4",
+                    previewUrl = "https://cdn.example.invalid/artwork.jpg",
+                    targetUrl = "https://www.instagram.com/_u/demoartist",
+                    title = "Night Drive",
+                    subtitle = "Demo Artist",
+                ),
+            ),
+            reactions = emptyList(),
+        )
+
+        val media = message.toChatMessage().media.single()
+
+        assertEquals("music", media.type)
+        assertTrue(media.isMusic)
+        assertEquals("https://cdn.example.invalid/preview.mp4", media.url)
+        assertEquals("https://cdn.example.invalid/artwork.jpg", media.thumbnailUrl)
+        assertEquals("https://www.instagram.com/_u/demoartist", media.shareUrl)
+        assertEquals("Night Drive", media.title)
+        assertEquals("Demo Artist", media.subtitle)
+    }
+
+    @Test
+    fun mapsBlankMusicFieldsForOtherAttachments() {
+        val message = MessageWithMedia(
+            message = MessageEntity(
+                id = "mid.image-without-caption",
+                threadId = "thread-1",
+                timestampMs = 1_700_000_006_000,
+                kind = "image",
+                mediaCount = 1,
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    messageId = "mid.image-without-caption",
+                    partIndex = 0,
+                    kind = "image",
+                    url = "https://cdn.example.invalid/image.jpg",
+                    title = "",
+                    subtitle = "",
+                ),
+            ),
+            reactions = emptyList(),
+        )
+
+        val media = message.toChatMessage().media.single()
+
+        assertEquals("", media.title)
+        assertEquals("", media.subtitle)
+    }
 }

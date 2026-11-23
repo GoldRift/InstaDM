@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -28,8 +29,11 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -71,8 +75,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onVisibilityChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -80,10 +87,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import coil.compose.AsyncImage
 import com.goldrift.instadm.R
 import com.goldrift.instadm.service.VoicePlaybackNotifier
 import com.goldrift.instadm.data.MessageMedia
@@ -114,6 +125,8 @@ data class NowPlaying(
     val avatarUrl: String,
     val initials: String,
     val waveform: List<Float> = emptyList(),
+    /** A music preview rather than a voice note: music content type and copy. */
+    val isMusic: Boolean = false,
 )
 
 internal sealed interface PrepareAction {
@@ -229,7 +242,7 @@ class VoicePlayer(context: Context) {
         }
 
         stopInternal()
-        if (!requestFocus()) return
+        if (!requestFocus(note.isMusic)) return
         val generation = prepareGate.beginPrepare()
         val mediaPlayer = MediaPlayer()
         player = mediaPlayer
@@ -291,7 +304,7 @@ class VoicePlayer(context: Context) {
             mediaPlayer.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setContentType(contentTypeFor(note.isMusic))
                     .build(),
             )
             mediaPlayer.setDataSource(file.absolutePath)
@@ -330,7 +343,7 @@ class VoicePlayer(context: Context) {
     private fun resume() {
         val current = player ?: return
         if (playing) return
-        if (!requestFocus()) return
+        if (!requestFocus(nowPlaying?.isMusic == true)) return
         prepareGate.onResume()
         if (!prepareGate.isPrepared) {
             playing = true
@@ -426,14 +439,14 @@ class VoicePlayer(context: Context) {
         }
     }
 
-    private fun requestFocus(): Boolean = try {
+    private fun requestFocus(isMusic: Boolean): Boolean = try {
         val manager = audioManager ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setContentType(contentTypeFor(isMusic))
                         .build(),
                 )
                 .setOnAudioFocusChangeListener(focusListener)
@@ -470,6 +483,10 @@ class VoicePlayer(context: Context) {
         const val COMPLETION_TOLERANCE_MS = 50
     }
 }
+
+/** Music previews take music focus; voice notes keep their speech focus. */
+private fun contentTypeFor(isMusic: Boolean): Int =
+    if (isMusic) AudioAttributes.CONTENT_TYPE_MUSIC else AudioAttributes.CONTENT_TYPE_SPEECH
 
 /**
  * Play/pause artwork shared by the bubble, the mini player, and the recording
@@ -778,6 +795,190 @@ fun VoiceNoteBubble(
 }
 
 /**
+ * Music share: a square artwork, the track and artist, and a 30s preview. The
+ * preview downloads on first play through the same lazy path as a voice note.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun MusicCard(
+    media: MessageMedia,
+    threadId: String,
+    messageId: String,
+    player: VoicePlayer,
+    loadMedia: MediaLoader?,
+    onLongClick: (() -> Unit)?,
+    avatarUrl: String,
+    initials: String,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var file by remember(messageId, media.partIndex, media.localPath) {
+        mutableStateOf<File?>(null)
+    }
+    var loading by remember { mutableStateOf(false) }
+    var failed by remember(messageId, media.partIndex) { mutableStateOf(false) }
+    // Artwork-only music has no audio source, so nothing can start playback.
+    val playable = media.musicAudioUrl.isNotBlank() || file != null
+
+    val isPlaying = player.isPlaying(messageId)
+    val nowPlaying = NowPlaying(
+        threadId = threadId,
+        messageId = messageId,
+        title = media.title,
+        avatarUrl = avatarUrl,
+        initials = initials,
+        waveform = emptyList(),
+        isMusic = true,
+    )
+    val haptic = LocalHapticFeedback.current
+
+    fun togglePlayback() {
+        if (media.musicAudioUrl.isBlank() && file == null) return
+        if (player.isPlaying(messageId)) {
+            haptic.toggle(false)
+            player.pause()
+            return
+        }
+        val cached = file
+        if (cached != null) {
+            haptic.toggle(true)
+            player.play(nowPlaying, cached, MUSIC_PREVIEW_MS)
+            return
+        }
+        if (loading) return
+        haptic.toggle(true)
+        failed = false
+        scope.launch {
+            val local = withContext(Dispatchers.IO) { localVoiceFile(media) }
+            if (local != null) {
+                file = local
+                player.play(nowPlaying, local, MUSIC_PREVIEW_MS)
+                return@launch
+            }
+            val loader = loadMedia ?: return@launch
+            loading = true
+            val downloaded = runCatching {
+                loader(threadId, messageId, media)
+            }.getOrNull()
+            loading = false
+            if (downloaded != null) {
+                file = downloaded
+                player.play(nowPlaying, downloaded, MUSIC_PREVIEW_MS)
+            } else {
+                failed = true
+            }
+        }
+    }
+
+    val longClickLabel = stringResource(R.string.chat_message_actions)
+    val controlDescription = stringResource(
+        if (isPlaying) R.string.chat_music_pause else R.string.chat_music_play,
+    )
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val openable = isOpenableLink(media.targetUrl)
+    val openArtist = {
+        runCatching { uriHandler.openUri(media.targetUrl) }
+            .onFailure {
+                Toast.makeText(context, R.string.chat_link_error, Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    Column(
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 260.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onClickLabel = if (playable) controlDescription else null,
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = { if (playable) togglePlayback() },
+            )
+            .padding(8.dp),
+    ) {
+        if (media.thumbnailUrl.isNotBlank()) {
+            AsyncImage(
+                model = media.thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                if (media.title.isNotBlank()) {
+                    Text(
+                        text = media.title,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (media.subtitle.isNotBlank()) {
+                    Text(
+                        text = media.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (openable) TextDecoration.Underline else null,
+                        modifier = if (openable) {
+                            Modifier.combinedClickable(
+                                onClickLabel = stringResource(R.string.chat_link_open),
+                                onLongClickLabel = longClickLabel,
+                                onLongClick = onLongClick,
+                                onClick = { openArtist() },
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
+                }
+                if (failed) {
+                    Text(
+                        text = stringResource(R.string.chat_music_error),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            if (playable) {
+                FilledTonalIconToggleButton(
+                    checked = isPlaying,
+                    onCheckedChange = { togglePlayback() },
+                    shapes = IconToggleButtonShapes(
+                        shape = CircleShape,
+                        pressedShape = RoundedCornerShape(10.dp),
+                        checkedShape = RoundedCornerShape(12.dp),
+                    ),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .semantics { contentDescription = controlDescription },
+                ) {
+                    VoicePlayPauseIcon(
+                        playing = isPlaying,
+                        loading = loading,
+                        failed = failed,
+                        tint = LocalContentColor.current,
+                        iconSize = 22.dp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Isolates remaining-time reads so the bubble does not recompose on 80 ms
  * player ticks; `derivedStateOf` updates this text at 1 Hz.
  */
@@ -1026,3 +1227,6 @@ internal fun waveformBarHeightScale(
 }
 
 private const val UNPLAYED_BAR_ALPHA = 0.32f
+
+// Instagram sends a 30s preview cut and no duration in the payload.
+private const val MUSIC_PREVIEW_MS = 30_000

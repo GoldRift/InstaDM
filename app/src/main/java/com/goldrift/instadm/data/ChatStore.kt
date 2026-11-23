@@ -1331,6 +1331,8 @@ internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEn
             viewMode = media.optString("view_mode"),
             targetId = media.optString("target_id"),
             shortcode = media.optString("shortcode"),
+            title = media.optString("title"),
+            subtitle = media.optString("subtitle"),
             targetUrl = media.optString("target_url"),
         )
     }
@@ -1372,5 +1374,7 @@ internal fun MessageMedia.toAttachmentEntity(messageId: String, partIndex: Int):
         viewMode = viewMode,
         targetId = targetId,
         shortcode = shortcode,
+        title = title,
+        subtitle = subtitle,
         targetUrl = targetUrl,
     )

@@ -41,7 +41,15 @@ internal object VoicePlaybackNotifier {
         val notification = NotificationCompat.Builder(appContext, NotificationChannels.PLAYBACK)
             .setSmallIcon(R.drawable.ic_stat_name)
             .setContentTitle(note.title)
-            .setContentText(appContext.getString(R.string.voice_playback_notification))
+            .setContentText(
+                appContext.getString(
+                    if (note.isMusic) {
+                        R.string.music_playback_notification
+                    } else {
+                        R.string.voice_playback_notification
+                    },
+                ),
+            )
             .setContentIntent(
                 PendingIntent.getActivity(
                     appContext,

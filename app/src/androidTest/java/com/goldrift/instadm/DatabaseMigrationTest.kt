@@ -207,6 +207,51 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun addsMusicTitleColumnsToAttachments() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V8_ATTACHMENTS)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            db.execSQL(
+                "INSERT INTO attachments (" +
+                    "message_id, part_index, kind, remote_fbid, url, preview_url, width, " +
+                    "height, duration_ms, mime_type, local_path, waveform, view_once, " +
+                    "view_mode, target_id, shortcode, target_url, download_state" +
+                    ") VALUES ('m1', 0, 'music', '', 'https://cdn.example.invalid/preview.mp4', " +
+                    "'https://cdn.example.invalid/artwork.jpg', 0, 0, 0, '', '', NULL, 0, '', " +
+                    "'', '', 'https://www.instagram.com/_u/demoartist', 'none')",
+            )
+            InstaDmDatabase.MIGRATION_8_9.migrate(db)
+            db.query(
+                "SELECT title, subtitle, kind, url, preview_url, target_url FROM attachments",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("", cursor.getString(0))
+                assertEquals("", cursor.getString(1))
+                assertEquals("music", cursor.getString(2))
+                assertEquals("https://cdn.example.invalid/preview.mp4", cursor.getString(3))
+                assertEquals("https://cdn.example.invalid/artwork.jpg", cursor.getString(4))
+                assertEquals("https://www.instagram.com/_u/demoartist", cursor.getString(5))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
+    @Test
     fun reArmsOlderHistoryPagingForResetCursors() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB)
@@ -353,6 +398,20 @@ class DatabaseMigrationTest {
                 "`waveform` TEXT, `view_once` INTEGER NOT NULL, " +
                 "`view_mode` TEXT NOT NULL, `target_id` TEXT NOT NULL, " +
                 "`shortcode` TEXT NOT NULL, `download_state` TEXT NOT NULL, " +
+                "PRIMARY KEY(`message_id`, `part_index`), " +
+                "FOREIGN KEY(`message_id`) REFERENCES `messages`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE )"
+        const val V8_ATTACHMENTS =
+            "CREATE TABLE IF NOT EXISTS `attachments` (" +
+                "`message_id` TEXT NOT NULL, `part_index` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, `remote_fbid` TEXT NOT NULL, `url` TEXT NOT NULL, " +
+                "`preview_url` TEXT NOT NULL, `width` INTEGER NOT NULL, " +
+                "`height` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, " +
+                "`mime_type` TEXT NOT NULL, `local_path` TEXT NOT NULL, " +
+                "`waveform` TEXT, `view_once` INTEGER NOT NULL, " +
+                "`view_mode` TEXT NOT NULL, `target_id` TEXT NOT NULL, " +
+                "`shortcode` TEXT NOT NULL, `target_url` TEXT NOT NULL, " +
+                "`download_state` TEXT NOT NULL, " +
                 "PRIMARY KEY(`message_id`, `part_index`), " +
                 "FOREIGN KEY(`message_id`) REFERENCES `messages`(`id`) " +
                 "ON UPDATE NO ACTION ON DELETE CASCADE )"

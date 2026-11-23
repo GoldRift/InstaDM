@@ -248,6 +248,8 @@ internal class DemoProtocol(
 
     private fun mediaAsset(media: MessageMedia): String {
         if (media.isReel) return "clip.mp4"
+        // The demo has one playable track, and a music item's artwork is never audio.
+        if (media.isMusic) return "voice_note.m4a"
         val candidates = listOf(
             media.url,
             media.previewUrl,

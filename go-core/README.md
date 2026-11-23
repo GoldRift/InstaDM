@@ -265,6 +265,16 @@ not sent an attachment yet, so clients can show a notice. Replies carry
 media count) so a client can render the quote without loading the original.
 CDN URLs are sensitive and expire; do not put them in shared fixtures.
 
+A music share (`MUSIC_STICKER_XMA`) is `kind=music` with one media item whose `type`
+is `music`. Its `url` is Instagram's 30 second preview download, an mp4 file that holds
+AAC audio, `preview_url` is the track artwork, `target_url` is the artist profile link,
+`title` is the track, and `subtitle` is the artist. The payload has no full track. When
+Instagram sends neither a preview nor artwork, the message carries the track name as
+text instead. A live-location share stays a normal XMA link and keeps `kind=link`. Its
+`url` and `target_url` are an `instagram://live_location/?latitude=..&longitude=..`
+deep link that only the official app opens, and `preview_url` is a static map image, so
+a client can show the map and offer its own map link.
+
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
 messages. The older-page output uses the same message table and prints the next cursor.
 The page is returned oldest-to-newest, and all messages are older than the previous

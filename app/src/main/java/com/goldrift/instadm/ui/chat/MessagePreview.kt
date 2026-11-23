@@ -87,6 +87,7 @@ internal fun mediaNoun(kind: String): Int? = when (kind.trim().lowercase()) {
     "post", "post-unavailable" -> R.string.inbox_noun_post
     "story", "story-unavailable" -> R.string.inbox_noun_story
     "reel", "reel-unavailable" -> R.string.inbox_noun_reel
+    "music" -> R.string.inbox_noun_music
     "unavailable" -> R.string.inbox_noun_attachment
     "admin", "call", "reaction-log" -> null
     "", "text" -> null

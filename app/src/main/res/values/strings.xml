@@ -95,6 +95,13 @@
     <string name="media_viewer_scrubber">Playback position</string>
     <string name="chat_link_open">Open link</string>
     <string name="chat_link_error">Couldn\'t open link</string>
+    <string name="chat_live_location">Live location</string>
+    <string name="chat_live_location_sharing">%1$s is sharing</string>
+    <string name="chat_location_error">Couldn\'t open location</string>
+    <string name="chat_location_open">Open in Maps</string>
+    <string name="chat_music_play">Play song</string>
+    <string name="chat_music_pause">Pause song</string>
+    <string name="chat_music_error">Couldn\'t play song</string>
     <string name="chat_view_once_photo">This photo can only be viewed once. Use the Instagram app to view.</string>
     <string name="chat_view_once_video">This video can only be viewed once. Use the Instagram app to view.</string>
     <string name="chat_view_twice_photo">This photo can only be viewed twice. Use the Instagram app to view.</string>
@@ -145,6 +152,7 @@
     <string name="chat_reply_post">Post</string>
     <string name="chat_reply_story">Story</string>
     <string name="chat_reply_reel">Reel</string>
+    <string name="chat_reply_music">Music</string>
     <string name="chat_reply_attachment">Attachment</string>
     <string name="chat_copied">Copied</string>
     <string name="chat_cancel">Cancel</string>
@@ -169,6 +177,7 @@
     <string name="inbox_noun_post">a post</string>
     <string name="inbox_noun_story">a story</string>
     <string name="inbox_noun_reel">a reel</string>
+    <string name="inbox_noun_music">a song</string>
     <string name="inbox_noun_attachment">an attachment</string>
     <string name="inbox_tap_to_open">Tap to load messages</string>
     <string name="inbox_unread">Unread</string>
@@ -259,6 +268,7 @@
     <string name="notification_channel_playback">Voice playback</string>
     <string name="notification_channel_playback_description">Shows the voice note that keeps playing while InstaDM is out of sight.</string>
     <string name="voice_playback_notification">Playing voice message</string>
+    <string name="music_playback_notification">Song preview playing</string>
     <string name="notification_group_chat">Group chat</string>
     <string name="banner_open">Open chat</string>
     <string name="banner_dismiss">Dismiss</string>

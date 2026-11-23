@@ -2485,6 +2485,7 @@ private fun replyContent(reply: ReplySnapshot): String {
         "story-unavailable" -> stringResource(R.string.chat_reply_story)
         "reel" -> stringResource(R.string.chat_reply_reel)
         "reel-unavailable" -> stringResource(R.string.chat_reply_reel)
+        "music" -> stringResource(R.string.chat_reply_music)
         else -> stringResource(R.string.chat_reply_attachment)
     }
 }
@@ -2508,15 +2509,19 @@ private fun MessageBubbleContent(
     noteInitials: String,
 ) {
     val media = message.media.filter { it.isVisual && !it.isReel }
-    val shares = message.media.filter { (it.isLink || it.isReel) && !it.viewOnce }
+    val shares = message.media.filter {
+        (it.isLink || it.isReel) && !it.viewOnce && !it.isLiveLocation
+    }
+    val music = message.media.filter { it.isMusic }
+    val locations = message.media.filter { it.isLiveLocation }
     val viewOnce = message.media.filter { it.viewOnce }
     val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
     val unavailable = message.kind == "unavailable" ||
         message.kind.endsWith("-unavailable")
-    val hasAttachment = media.isNotEmpty() || shares.isNotEmpty() ||
-        viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() || localMedia != null ||
-        unavailable
+    val hasAttachment = media.isNotEmpty() || shares.isNotEmpty() || music.isNotEmpty() ||
+        locations.isNotEmpty() || viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() ||
+        localMedia != null || unavailable
     // The quote card keeps as much room at the bubble sides as above it, so it
     // sits outside the content column's wider text padding.
     val quoteInset = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp
@@ -2568,8 +2573,24 @@ private fun MessageBubbleContent(
                 )
             }
 
-            shares.forEachIndexed { index, item ->
+            music.forEachIndexed { index, item ->
                 if (index > 0 || media.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                MusicCard(
+                    media = item,
+                    threadId = threadId,
+                    messageId = message.id,
+                    player = voicePlayer,
+                    loadMedia = onLoadMedia,
+                    onLongClick = onLongPress,
+                    avatarUrl = noteAvatarUrl,
+                    initials = noteInitials,
+                )
+            }
+
+            shares.forEachIndexed { index, item ->
+                if (index > 0 || media.isNotEmpty() || music.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                }
                 ShareCard(
                     media = item,
                     onOpenReel = { if (message.isServerMessage()) onOpenMedia(item) },
@@ -2577,8 +2598,23 @@ private fun MessageBubbleContent(
                 )
             }
 
+            locations.forEachIndexed { index, item ->
+                if (index > 0 || media.isNotEmpty() || music.isNotEmpty() || shares.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                }
+                LocationCard(
+                    media = item,
+                    senderName = message.senderName,
+                    onLongClick = onLongPress,
+                )
+            }
+
             if (voiceNotes.isNotEmpty()) {
-                if (media.isNotEmpty() || shares.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                if (media.isNotEmpty() || shares.isNotEmpty() || music.isNotEmpty() ||
+                    locations.isNotEmpty()
+                ) {
+                    Spacer(Modifier.height(4.dp))
+                }
                 voiceNotes.forEach { item ->
                     VoiceNoteBubble(
                         media = item,
@@ -2597,7 +2633,9 @@ private fun MessageBubbleContent(
                 }
             }
 
-            if (media.isEmpty() && shares.isEmpty() && voiceNotes.isEmpty() && localMedia != null) {
+            if (media.isEmpty() && shares.isEmpty() && music.isEmpty() &&
+                locations.isEmpty() && voiceNotes.isEmpty() && localMedia != null
+            ) {
                 LocalMediaThumbnail(
                     media = localMedia,
                     onLongClick = onLongPress,

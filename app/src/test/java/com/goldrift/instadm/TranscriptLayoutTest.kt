@@ -23,6 +23,7 @@ import com.goldrift.instadm.ui.chat.transcriptDividerBefore
 import com.goldrift.instadm.ui.chat.transcriptRowLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -404,5 +405,51 @@ class TranscriptLayoutTest {
         assertEquals("Them:voice", messageContentType(voice))
         assertEquals("Me:media", messageContentType(photo))
         assertEquals("Me:share", messageContentType(share))
+    }
+
+    @Test
+    fun musicShareGetsItsOwnBubbleRowShape() {
+        val music = message(
+            sender = MessageSender.Them,
+            text = "",
+            media = listOf(
+                MessageMedia(
+                    type = "music",
+                    url = "https://cdn.example.invalid/preview.mp4",
+                    previewUrl = "https://cdn.example.invalid/artwork.jpg",
+                    title = "Night Drive",
+                    subtitle = "Demo Artist",
+                ),
+            ),
+        )
+
+        val contentType = messageContentType(music)
+        assertEquals("Them:music", contentType)
+        assertNotEquals("Them:share", contentType)
+        assertNotEquals("Them:media", contentType)
+    }
+
+    @Test
+    fun liveLocationGetsItsOwnRowShape() {
+        val deepLink = "instagram://live_location/?latitude=12.34&longitude=-56.78"
+        val location = message(
+            sender = MessageSender.Them,
+            text = "",
+            media = listOf(
+                MessageMedia(
+                    type = "link",
+                    url = deepLink,
+                    targetUrl = deepLink,
+                    previewUrl = "https://cdn.example.invalid/static_map.png",
+                    width = 545,
+                    height = 280,
+                ),
+            ),
+        )
+
+        assertTrue(location.media.single().isLiveLocation)
+        val contentType = messageContentType(location)
+        assertEquals("Them:location", contentType)
+        assertNotEquals("Them:share", contentType)
     }
 }

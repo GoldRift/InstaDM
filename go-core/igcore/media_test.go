@@ -273,6 +273,27 @@ func TestMediaDownloadTargetRejectsLink(t *testing.T) {
 	}
 }
 
+func TestMediaDownloadTargetDownloadsMusicPreview(t *testing.T) {
+	client := &Client{}
+	const previewURL = "https://cdn.example.invalid/preview.mp4"
+	rawURL, downloadType, maxBytes, err := client.mediaDownloadTarget(context.Background(), MediaView{
+		Type: "music",
+		URL:  previewURL,
+	})
+	if err != nil {
+		t.Fatalf("mediaDownloadTarget: %v", err)
+	}
+	if rawURL != previewURL {
+		t.Errorf("url = %q, want %q", rawURL, previewURL)
+	}
+	if downloadType != "music" {
+		t.Errorf("download type = %q, want music", downloadType)
+	}
+	if maxBytes != MaxMediaBytes {
+		t.Errorf("max bytes = %d, want %d", maxBytes, MaxMediaBytes)
+	}
+}
+
 func TestBestVideoVersion(t *testing.T) {
 	cases := []struct {
 		name      string

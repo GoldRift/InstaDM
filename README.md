@@ -477,6 +477,10 @@ InstaDM works, but it is still early:
   still needs a manual "log in again" tap. Account switching is out of scope.
 - View-once photos and videos are deliberately never fetched; their bubbles point
   to the official app.
+- Music shares show the artwork, track, and artist with an inline 30 second preview
+  and a link to the artist profile. Live-location shares show a map snapshot that
+  opens the phone's map app at the shared spot. Neither can be sent from the app, and
+  a live location does not update.
 - Instagram can challenge or block an embedded browser. The login uses a desktop
   Chrome user agent because Instagram's mobile Bloks login page renders with a
   zero-height root in Android WebView.

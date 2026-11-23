@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReactionEntity::class,
         OutboxEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
@@ -121,6 +121,18 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /** v9 stores a music share's track title and artist line. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE attachments ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE attachments ADD COLUMN subtitle TEXT NOT NULL DEFAULT ''",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
                 .addMigrations(
@@ -131,6 +143,7 @@ abstract class InstaDmDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
                 )
                 .build()
     }

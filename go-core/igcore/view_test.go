@@ -2,6 +2,7 @@ package igcore
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -606,6 +607,14 @@ func TestNewReplyViewViewerAndMedia(t *testing.T) {
 }
 
 func TestDescribeMessageContent(t *testing.T) {
+	musicSticker := &slidetypes.MessageContentMusicSticker{
+		AttributionLink: "https://www.instagram.com/_u/demoartist",
+		PreviewURL:      "https://cdn.example.invalid/artwork.jpg",
+	}
+	musicSticker.AudioTrack.Web30SPreviewDownloadURL = "https://cdn.example.invalid/preview.mp4"
+	musicSticker.AudioTrack.Title = "Night Drive"
+	musicSticker.AudioTrack.DisplayArtist = "Demo Artist"
+
 	tests := []struct {
 		name      string
 		message   *slidetypes.Message
@@ -613,6 +622,17 @@ func TestDescribeMessageContent(t *testing.T) {
 		wantText  string
 		wantMedia int
 	}{
+		{
+			name: "music sticker",
+			message: &slidetypes.Message{
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageMusicStickerXMAContent",
+					Content:  musicSticker,
+				},
+			},
+			wantKind:  "music",
+			wantMedia: 1,
+		},
 		{
 			name: "text",
 			message: &slidetypes.Message{
@@ -1128,6 +1148,106 @@ func TestNewMessageViewNormalizesSharedPostAsLink(t *testing.T) {
 	if media.PreviewURL != "https://cdn.example.invalid/post.jpg" {
 		t.Errorf("preview = %q, want the XMA preview", media.PreviewURL)
 	}
+}
+
+func TestNewMessageViewNormalizesMusicShare(t *testing.T) {
+	const (
+		previewURL  = "https://cdn.example.invalid/preview.mp4"
+		artworkURL  = "https://cdn.example.invalid/artwork.jpg"
+		attribution = "https://www.instagram.com/_u/demoartist"
+	)
+
+	// AudioTrack is an anonymous struct upstream, so its fields are assigned
+	// after construction.
+	musicSticker := func() *slidetypes.MessageContentMusicSticker {
+		sticker := &slidetypes.MessageContentMusicSticker{
+			AttributionLink: attribution,
+			PreviewURL:      artworkURL,
+		}
+		sticker.AudioTrack.Web30SPreviewDownloadURL = previewURL
+		sticker.AudioTrack.Title = "Night Drive"
+		sticker.AudioTrack.DisplayArtist = "Demo Artist"
+		return sticker
+	}
+
+	t.Run("preview and artwork", func(t *testing.T) {
+		message := &slidetypes.Message{
+			MessageID:  "mid.music",
+			SenderFBID: 222,
+			Content: slidetypes.MessageContentWrapper{
+				TypeName: "SlideMessageMusicStickerXMAContent",
+				Content:  musicSticker(),
+			},
+		}
+
+		view := newMessageView(message, 111, nil)
+		if view.Kind != "music" {
+			t.Errorf("kind = %q, want music", view.Kind)
+		}
+		if view.Text != "" {
+			t.Errorf("text = %q, want empty (the track name lives on the media item)", view.Text)
+		}
+		if view.MediaCount != 1 {
+			t.Errorf("media_count = %d, want 1", view.MediaCount)
+		}
+		if len(view.Media) != 1 {
+			t.Errorf("media = %+v, want one music item", view.Media)
+		} else {
+			media := view.Media[0]
+			if media.Type != "music" {
+				t.Errorf("media type = %q, want music", media.Type)
+			}
+			if media.URL != previewURL {
+				t.Errorf("media url = %q, want the 30s preview %q", media.URL, previewURL)
+			}
+			if media.PreviewURL != artworkURL {
+				t.Errorf("media preview_url = %q, want the artwork %q", media.PreviewURL, artworkURL)
+			}
+			if media.TargetURL != attribution {
+				t.Errorf("media target_url = %q, want the artist attribution %q", media.TargetURL, attribution)
+			}
+		}
+
+		// MediaView.Title and Subtitle are the new contract; assert on the JSON
+		// the app receives, which compiles before those fields exist.
+		payload, err := json.Marshal(view)
+		if err != nil {
+			t.Fatalf("marshal view: %v", err)
+		}
+		if !strings.Contains(string(payload), `"title":"Night Drive"`) {
+			t.Errorf("view JSON = %s, want a music item with \"title\":\"Night Drive\"", payload)
+		}
+		if !strings.Contains(string(payload), `"subtitle":"Demo Artist"`) {
+			t.Errorf("view JSON = %s, want a music item with \"subtitle\":\"Demo Artist\"", payload)
+		}
+	})
+
+	t.Run("no preview and no artwork names the track", func(t *testing.T) {
+		sticker := &slidetypes.MessageContentMusicSticker{AttributionLink: attribution}
+		sticker.AudioTrack.Title = "Night Drive"
+		sticker.AudioTrack.DisplayArtist = "Demo Artist"
+
+		view := newMessageView(&slidetypes.Message{
+			MessageID:  "mid.music-bare",
+			SenderFBID: 222,
+			Content: slidetypes.MessageContentWrapper{
+				TypeName: "SlideMessageMusicStickerXMAContent",
+				Content:  sticker,
+			},
+		}, 111, nil)
+		if view.Kind != "music" {
+			t.Errorf("kind = %q, want music", view.Kind)
+		}
+		if view.MediaCount != 0 {
+			t.Errorf("media_count = %d, want 0 without a preview URL or artwork", view.MediaCount)
+		}
+		if len(view.Media) != 0 {
+			t.Errorf("media = %+v, want none without a preview URL or artwork", view.Media)
+		}
+		if view.Text != "Night Drive" {
+			t.Errorf("text = %q, want the track name instead of an empty bubble", view.Text)
+		}
+	})
 }
 
 func TestNewMessageViewNormalizesStoryShareAsLink(t *testing.T) {

@@ -363,13 +363,28 @@ internal object DemoData {
             now - 228 * MINUTE,
             "more coming tonight",
         )
+        val song = message(
+            "demo_dev_7",
+            dev,
+            now - 210 * MINUTE,
+            kind = "music",
+            media = listOf(music("Night Drive", "Demo Artist", "studio.jpg", "voice_note.m4a")),
+        )
+        val here = message(
+            "demo_dev_8",
+            dev,
+            now - 190 * MINUTE,
+            "waiting by the booth on the river",
+            kind = "link",
+            media = listOf(location(12.34, 56.78, "map.png")),
+        )
         return ThreadSpec(
             id = "demo_dev",
             longId = "17800000000000003",
             title = "Dev Patel",
             isGroup = false,
             participants = listOf(viewer, dev),
-            messages = listOf(shots, great, clip, vibe, once, more),
+            messages = listOf(shots, great, clip, vibe, once, more, song, here),
             viewerWatermarkMs = now,
             otherWatermarkMs = now,
         )
@@ -655,6 +670,28 @@ internal object DemoData {
         .put("preview_url", ASSET + cover)
         .put("width", width)
         .put("height", height)
+
+    // No target_url: the demo must never open a browser from the artist line.
+    private fun music(title: String, artist: String, artwork: String, audio: String): JSONObject =
+        JSONObject()
+            .put("type", "music")
+            .put("url", ASSET + audio)
+            .put("preview_url", ASSET + artwork)
+            .put("title", title)
+            .put("subtitle", artist)
+
+    // Coordinates are fictional, so the demo pin never points at a real place.
+    private fun location(latitude: Double, longitude: Double, map: String): JSONObject {
+        val url = "instagram://live_location/?latitude=$latitude&longitude=$longitude" +
+            "&session_id=demo"
+        return JSONObject()
+            .put("type", "link")
+            .put("url", url)
+            .put("target_url", url)
+            .put("preview_url", ASSET + map)
+            .put("width", 545)
+            .put("height", 280)
+    }
 
     private fun waveform(points: Int): JSONArray = JSONArray().apply {
         repeat(points) { index ->

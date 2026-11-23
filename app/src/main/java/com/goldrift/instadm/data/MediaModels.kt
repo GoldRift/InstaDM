@@ -1,5 +1,7 @@
 package com.goldrift.instadm.data
 
+import java.net.URI
+import java.net.URLDecoder
 import org.json.JSONArray
 
 /**
@@ -42,6 +44,10 @@ data class MessageMedia(
     val targetUrl: String = "",
     /** Instagram's accessibility description for a sticker. */
     val altText: String = "",
+    /** Track title of a music share. */
+    val title: String = "",
+    /** Artist line of a music share. */
+    val subtitle: String = "",
 ) {
     val isAudio: Boolean
         get() = type == "audio"
@@ -54,6 +60,14 @@ data class MessageMedia(
     val isVoiceNote: Boolean
         get() = isAudio && (localPath.isNotBlank() || fullUrl.isNotBlank())
 
+    /** A music share: artwork plus a 30s preview, never a full track. */
+    val isMusic: Boolean
+        get() = type == "music"
+
+    /** The playable 30s preview of a music share; blank when Instagram sent only artwork. */
+    val musicAudioUrl: String
+        get() = if (isMusic) url.ifBlank { fallbackUrl } else ""
+
     /** A native reel share with a preview and a resolvable media ID. */
     val isReel: Boolean
         get() = type == "reel"
@@ -62,11 +76,17 @@ data class MessageMedia(
     val isLink: Boolean
         get() = type == "link"
 
+    /** A live-location XMA share, whose URL is an `instagram://` deep link. */
+    val isLiveLocation: Boolean
+        get() = type == "link" && parseLiveLocation(url.ifBlank { targetUrl }) != null
+
     val isVideo: Boolean
         get() = when (type) {
             "video", "gif", "reel" -> true
             // A link's URL is a web page, not a playable media file.
             "link" -> false
+            // A music item's URL is the 30s preview, an mp4 carrying AAC audio.
+            "music" -> false
             else -> type != "audio" && fullUrl.isVideoUrl()
         }
 
@@ -77,10 +97,10 @@ data class MessageMedia(
     val thumbnailUrl: String
         get() = previewUrl.ifBlank {
             previewFallbackUrl.ifBlank {
-                // Video URLs cannot be decoded as images, and a link's URL is
-                // an HTML page; show the play/link card instead of asking Coil
-                // to load either one as an image.
-                if (isVideo || isLink) "" else url.ifBlank { fallbackUrl }
+                // Video URLs cannot be decoded as images, a link's URL is an
+                // HTML page, and a music URL is the preview mp4; show the card
+                // instead of asking Coil to load any of them as an image.
+                if (isVideo || isLink || isMusic) "" else url.ifBlank { fallbackUrl }
             }
         }
 
@@ -135,6 +155,33 @@ data class MessageMedia(
     }
 }
 
+/** Coordinates of an Instagram live-location share. */
+data class LiveLocation(val latitude: Double, val longitude: Double)
+
+/** Parses `instagram://live_location/?latitude=..&longitude=..`; null otherwise. */
+internal fun parseLiveLocation(raw: String): LiveLocation? = runCatching {
+    val uri = URI(raw.trim())
+    if (!uri.scheme.equals("instagram", ignoreCase = true)) return@runCatching null
+    // URI leaves host null when the authority is not a valid hostname, and
+    // `live_location` has an underscore, so fall back to the raw authority.
+    val host = uri.host ?: uri.rawAuthority
+    if (!host.equals("live_location", ignoreCase = true)) return@runCatching null
+    val query = uri.rawQuery ?: return@runCatching null
+    val params = HashMap<String, String>()
+    for (pair in query.split('&')) {
+        val separator = pair.indexOf('=')
+        if (separator <= 0) continue
+        // A malformed escape throws and the whole link is rejected.
+        params[pair.substring(0, separator)] =
+            URLDecoder.decode(pair.substring(separator + 1), "UTF-8")
+    }
+    val latitude = params["latitude"]?.toDoubleOrNull() ?: return@runCatching null
+    val longitude = params["longitude"]?.toDoubleOrNull() ?: return@runCatching null
+    if (!latitude.isFinite() || !longitude.isFinite()) return@runCatching null
+    if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return@runCatching null
+    LiveLocation(latitude, longitude)
+}.getOrNull()
+
 /** Parses the `media` array from a normalized Go message or realtime event. */
 fun parseMedia(json: JSONArray?): List<MessageMedia> {
     if (json == null || json.length() == 0) return emptyList()
@@ -173,6 +220,8 @@ fun parseMedia(json: JSONArray?): List<MessageMedia> {
             shortcode = item.optString("shortcode"),
             targetUrl = item.optString("target_url"),
             altText = item.optString("alt_text"),
+            title = item.optString("title"),
+            subtitle = item.optString("subtitle"),
         )
     }
     return result

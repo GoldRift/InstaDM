@@ -1,12 +1,15 @@
 package com.goldrift.instadm
 
+import com.goldrift.instadm.data.LiveLocation
 import com.goldrift.instadm.ui.chat.clampedPreviewHeightPx
 import com.goldrift.instadm.ui.chat.isOpenableLink
+import com.goldrift.instadm.ui.chat.liveLocationGeoUri
 import com.goldrift.instadm.ui.chat.shareLinkLabel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class LinkPreviewTest {
     @Test
@@ -72,5 +75,40 @@ class LinkPreviewTest {
         assertEquals(200, clampedPreviewHeightPx(widthPx = 260, aspectRatio = 0.75f, maxHeightPx = 200))
         // Non-positive aspect ratio falls back safely to maxHeightPx.
         assertEquals(200, clampedPreviewHeightPx(widthPx = 260, aspectRatio = 0f, maxHeightPx = 200))
+    }
+
+    @Test
+    fun liveLocationUsesAPinnedGeoUri() {
+        assertEquals(
+            "geo:12.345678901234,-56.789012345678?q=12.345678901234,-56.789012345678",
+            liveLocationGeoUri(LiveLocation(12.345678901234, -56.789012345678)),
+        )
+    }
+
+    @Test
+    fun geoUriKeepsDotDecimalsWhateverTheDefaultLocaleIs() {
+        val location = LiveLocation(12.5, -7.25)
+        assertEquals(
+            "geo:12.5,-7.25?q=12.5,-7.25",
+            liveLocationGeoUri(location),
+        )
+
+        // A comma-decimal locale proves the coordinates are not formatted with
+        // Locale.getDefault(), which would emit "geo:12,5,-7,25?q=...".
+        val original = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals(
+                "geo:12.5,-7.25?q=12.5,-7.25",
+                liveLocationGeoUri(location),
+            )
+        } finally {
+            Locale.setDefault(original)
+        }
+    }
+
+    @Test
+    fun liveLocationDeepLinkIsNotAnOpenableWebLink() {
+        assertFalse(isOpenableLink("instagram://live_location/?latitude=12.34&longitude=-56.78"))
     }
 }

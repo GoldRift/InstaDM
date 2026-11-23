@@ -377,6 +377,8 @@ type MediaView struct {
 	TargetID  string `json:"target_id,omitempty"`
 	TargetURL string `json:"target_url,omitempty"`
 	Shortcode string `json:"shortcode,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Subtitle  string `json:"subtitle,omitempty"`
 	// ViewOnce marks Instagram's view-once ("raven") media. The one allowed
 	// view belongs to the official app, so no CDN URL is exposed and clients
 	// must show a notice instead of rendering or downloading the attachment.
@@ -706,6 +708,21 @@ func messageMedia(message *slidetypes.Message) []MediaView {
 				AltText:    content.AltText,
 			})
 		}
+	case *slidetypes.MessageContentMusicSticker:
+		// The payload carries a 30s preview and artwork but no full track.
+		audioURL := strings.TrimSpace(content.AudioTrack.Web30SPreviewDownloadURL)
+		artworkURL := strings.TrimSpace(content.PreviewURL)
+		if audioURL == "" && artworkURL == "" {
+			break
+		}
+		media = append(media, MediaView{
+			Type:       "music",
+			URL:        audioURL,
+			PreviewURL: artworkURL,
+			TargetURL:  content.AttributionLink,
+			Title:      content.AudioTrack.Title,
+			Subtitle:   content.AudioTrack.DisplayArtist,
+		})
 	}
 	return media
 }
@@ -1135,6 +1152,16 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		}
 	case *slidetypes.MessageContentMusicSticker:
 		kind = "music"
+		audioURL := strings.TrimSpace(content.AudioTrack.Web30SPreviewDownloadURL)
+		if audioURL != "" || strings.TrimSpace(content.PreviewURL) != "" {
+			mediaCount = 1
+		} else {
+			// No preview and no artwork: name the track instead of an empty bubble.
+			text = strings.TrimSpace(content.AudioTrack.Title)
+			if text == "" {
+				text = strings.TrimSpace(content.AudioTrack.DisplayArtist)
+			}
+		}
 	case *slidetypes.MessageContentAIRichResponse:
 		kind = "ai"
 		text = content.UnifiedResponse
