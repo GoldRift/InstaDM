@@ -374,16 +374,8 @@ internal object DemoData {
             "demo_dev_8",
             dev,
             now - 190 * MINUTE,
-            "waiting by the booth on the river",
             kind = "link",
             media = listOf(location(12.34, 56.78, "map.png")),
-        )
-        val ended = message(
-            "demo_dev_9",
-            dev,
-            now - 187 * MINUTE,
-            "Location expired",
-            kind = "location-ended",
         )
         return ThreadSpec(
             id = "demo_dev",
@@ -391,7 +383,7 @@ internal object DemoData {
             title = "Dev Patel",
             isGroup = false,
             participants = listOf(viewer, dev),
-            messages = listOf(shots, great, clip, vibe, once, more, song, here, ended),
+            messages = listOf(shots, great, clip, vibe, once, more, song, here),
             viewerWatermarkMs = now,
             otherWatermarkMs = now,
         )

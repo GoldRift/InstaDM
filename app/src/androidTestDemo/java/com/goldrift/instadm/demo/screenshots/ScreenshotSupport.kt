@@ -6,9 +6,11 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -81,6 +83,12 @@ internal class ScreenshotSession(
     }
 
     fun node(text: String): SemanticsNodeInteraction = rule.onNodeWithText(text)
+
+    /** Scrolls the transcript so the message with this id sits at the newest edge. */
+    fun scrollTranscriptToMessage(id: String) {
+        rule.onNodeWithTag("message_list").performScrollToKey(id)
+        rule.waitForIdle()
+    }
 
     fun nodeWithDescription(description: String): SemanticsNodeInteraction =
         rule.onNodeWithContentDescription(description)

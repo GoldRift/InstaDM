@@ -104,7 +104,11 @@ class DemoScreenshotTest {
         session.tapBack()
         session.awaitText("Dev Patel")
         session.tap("Dev Patel")
-        session.awaitText("more coming tonight")
+        session.awaitText("Live location")
+        Thread.sleep(800)
+        session.capture("16-music-and-location-light")
+        // The media cards sit above the newest share cards.
+        session.scrollTranscriptToMessage("demo_dev_5")
         Thread.sleep(800)
         session.capture("11-media-cards-light")
 

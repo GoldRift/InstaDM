@@ -32,6 +32,7 @@ CAPTIONS = {
     "13-account-menu-light": "Account menu",
     "14-settings-light": "Settings",
     "15-banner-light": "Banner for another chat",
+    "16-music-and-location-light": "Music and live location",
     "01-inbox-dark": "Inbox (dark)",
     "02-chat-dark": "Chat (dark)",
     "03-media-viewer-dark": "Media viewer (dark)",
