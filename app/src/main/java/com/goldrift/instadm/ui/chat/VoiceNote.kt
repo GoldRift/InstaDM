@@ -874,6 +874,7 @@ fun MusicCard(
     val controlDescription = stringResource(
         if (isPlaying) R.string.chat_music_pause else R.string.chat_music_play,
     )
+    val controlColor = LocalContentColor.current
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val openable = isOpenableLink(media.targetUrl)
@@ -961,6 +962,12 @@ fun MusicCard(
                         pressedShape = RoundedCornerShape(10.dp),
                         checkedShape = RoundedCornerShape(12.dp),
                     ),
+                    colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                        containerColor = controlColor.copy(alpha = 0.16f),
+                        contentColor = controlColor,
+                        checkedContainerColor = controlColor.copy(alpha = 0.26f),
+                        checkedContentColor = controlColor,
+                    ),
                     modifier = Modifier
                         .size(40.dp)
                         .semantics { contentDescription = controlDescription },
@@ -969,7 +976,7 @@ fun MusicCard(
                         playing = isPlaying,
                         loading = loading,
                         failed = failed,
-                        tint = LocalContentColor.current,
+                        tint = controlColor,
                         iconSize = 22.dp,
                     )
                 }
