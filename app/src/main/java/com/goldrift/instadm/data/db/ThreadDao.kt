@@ -221,14 +221,13 @@ interface ThreadDao {
     suspend fun updateReadWatermark(threadId: String, watermark: Long, now: Long)
 
     /**
-     * Advances the watermark from a fetched viewer receipt. Unlike
-     * [updateReadWatermark], a receipt that does not advance the watermark keeps a
-     * marked-unread flag: a status fetch is not a read.
+     * Advances the watermark from a fetched viewer receipt. The server's
+     * marked-unread flag rides on every fetched view, so a receipt only records
+     * the watermark; local reads clear the flag through [updateReadWatermark].
      */
     @Query(
         """
         UPDATE threads SET
-            marked_unread = CASE WHEN :watermark > read_watermark_ms THEN 0 ELSE marked_unread END,
             read_watermark_ms = MAX(read_watermark_ms, :watermark),
             updated_at = :now
         WHERE id = :threadId
@@ -237,8 +236,10 @@ interface ThreadDao {
     suspend fun applyViewerReceipt(threadId: String, watermark: Long, now: Long)
 
     /**
-     * Only threads with incoming messages above the watermark are listed; a
-     * thread that carries just a marked-unread flag has no stale read to fetch.
+     * Threads with cached incoming messages above the read watermark, newest
+     * activity first. The reconcile pass refetches them to learn reads made
+     * outside this app. The badge is already visible, so these take the slots
+     * the cold-start query leaves free.
      */
     @Query(
         """
@@ -254,6 +255,30 @@ interface ThreadDao {
         """,
     )
     suspend fun unreadThreadIds(limit: Int): List<String>
+
+    /**
+     * Threads whose badge cannot be computed from the cache: the incoming
+     * preview is newer than both the read watermark and the newest cached
+     * message, so a message this process never fetched is hidden behind it.
+     * Newest activity first. These take the reconcile slots first, or a backlog
+     * of already-unread threads would starve them. A thread that only carries a
+     * marked-unread flag and no incoming preview is absent; the flag itself is
+     * the badge.
+     */
+    @Query(
+        """
+        SELECT t.id
+        FROM threads AS t
+        WHERE t.last_message_from_viewer = 0
+          AND t.last_message_ts > t.read_watermark_ms
+          AND t.last_message_ts > COALESCE(
+              (SELECT MAX(m.timestamp_ms) FROM messages AS m
+               WHERE m.thread_id = t.id AND m.status != 'deleted'), 0)
+        ORDER BY t.last_activity_ms DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun threadIdsWithUnseenPreview(limit: Int): List<String>
 
     @Query("DELETE FROM threads")
     suspend fun clear()

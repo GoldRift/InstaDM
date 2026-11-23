@@ -112,10 +112,18 @@ class ChatStore(
     suspend fun unreadCount(threadId: String): Int = threadDao.unreadCount(threadId)
 
     /**
-     * Threads the inbox counts as unread, newest activity first. The inbox
-     * reconcile pass fetches these to learn reads made outside this app.
+     * Threads with cached unread rows, newest activity first. The inbox
+     * reconcile pass refetches them to learn reads made outside this app.
      */
     suspend fun unreadThreadIds(limit: Int): List<String> = threadDao.unreadThreadIds(limit)
+
+    /**
+     * Threads whose incoming preview is newer than the watermark and the cache:
+     * a message this process never fetched, so the badge cannot be computed
+     * locally. Newest activity first.
+     */
+    suspend fun threadIdsWithUnseenPreview(limit: Int): List<String> =
+        threadDao.threadIdsWithUnseenPreview(limit)
 
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
         messageDao.observeThread(threadId)

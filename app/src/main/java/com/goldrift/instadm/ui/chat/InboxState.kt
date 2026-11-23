@@ -651,7 +651,10 @@ class InboxState(
         moreConversationsError = false
         scope.launch {
             runCatching { mailboxSync.fetchOlder(inboxCursor) }
-                .onSuccess { page -> applyInboxPage(page) }
+                .onSuccess { page ->
+                    applyInboxPage(page)
+                    scope.launch { mailboxSync.reconcileUnreadThreads() }
+                }
                 .onFailure { error ->
                     errorMessage = describeError(error)
                     moreConversationsError = true
