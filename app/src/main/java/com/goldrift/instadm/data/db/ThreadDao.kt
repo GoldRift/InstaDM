@@ -33,9 +33,11 @@ interface ThreadDao {
 
     /**
      * Counts incoming messages above each thread's read watermark. The
-     * watermark only advances once the viewer's receipt is accepted, so the
-     * badge clears when the open thread is actually marked read rather than
-     * when it is merely tapped.
+     * watermark advances when the viewer's receipt is accepted, and locally at
+     * view time for folders that take no receipt and for hidden activity rows
+     * that take no receipt; see
+     * [com.goldrift.instadm.data.ChatStore.markActivityReadIfSettled] and
+     * [com.goldrift.instadm.data.ChatStore.markThreadReadIncludingActivity].
      */
     @Query(
         """
@@ -62,6 +64,25 @@ interface ThreadDao {
         """,
     )
     suspend fun unreadCount(threadId: String): Int
+
+    /**
+     * Unread incoming messages above the read watermark, excluding [excludingKind].
+     * Activity rows the transcript hides are settled separately from the
+     * messages a receipt names, so a pending receipt is never jumped over.
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM messages AS m
+        INNER JOIN threads AS t ON t.id = m.thread_id
+        WHERE m.thread_id = :threadId
+          AND m.is_from_viewer = 0
+          AND m.status != 'deleted'
+          AND m.kind != :excludingKind
+          AND m.timestamp_ms > t.read_watermark_ms
+        """,
+    )
+    suspend fun unreadMessageCount(threadId: String, excludingKind: String): Int
 
     @Transaction
     @Query("SELECT * FROM threads WHERE id = :threadId")

@@ -72,6 +72,20 @@ interface MessageDao {
         "AND timestamp_ms = :timestampMs AND status != 'deleted' LIMIT 1")
     suspend fun activityLog(threadId: String, kind: String, timestampMs: Long): MessageEntity?
 
+    /**
+     * Newest unread hidden-activity timestamp of [kind] in [threadId], or null
+     * when none. The transcript window excludes reaction-log rows, so a
+     * watermark computed from visible messages never reaches them.
+     */
+    @Query(
+        "SELECT MAX(m.timestamp_ms) FROM messages AS m " +
+            "INNER JOIN threads AS t ON t.id = m.thread_id " +
+            "WHERE m.thread_id = :threadId AND m.kind = :kind " +
+            "AND m.is_from_viewer = 0 AND m.status != 'deleted' " +
+            "AND m.timestamp_ms > t.read_watermark_ms",
+    )
+    suspend fun newestUnreadActivity(threadId: String, kind: String): Long?
+
     @Query("SELECT * FROM attachments WHERE message_id = :messageId")
     suspend fun attachments(messageId: String): List<AttachmentEntity>
 

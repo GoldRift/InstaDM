@@ -78,6 +78,31 @@ fun ChatMessage.canMarkRead(): Boolean =
     sender == MessageSender.Them && isServerMessage()
 
 /**
+ * The message a read receipt should name: the trimmed explicit id, resolved
+ * against the transcript, and otherwise the newest incoming server message. An
+ * explicit id the transcript no longer shows is still sent, because the server
+ * already knows the message; blank means no receipt can be named, so none is
+ * sent.
+ */
+fun readReceiptTarget(messages: List<ChatMessage>, explicitMessageId: String): String {
+    val explicit = explicitMessageId.trim()
+    val targetMessage = if (explicit.isNotBlank()) {
+        messages.firstOrNull { it.id == explicit }
+    } else {
+        messages.lastOrNull { it.canMarkRead() }
+    }
+    return targetMessage?.id?.takeIf { it.isNotBlank() } ?: explicit
+}
+
+/**
+ * Whether viewing the chat should mark it read. A visible target can name a
+ * receipt; an unread count alone covers hidden activity rows, which the
+ * transcript never shows and a receipt never names.
+ */
+fun shouldMarkReadOnView(visibleTargetId: String, unreadCount: Int): Boolean =
+    visibleTargetId.isNotBlank() || unreadCount > 0
+
+/**
  * Local read watermark for a thread Instagram will not accept a viewer receipt
  * for, such as a message request. The newest incoming message is what the user
  * has seen, and it is only used to clear the inbox badge.

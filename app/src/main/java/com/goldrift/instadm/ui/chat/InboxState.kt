@@ -54,6 +54,8 @@ data class ActiveThreadState(
     val hasMoreLocal: Boolean = false,
     val isLoadingOlder: Boolean = false,
     val olderError: Boolean = false,
+    /** Live unread count for the open thread, or null to keep the row's. */
+    val unreadCount: Int? = null,
 ) {
     fun mergeInto(conversation: Conversation): Conversation {
         if (threadId != conversation.id) return conversation
@@ -63,6 +65,7 @@ data class ActiveThreadState(
             hasMoreOlder = hasMoreLocal || conversation.hasMoreOlder,
             isLoadingOlder = isLoadingOlder,
             olderError = olderError,
+            unreadCount = unreadCount ?: conversation.unreadCount,
         )
     }
 }
@@ -146,6 +149,7 @@ class InboxState(
     private val loadingThreads = mutableStateMapOf<String, Boolean>()
     private val markedRead = mutableMapOf<String, String>()
     private val readJobs = mutableMapOf<String, Job>()
+    private val activityJobs = mutableMapOf<String, Job>()
     private val lastReadAt = mutableMapOf<String, Long>()
     private val typingSenders = mutableStateMapOf<String, List<Long>>()
     private val typingExpiry = mutableMapOf<String, Job>()
@@ -155,6 +159,7 @@ class InboxState(
     private val waveformExtracting = Collections.synchronizedSet(mutableSetOf<String>())
     private var openThreadId: String? = null
     private var messageCollector: Job? = null
+    private var unreadCollector: Job? = null
     private var threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
     private var networkLoadOlderInFlight = false
     private var refreshInFlight = false
@@ -499,8 +504,14 @@ class InboxState(
     @OptIn(ExperimentalCoroutinesApi::class)
     fun openThread(threadId: String) {
         if (banner?.threadId == threadId) dismissBanner()
-        if (openThreadId == threadId && messageCollector?.isActive == true) return
+        if (openThreadId == threadId &&
+            messageCollector?.isActive == true &&
+            unreadCollector?.isActive == true
+        ) {
+            return
+        }
         messageCollector?.cancel()
+        unreadCollector?.cancel()
         openThreadId = threadId
         networkLoadOlderInFlight = false
         threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
@@ -522,6 +533,14 @@ class InboxState(
                     applyThreadMessages(threadId, stored, hasMoreLocal)
                 }
         }
+        unreadCollector = scope.launch {
+            chatStore.observeUnreadCounts()
+                .map { counts -> counts.firstOrNull { it.threadId == threadId }?.unreadCount ?: 0 }
+                .distinctUntilChanged()
+                .collect { count ->
+                    updateActiveThread(threadId) { it.copy(unreadCount = count) }
+                }
+        }
     }
 
     /** Stops the database observer, unless the reader already moved to another thread. */
@@ -531,6 +550,8 @@ class InboxState(
         networkLoadOlderInFlight = false
         messageCollector?.cancel()
         messageCollector = null
+        unreadCollector?.cancel()
+        unreadCollector = null
         if (activeThread.threadId == threadId) {
             activeThread = ActiveThreadState()
         }
@@ -872,6 +893,10 @@ class InboxState(
      * thread the viewer replies to is marked read even when the viewer hides
      * receipts, because replying would otherwise leave an unseen message with
      * a sent message after it.
+     *
+     * Hidden reaction-log rows clear locally, immediately when no visible
+     * incoming message is unread and otherwise with the accepted receipt;
+     * they never name a receipt.
      */
     fun markRead(threadId: String, messageId: String = "", fromSend: Boolean = false) {
         if (!AppVisibility.isForeground) return
@@ -886,15 +911,12 @@ class InboxState(
             markLocallyRead(threadId)
             return
         }
+        // Hidden reaction-log rows have no receipt Instagram accepts, so the
+        // viewer's look at the chat is the only signal that clears them; with
+        // a visible message still unread, the accepted receipt clears them.
+        markActivityRead(threadId)
 
-        val currentMessages = messagesFor(threadId)
-        val explicit = messageId.trim()
-        val targetMessage = if (explicit.isNotBlank()) {
-            currentMessages.firstOrNull { it.id == explicit }
-        } else {
-            currentMessages.lastOrNull { it.canMarkRead() }
-        }
-        val target = targetMessage?.id?.takeIf { it.isNotBlank() } ?: explicit
+        val target = readReceiptTarget(messagesFor(threadId), messageId)
         if (target.isBlank() || markedRead[threadId] == target) return
 
         markedRead[threadId] = target
@@ -928,7 +950,7 @@ class InboxState(
                         timestampMs = targetTimestamp,
                     )
                 }.onSuccess {
-                    chatStore.markThreadRead(threadId, targetTimestamp)
+                    chatStore.markThreadReadIncludingActivity(threadId, targetTimestamp)
                 }.onFailure {
                     if (markedRead[threadId] == target) {
                         markedRead.remove(threadId)
@@ -955,8 +977,15 @@ class InboxState(
     /** Clears the inbox badge without asking Instagram to publish a receipt. */
     private fun markLocallyRead(threadId: String) {
         val watermark = requestReadWatermark(messagesFor(threadId))
-        if (watermark > 0) {
-            scope.launch { chatStore.markThreadRead(threadId, watermark) }
+        scope.launch { chatStore.markThreadReadIncludingActivity(threadId, watermark) }
+    }
+
+    /** Clears settled hidden activity; see [ChatStore.markActivityReadIfSettled]. */
+    private fun markActivityRead(threadId: String) {
+        activityJobs.remove(threadId)?.cancel()
+        activityJobs[threadId] = scope.launch {
+            if (!AppVisibility.isForeground) return@launch
+            chatStore.markActivityReadIfSettled(threadId)
         }
     }
 

@@ -216,6 +216,118 @@ class ChatStoreTest {
         assertEquals(0, store.unreadCount("thread-1"))
     }
 
+    /**
+     * Needs a device: Room and the in-memory database only run under
+     * instrumentation, so this case is unrun on the JVM (AGENTS.md).
+     */
+    @Test
+    fun markThreadReadIncludingActivityClearsUnreadReactionLogs() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-1" },
+                  "messages": [
+                    { "id": "mid.visible", "sender_fbid": 222, "timestamp_ms": 1800000003000, "text": "hello", "kind": "text", "is_from_viewer": false },
+                    { "id": "mid.log", "sender_fbid": 222, "timestamp_ms": 1800000005000, "text": "Liked a message", "kind": "reaction-log", "is_from_viewer": false }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        // The hidden activity row counts as unread even though the transcript hides it.
+        assertEquals(2, store.unreadCount("thread-1"))
+
+        // A receipt for the visible message alone leaves the newer activity row above the watermark.
+        store.markThreadRead("thread-1", 1_800_000_003_000)
+        assertEquals(1, store.unreadCount("thread-1"))
+
+        // Covering the activity row clears both.
+        store.markThreadReadIncludingActivity("thread-1", 0L)
+        assertEquals(0, store.unreadCount("thread-1"))
+
+        // A row that lands after the covering snapshot stays unread until the next view.
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-1" },
+                  "messages": [
+                    { "id": "mid.log.later", "sender_fbid": 222, "timestamp_ms": 1800000009000, "text": "Reacted", "kind": "reaction-log", "is_from_viewer": false }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+        assertEquals(1, store.unreadCount("thread-1"))
+
+        store.markThreadReadIncludingActivity("thread-1", 0L)
+        assertEquals(0, store.unreadCount("thread-1"))
+
+        // The stored watermark never moves backwards.
+        val watermark = store.conversationThread("thread-1").readWatermarkMs
+        store.markThreadReadIncludingActivity("thread-1", 1_800_000_001_000)
+        assertEquals(watermark, store.conversationThread("thread-1").readWatermarkMs)
+    }
+
+    /**
+     * Needs a device: Room and the in-memory database only run under
+     * instrumentation, so this case is unrun on the JVM (AGENTS.md).
+     */
+    @Test
+    fun markActivityReadIfSettledClearsOnlyHiddenActivity() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-A" },
+                  "messages": [
+                    { "id": "mid.a.log", "sender_fbid": 222, "timestamp_ms": 1800000005000, "text": "Liked a message", "kind": "reaction-log", "is_from_viewer": false }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+        store.ingestThread(
+            JSONObject(
+                """
+                {
+                  "protocol_version": "test",
+                  "thread": { "id": "thread-B" },
+                  "messages": [
+                    { "id": "mid.b.visible", "sender_fbid": 222, "timestamp_ms": 1800000003000, "text": "hello", "kind": "text", "is_from_viewer": false },
+                    { "id": "mid.b.log", "sender_fbid": 222, "timestamp_ms": 1800000005000, "text": "Liked a message", "kind": "reaction-log", "is_from_viewer": false }
+                  ],
+                  "has_more_older": false
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        // Activity-only thread: nothing visible is pending, so the settled sweep clears it.
+        assertEquals(1, store.unreadCount("thread-A"))
+        store.markActivityReadIfSettled("thread-A")
+        assertEquals(0, store.unreadCount("thread-A"))
+
+        // A pending receipt for a visible message must not be jumped by the sweep.
+        assertEquals(2, store.unreadCount("thread-B"))
+        store.markActivityReadIfSettled("thread-B")
+        assertEquals(2, store.unreadCount("thread-B"))
+
+        // The accepted receipt's covering write clears both rows.
+        store.markThreadReadIncludingActivity("thread-B", 1_800_000_003_000)
+        assertEquals(0, store.unreadCount("thread-B"))
+    }
+
     @Test
     fun tombstonedMessagesStayGoneAfterReingest() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))

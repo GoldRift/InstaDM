@@ -28,6 +28,14 @@ internal const val SQLITE_BIND_CHUNK = 500
 /** Kind the Go core assigns to like/reaction activity entries. */
 internal const val REACTION_LOG_KIND = "reaction-log"
 
+/**
+ * Watermark a read of the chat records: the visible message a receipt
+ * names, and hidden activity rows cleared by the same write. The max
+ * keeps the watermark monotonic when the hidden row is older.
+ */
+internal fun coveredReadWatermark(visibleWatermarkMs: Long, activityWatermarkMs: Long): Long =
+    maxOf(visibleWatermarkMs, activityWatermarkMs)
+
 private const val META_INBOX_SYNCED_AT = "inbox_synced_at"
 private const val META_VIEWER_ID = "viewer_ig_id"
 private const val META_VIEWER_USERNAME = "viewer_username"
@@ -258,6 +266,36 @@ class ChatStore(
     suspend fun markThreadRead(threadId: String, watermarkMs: Long) {
         if (threadId.isBlank() || watermarkMs <= 0) return
         threadDao.updateReadWatermark(threadId, watermarkMs, clock())
+    }
+
+    /**
+     * Advances the read watermark to [visibleWatermarkMs] and over reaction-log
+     * rows already unread at call time. Called where the viewer's read is
+     * already established (an accepted receipt, or a folder Instagram will not
+     * take a receipt for), so the write lands with that read, not before it.
+     */
+    suspend fun markThreadReadIncludingActivity(threadId: String, visibleWatermarkMs: Long) {
+        if (threadId.isBlank()) return
+        db.withTransaction {
+            val activityMs = messageDao.newestUnreadActivity(threadId, REACTION_LOG_KIND) ?: 0L
+            val watermark = coveredReadWatermark(visibleWatermarkMs, activityMs)
+            if (watermark > 0) threadDao.updateReadWatermark(threadId, watermark, clock())
+        }
+    }
+
+    /**
+     * Clears reaction-log rows already unread at call time, but only when no
+     * visible incoming message is unread: while a receipt is pending, that
+     * receipt's own covering write clears the activity, so the badge keeps
+     * matching the server until the receipt is accepted.
+     */
+    suspend fun markActivityReadIfSettled(threadId: String) {
+        if (threadId.isBlank()) return
+        db.withTransaction {
+            if (threadDao.unreadMessageCount(threadId, REACTION_LOG_KIND) > 0) return@withTransaction
+            val activityMs = messageDao.newestUnreadActivity(threadId, REACTION_LOG_KIND) ?: 0L
+            if (activityMs > 0) threadDao.updateReadWatermark(threadId, activityMs, clock())
+        }
     }
 
     /** The viewer's own FBID, used to key optimistic reactions. */

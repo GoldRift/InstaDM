@@ -888,11 +888,14 @@ fun ChatScreen(
     // chat is composed, and again when the app returns to the foreground (a
     // receipt may have been skipped while the chat was in the background).
     val readTarget = messages.lastOrNull { it.canMarkRead() }?.id.orEmpty()
+    // Reaction-log rows never reach `messages`, so an unread thread can have no
+    // visible target; the live unread count still has to drive the mark.
+    val unreadCount = conversation.unreadCount
     val isForeground = AppVisibility.isForeground
     // The setting is a key as well as a gate in InboxState: turning receipts
     // back on while a chat is open must re-run the mark for the visible message.
-    LaunchedEffect(readTarget, isForeground, readReceiptsEnabled) {
-        if (isForeground && readTarget.isNotBlank()) {
+    LaunchedEffect(readTarget, unreadCount, isForeground, readReceiptsEnabled) {
+        if (isForeground && shouldMarkReadOnView(readTarget, unreadCount)) {
             onMarkRead(readTarget)
         }
     }

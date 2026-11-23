@@ -10,8 +10,10 @@ import com.goldrift.instadm.ui.chat.applyReadReceiptToMessages
 import com.goldrift.instadm.ui.chat.canMarkRead
 import com.goldrift.instadm.ui.chat.canRevealTimestamp
 import com.goldrift.instadm.ui.chat.readReceiptOwnerId
+import com.goldrift.instadm.ui.chat.readReceiptTarget
 import com.goldrift.instadm.ui.chat.publishesReadReceipt
 import com.goldrift.instadm.ui.chat.requestReadWatermark
+import com.goldrift.instadm.ui.chat.shouldMarkReadOnView
 import com.goldrift.instadm.ui.chat.shouldPublishReadReceipt
 import com.goldrift.instadm.ui.chat.showsReadReceipt
 import org.junit.Assert.assertEquals
@@ -224,5 +226,47 @@ class ReadStatusTest {
         assertEquals(null, readReceiptOwnerId(messages))
         assertEquals(null, readReceiptOwnerId(emptyList()))
         assertFalse(messages[0].showsReadReceipt(null))
+    }
+
+    @Test
+    fun readReceiptTargetFallsBackToTheNewestIncomingServerMessage() {
+        val messages = listOf(message("mid.\$server-1", MessageSender.Them, 2_000))
+
+        assertEquals("", readReceiptTarget(emptyList<ChatMessage>(), ""))
+        assertEquals("mid.\$server-1", readReceiptTarget(messages, ""))
+    }
+
+    @Test
+    fun readReceiptTargetTrimsAnExplicitId() {
+        val messages = listOf(message("mid.\$server-1", MessageSender.Them, 2_000))
+
+        assertEquals("mid.\$server-1", readReceiptTarget(messages, " mid.\$server-1 "))
+    }
+
+    @Test
+    fun readReceiptTargetKeepsAnExplicitIdMissingFromTheMessages() {
+        val messages = listOf(message("mid.\$server-1", MessageSender.Them, 2_000))
+
+        assertEquals("mid.\$gone", readReceiptTarget(messages, "mid.\$gone"))
+    }
+
+    @Test
+    fun readReceiptTargetIsBlankWithoutAnIncomingServerMessage() {
+        val messages = listOf(
+            message("mid.\$mine-1", MessageSender.Me, 1_000),
+            message("local:1", MessageSender.Them, 2_000, pending = true),
+        )
+
+        assertEquals("", readReceiptTarget(messages, ""))
+    }
+
+    @Test
+    fun viewingMarksReadWithAVisibleTargetOrUnreadMessages() {
+        assertTrue(shouldMarkReadOnView("mid.\$x", 0))
+        // A reaction-only thread has no visible target; the unread count still
+        // proves the viewer has something to clear.
+        assertTrue(shouldMarkReadOnView("", 1))
+        assertFalse(shouldMarkReadOnView("", 0))
+        assertTrue(shouldMarkReadOnView("mid.\$x", 3))
     }
 }
