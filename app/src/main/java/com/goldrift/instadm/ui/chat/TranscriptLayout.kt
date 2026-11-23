@@ -167,6 +167,7 @@ fun clusterPosition(
 fun messageContentType(message: ChatMessage): String {
     if (message.isAdminNotice()) return "admin"
     val kind = when {
+        message.kind == "location-ended" -> "location-ended"
         message.isStickerOnly() -> "sticker"
         message.isJumboEmoji() -> "jumbo"
         message.media.any { it.isVoiceNote } -> "voice"

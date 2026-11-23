@@ -194,6 +194,7 @@ fun ShareCard(
 fun LocationCard(
     media: MessageMedia,
     senderName: String,
+    fromViewer: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -248,9 +249,73 @@ fun LocationCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                if (senderName.isNotBlank()) {
+                val subtitle = when {
+                    fromViewer -> stringResource(R.string.chat_location_sharing_you)
+                    senderName.isNotBlank() ->
+                        stringResource(R.string.chat_live_location_sharing, senderName)
+                    else -> null
+                }
+                if (subtitle != null) {
                     Text(
-                        text = stringResource(R.string.chat_live_location_sharing, senderName),
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Notice for a live-location share Instagram has ended: it edits the same
+ * message to a placeholder with no media, so the card keeps [LocationCard]'s
+ * container but drops the map.
+ */
+@Composable
+fun LocationEndedCard(
+    senderName: String,
+    fromViewer: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 260.dp)
+            .clip(shareShape(hasLink = false))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .combinedClickable(
+                onLongClickLabel = stringResource(R.string.chat_message_actions),
+                onLongClick = onLongClick,
+                onClick = {},
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Place,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = stringResource(R.string.chat_location_expired),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                val subtitle = when {
+                    fromViewer -> stringResource(R.string.chat_location_stopped_you)
+                    senderName.isNotBlank() ->
+                        stringResource(R.string.chat_location_stopped, senderName)
+                    else -> null
+                }
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -378,13 +378,20 @@ internal object DemoData {
             kind = "link",
             media = listOf(location(12.34, 56.78, "map.png")),
         )
+        val ended = message(
+            "demo_dev_9",
+            dev,
+            now - 187 * MINUTE,
+            "Location expired",
+            kind = "location-ended",
+        )
         return ThreadSpec(
             id = "demo_dev",
             longId = "17800000000000003",
             title = "Dev Patel",
             isGroup = false,
             participants = listOf(viewer, dev),
-            messages = listOf(shots, great, clip, vibe, once, more, song, here),
+            messages = listOf(shots, great, clip, vibe, once, more, song, here, ended),
             viewerWatermarkMs = now,
             otherWatermarkMs = now,
         )

@@ -97,8 +97,12 @@
     <string name="chat_link_error">Couldn\'t open link</string>
     <string name="chat_live_location">Live location</string>
     <string name="chat_live_location_sharing">%1$s is sharing</string>
+    <string name="chat_location_sharing_you">You are sharing</string>
     <string name="chat_location_error">Couldn\'t open location</string>
     <string name="chat_location_open">Open in Maps</string>
+    <string name="chat_location_expired">Location expired</string>
+    <string name="chat_location_stopped">%1$s stopped sharing</string>
+    <string name="chat_location_stopped_you">You stopped sharing</string>
     <string name="chat_music_play">Play song</string>
     <string name="chat_music_pause">Pause song</string>
     <string name="chat_music_error">Couldn\'t play song</string>
@@ -153,6 +157,7 @@
     <string name="chat_reply_story">Story</string>
     <string name="chat_reply_reel">Reel</string>
     <string name="chat_reply_music">Music</string>
+    <string name="chat_reply_location">Location</string>
     <string name="chat_reply_attachment">Attachment</string>
     <string name="chat_copied">Copied</string>
     <string name="chat_cancel">Cancel</string>

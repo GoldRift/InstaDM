@@ -273,7 +273,8 @@ Instagram sends neither a preview nor artwork, the message carries the track nam
 text instead. A live-location share stays a normal XMA link and keeps `kind=link`. Its
 `url` and `target_url` are an `instagram://live_location/?latitude=..&longitude=..`
 deep link that only the official app opens, and `preview_url` is a static map image, so
-a client can show the map and offer its own map link.
+a client can show the map and offer its own map link. When the share ends, Instagram
+edits the same message to a placeholder with no media, and clients label it as ended.
 
 Use `thread --after <cursor>` with the previous page's `oldest_cursor` to fetch older
 messages. The older-page output uses the same message table and prints the next cursor.

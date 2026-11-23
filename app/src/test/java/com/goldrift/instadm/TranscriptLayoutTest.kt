@@ -452,4 +452,45 @@ class TranscriptLayoutTest {
         assertEquals("Them:location", contentType)
         assertNotEquals("Them:share", contentType)
     }
+
+    @Test
+    fun endedLocationGetsItsOwnRowShape() {
+        val ended = message(
+            sender = MessageSender.Them,
+            text = "Location expired",
+            kind = "location-ended",
+            media = emptyList(),
+        )
+
+        val contentType = messageContentType(ended)
+        assertEquals("Them:location-ended", contentType)
+        assertNotEquals("Them:text", contentType)
+    }
+
+    @Test
+    fun endedLocationWithAStaleMapKeepsTheEndedShape() {
+        val deepLink = "instagram://live_location/?latitude=12.34&longitude=-56.78"
+        val ended = message(
+            sender = MessageSender.Them,
+            text = "Location expired",
+            kind = "location-ended",
+            media = listOf(
+                MessageMedia(
+                    type = "link",
+                    url = deepLink,
+                    targetUrl = deepLink,
+                    previewUrl = "https://cdn.example.invalid/map.png",
+                    width = 545,
+                    height = 280,
+                ),
+            ),
+        )
+
+        assertTrue(ended.media.single().isLiveLocation)
+        val contentType = messageContentType(ended)
+        assertEquals("Them:location-ended", contentType)
+        assertNotEquals("Them:location", contentType)
+        assertNotEquals("Them:share", contentType)
+        assertNotEquals("Them:media", contentType)
+    }
 }

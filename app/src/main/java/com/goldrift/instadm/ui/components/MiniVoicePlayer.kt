@@ -84,8 +84,8 @@ internal fun showVoiceMiniPlayer(
     finished: Boolean,
     mediaViewerOpen: Boolean = false,
     cameraOpen: Boolean = false,
-): Boolean = enabled && !mediaViewerOpen && !cameraOpen && nowPlaying != null && !finished &&
-    nowPlaying.threadId != visibleThreadId
+): Boolean = enabled && !mediaViewerOpen && !cameraOpen && nowPlaying != null &&
+    !nowPlaying.isMusic && !finished && nowPlaying.threadId != visibleThreadId
 
 /** Height the floating bar takes at the bottom, margin included. */
 internal val MiniVoicePlayerInset = 76.dp

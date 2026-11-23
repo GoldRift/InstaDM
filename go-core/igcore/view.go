@@ -848,6 +848,23 @@ func isExpiredXMA(xma *slidetypes.XMAContent) bool {
 	return strings.Contains(eyebrow, "shared") && strings.Contains(caption, "unavailable")
 }
 
+// isEndedLiveLocation recognizes the placeholder Instagram leaves when a
+// live-location share stops: the message is edited in place and keeps no
+// target URL, no preview, and a "<name> stopped sharing" subtitle.
+func isEndedLiveLocation(xma *slidetypes.XMAContent) bool {
+	if xma == nil || strings.TrimSpace(xma.TargetURL) != "" {
+		return false
+	}
+	text := strings.ToLower(xma.TitleText + " " + xma.SubtitleText + " " +
+		xma.EyebrowText + " " + xma.CaptionBodyText)
+	if !strings.Contains(text, "location") {
+		return false
+	}
+	return strings.Contains(text, "stopped sharing") ||
+		strings.Contains(text, "expired") ||
+		strings.Contains(text, "ended")
+}
+
 // xmaPlaceholderKind labels an XMA share that has no URL, such as Instagram's
 // "Story unavailable" placeholder. The caption/eyebrow text is the only clue.
 func xmaPlaceholderKind(xma *slidetypes.XMAContent) string {
@@ -1137,6 +1154,9 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 			mediaCount = 1
 		} else {
 			kind = xmaPlaceholderKind(content.XMA)
+			if isEndedLiveLocation(content.XMA) {
+				kind = "location-ended"
+			}
 			if isExpiredXMA(content.XMA) {
 				// The app renders the "-unavailable" kinds as a notice card
 				// instead of a normal text bubble.

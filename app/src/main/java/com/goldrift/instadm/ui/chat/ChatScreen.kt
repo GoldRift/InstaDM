@@ -2486,6 +2486,7 @@ private fun replyContent(reply: ReplySnapshot): String {
         "reel" -> stringResource(R.string.chat_reply_reel)
         "reel-unavailable" -> stringResource(R.string.chat_reply_reel)
         "music" -> stringResource(R.string.chat_reply_music)
+        "location-ended" -> stringResource(R.string.chat_reply_location)
         else -> stringResource(R.string.chat_reply_attachment)
     }
 }
@@ -2508,20 +2509,23 @@ private fun MessageBubbleContent(
     noteAvatarUrl: String,
     noteInitials: String,
 ) {
+    val locationEnded = message.kind == "location-ended"
     val media = message.media.filter { it.isVisual && !it.isReel }
     val shares = message.media.filter {
         (it.isLink || it.isReel) && !it.viewOnce && !it.isLiveLocation
     }
     val music = message.media.filter { it.isMusic }
-    val locations = message.media.filter { it.isLiveLocation }
+    // An ended share is an edit of the same message, so a map ingested before
+    // the edit would otherwise still render under the notice.
+    val locations = message.media.filter { it.isLiveLocation && !locationEnded }
     val viewOnce = message.media.filter { it.viewOnce }
     val voiceNotes = message.media.filter { it.isVoiceNote }
     val localMedia = message.localMedia
     val unavailable = message.kind == "unavailable" ||
         message.kind.endsWith("-unavailable")
     val hasAttachment = media.isNotEmpty() || shares.isNotEmpty() || music.isNotEmpty() ||
-        locations.isNotEmpty() || viewOnce.isNotEmpty() || voiceNotes.isNotEmpty() ||
-        localMedia != null || unavailable
+        locations.isNotEmpty() || locationEnded || viewOnce.isNotEmpty() ||
+        voiceNotes.isNotEmpty() || localMedia != null || unavailable
     // The quote card keeps as much room at the bubble sides as above it, so it
     // sits outside the content column's wider text padding.
     val quoteInset = if (hasAttachment || emojiOnly) AttachmentInset else 9.dp
@@ -2605,6 +2609,20 @@ private fun MessageBubbleContent(
                 LocationCard(
                     media = item,
                     senderName = message.senderName,
+                    fromViewer = message.sender == MessageSender.Me,
+                    onLongClick = onLongPress,
+                )
+            }
+
+            if (locationEnded) {
+                if (media.isNotEmpty() || music.isNotEmpty() || shares.isNotEmpty() ||
+                    locations.isNotEmpty()
+                ) {
+                    Spacer(Modifier.height(4.dp))
+                }
+                LocationEndedCard(
+                    senderName = message.senderName,
+                    fromViewer = message.sender == MessageSender.Me,
                     onLongClick = onLongPress,
                 )
             }
@@ -2656,7 +2674,7 @@ private fun MessageBubbleContent(
                     ),
                     modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
                 )
-            } else if (message.text.isNotBlank()) {
+            } else if (message.text.isNotBlank() && !locationEnded) {
                 Text(
                     text = message.text,
                     style = MaterialTheme.typography.bodyLarge,

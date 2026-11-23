@@ -799,6 +799,23 @@ func TestDescribeMessageContent(t *testing.T) {
 			wantMedia: 2,
 		},
 		{
+			name: "ended live location",
+			message: &slidetypes.Message{
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageXMAContent",
+					Content: &slidetypes.MessageContentXMA{
+						XMA: &slidetypes.XMAContent{
+							Typename:     "SlideMessageStandardXMA",
+							TitleText:    "Location expired",
+							SubtitleText: "Maya Chen stopped sharing",
+						},
+					},
+				},
+			},
+			wantKind: "location-ended",
+			wantText: "Location expired",
+		},
+		{
 			name: "unknown falls back to text body",
 			message: &slidetypes.Message{
 				TextBody: "fallback",
@@ -1147,6 +1164,129 @@ func TestNewMessageViewNormalizesSharedPostAsLink(t *testing.T) {
 	}
 	if media.PreviewURL != "https://cdn.example.invalid/post.jpg" {
 		t.Errorf("preview = %q, want the XMA preview", media.PreviewURL)
+	}
+}
+
+func TestNewMessageViewNormalizesEndedLiveLocation(t *testing.T) {
+	tests := []struct {
+		name string
+		xma  *slidetypes.XMAContent
+		want func(t *testing.T, view MessageView)
+	}{
+		{
+			name: "ended",
+			xma: &slidetypes.XMAContent{
+				Typename:     "SlideMessageStandardXMA",
+				TitleText:    "Location expired",
+				SubtitleText: "Maya Chen stopped sharing",
+			},
+			want: func(t *testing.T, view MessageView) {
+				if view.Kind != "location-ended" {
+					t.Errorf("kind = %q, want location-ended", view.Kind)
+				}
+				if view.Text != "Location expired" {
+					t.Errorf("text = %q, want Location expired", view.Text)
+				}
+				if view.MediaCount != 0 {
+					t.Errorf("media_count = %d, want 0", view.MediaCount)
+				}
+				if len(view.Media) != 0 {
+					t.Errorf("media = %+v, want none", view.Media)
+				}
+			},
+		},
+		{
+			name: "ordinary link is not ended",
+			xma: &slidetypes.XMAContent{
+				Typename:  "SlideMessageStandardXMA",
+				TitleText: "example.com",
+				TargetURL: "https://example.com/story-time",
+				PreviewImage: &slidetypes.XMAPreviewImage{
+					URL:    "https://cdn.example.invalid/p.png",
+					Width:  1200,
+					Height: 800,
+				},
+			},
+			want: func(t *testing.T, view MessageView) {
+				if view.Kind != "link" {
+					t.Errorf("kind = %q, want link", view.Kind)
+				}
+				if view.MediaCount != 1 {
+					t.Errorf("media_count = %d, want 1", view.MediaCount)
+				}
+				if len(view.Media) != 1 {
+					t.Fatalf("media = %+v, want one link", view.Media)
+				}
+				if view.Media[0].URL != "https://example.com/story-time" {
+					t.Errorf("media url = %q, want the target URL", view.Media[0].URL)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message := &slidetypes.Message{
+				MessageID:  "mid.location",
+				SenderFBID: 222,
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageXMAContent",
+					Content: &slidetypes.MessageContentXMA{
+						XMA: test.xma,
+					},
+				},
+			}
+
+			test.want(t, newMessageView(message, 111, nil))
+		})
+	}
+}
+
+func TestNewMessageViewKeepsLiveLocationAsLink(t *testing.T) {
+	const (
+		deepLink   = "instagram://live_location/?latitude=12.345&longitude=-56.789&session_id=abc"
+		previewURL = "https://cdn.example.invalid/map.png"
+	)
+	message := &slidetypes.Message{
+		MessageID:  "mid.live",
+		SenderFBID: 222,
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:     "SlideMessageStandardXMA",
+					TitleText:    "Live location",
+					SubtitleText: "Maya Chen is sharing",
+					TargetURL:    deepLink,
+					PreviewImage: &slidetypes.XMAPreviewImage{
+						URL:    previewURL,
+						Width:  545,
+						Height: 280,
+					},
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "link" || view.MediaCount != 1 {
+		t.Fatalf("kind/media_count = %q/%d, want link/1", view.Kind, view.MediaCount)
+	}
+	if len(view.Media) != 1 {
+		t.Fatalf("media = %+v, want one link", view.Media)
+	}
+	media := view.Media[0]
+	if media.Type != "link" {
+		t.Errorf("media type = %q, want link", media.Type)
+	}
+	if media.URL != deepLink {
+		t.Errorf("media url = %q, want the deep link", media.URL)
+	}
+	if media.PreviewURL != previewURL {
+		t.Errorf("preview = %q, want map preview", media.PreviewURL)
+	}
+	if media.Width != 545 || media.Height != 280 {
+		t.Errorf("preview size = %dx%d, want 545x280", media.Width, media.Height)
 	}
 }
 

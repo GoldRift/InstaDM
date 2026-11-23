@@ -33,6 +33,28 @@ class MiniPlayerVisibilityTest {
     }
 
     @Test
+    fun musicPreviewNeverShowsTheVoiceMiniPlayer() {
+        val music = NowPlaying(
+            threadId = "maya",
+            messageId = "demo_maya_music_1",
+            title = "Night Drive",
+            avatarUrl = "",
+            initials = "MC",
+            isMusic = true,
+        )
+
+        assertFalse(
+            showVoiceMiniPlayer(music, visibleThreadId = "sofia", enabled = true, finished = false),
+        )
+        assertFalse(
+            showVoiceMiniPlayer(music, visibleThreadId = null, enabled = true, finished = false),
+        )
+        assertFalse(
+            showVoiceMiniPlayer(music, visibleThreadId = "maya", enabled = true, finished = false),
+        )
+    }
+
+    @Test
     fun hidesWhenDisabledFinishedOrNothingPlays() {
         assertFalse(
             showVoiceMiniPlayer(note, visibleThreadId = "sofia", enabled = false, finished = false),
