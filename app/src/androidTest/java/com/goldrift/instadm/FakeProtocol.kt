@@ -32,6 +32,11 @@ internal class FakeProtocol(
     val reacts = mutableListOf<React>()
     val reads = mutableListOf<Read>()
 
+    /** Thread detail returned by [loadThread], keyed by thread ID. */
+    val threads = mutableMapOf<String, JSONObject>()
+    val loadedThreads = mutableListOf<String>()
+    val failingThreads = mutableSetOf<String>()
+
     override suspend fun hasCookies(): Boolean = cookies
 
     override suspend fun signOut() {
@@ -44,7 +49,11 @@ internal class FakeProtocol(
 
     override suspend fun loadOlderConversations(cursor: String): JSONObject = unsupported()
 
-    override suspend fun loadThread(threadId: String): JSONObject = unsupported()
+    override suspend fun loadThread(threadId: String): JSONObject {
+        loadedThreads += threadId
+        if (threadId in failingThreads) error("thread fetch failed")
+        return threads[threadId] ?: unsupported()
+    }
 
     override suspend fun searchUsers(query: String): JSONObject = unsupported()
 

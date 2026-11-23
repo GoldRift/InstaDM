@@ -427,6 +427,7 @@ class InboxState(
                         applyInboxPage(mailbox)
                         loadViewer()
                         status = InboxStatus.Ready
+                        scope.launch { mailboxSync.reconcileUnreadThreads() }
                     }
                     .onFailure { error ->
                         errorMessage = describeError(error)

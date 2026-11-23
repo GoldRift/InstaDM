@@ -220,6 +220,41 @@ interface ThreadDao {
     )
     suspend fun updateReadWatermark(threadId: String, watermark: Long, now: Long)
 
+    /**
+     * Advances the watermark from a fetched viewer receipt. Unlike
+     * [updateReadWatermark], a receipt that does not advance the watermark keeps a
+     * marked-unread flag: a status fetch is not a read.
+     */
+    @Query(
+        """
+        UPDATE threads SET
+            marked_unread = CASE WHEN :watermark > read_watermark_ms THEN 0 ELSE marked_unread END,
+            read_watermark_ms = MAX(read_watermark_ms, :watermark),
+            updated_at = :now
+        WHERE id = :threadId
+        """,
+    )
+    suspend fun applyViewerReceipt(threadId: String, watermark: Long, now: Long)
+
+    /**
+     * Only threads with incoming messages above the watermark are listed; a
+     * thread that carries just a marked-unread flag has no stale read to fetch.
+     */
+    @Query(
+        """
+        SELECT m.thread_id
+        FROM messages AS m
+        INNER JOIN threads AS t ON t.id = m.thread_id
+        WHERE m.is_from_viewer = 0
+          AND m.status != 'deleted'
+          AND m.timestamp_ms > t.read_watermark_ms
+        GROUP BY m.thread_id
+        ORDER BY t.last_activity_ms DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun unreadThreadIds(limit: Int): List<String>
+
     @Query("DELETE FROM threads")
     suspend fun clear()
 }

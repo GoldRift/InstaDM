@@ -221,6 +221,27 @@ class ChatStoreTest {
      * instrumentation, so this case is unrun on the JVM (AGENTS.md).
      */
     @Test
+    fun statusFetchWithANonAdvancingReceiptKeepsTheMarkedUnreadFlag() = runBlocking {
+        store.ingestMailbox(JSONObject(MAILBOX))
+        store.ingestThread(JSONObject(THREAD))
+        assertEquals(1_700_000_002_000L, store.conversationThread("thread-1").readWatermarkMs)
+
+        // The server marks the thread unread after that watermark was stored.
+        store.ingestMailbox(markedUnreadMailbox())
+        assertTrue(db.threads().thread("thread-1")!!.markedUnread)
+
+        // A fetched status page repeats the same viewer receipt. That fetch is
+        // not a read, so the flag the mailbox set must survive it.
+        store.ingestThread(JSONObject(THREAD))
+
+        assertTrue(db.threads().thread("thread-1")!!.markedUnread)
+    }
+
+    /**
+     * Needs a device: Room and the in-memory database only run under
+     * instrumentation, so this case is unrun on the JVM (AGENTS.md).
+     */
+    @Test
     fun markThreadReadIncludingActivityClearsUnreadReactionLogs() = runBlocking {
         store.ingestMailbox(JSONObject(MAILBOX))
         store.ingestThread(
@@ -1087,6 +1108,13 @@ class ChatStoreTest {
         db.threads().thread(threadId) ?: error("missing thread $threadId")
 
     private companion object {
+        /** [MAILBOX] with the server's marked-unread flag set on thread-1. */
+        fun markedUnreadMailbox(): JSONObject {
+            val mailbox = JSONObject(MAILBOX)
+            mailbox.getJSONArray("threads").getJSONObject(0).put("marked_as_unread", true)
+            return mailbox
+        }
+
         val MAILBOX = """
             {
               "viewer": { "ig_id": "viewer-ig", "username": "me", "name": "Me", "fbid": 111, "avatar_url": "https://cdn.example.invalid/me.jpg" },

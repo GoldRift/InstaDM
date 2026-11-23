@@ -111,6 +111,12 @@ class ChatStore(
     /** Incoming messages newer than the viewer's read watermark in one thread. */
     suspend fun unreadCount(threadId: String): Int = threadDao.unreadCount(threadId)
 
+    /**
+     * Threads the inbox counts as unread, newest activity first. The inbox
+     * reconcile pass fetches these to learn reads made outside this app.
+     */
+    suspend fun unreadThreadIds(limit: Int): List<String> = threadDao.unreadThreadIds(limit)
+
     fun observeThread(threadId: String): Flow<List<MessageWithMedia>> =
         messageDao.observeThread(threadId)
 
@@ -774,7 +780,7 @@ class ChatStore(
         now: Long,
     ) {
         if (receipts.viewerWatermark > 0) {
-            threadDao.updateReadWatermark(threadId, receipts.viewerWatermark, now)
+            threadDao.applyViewerReceipt(threadId, receipts.viewerWatermark, now)
         }
         if (receipts.otherWatermark > 0) {
             messageDao.markSeen(threadId, receipts.otherWatermark)
