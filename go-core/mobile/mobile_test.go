@@ -24,6 +24,16 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestUserAgent(t *testing.T) {
+	got := UserAgent()
+	if got != igcore.UserAgent {
+		t.Errorf("UserAgent() = %q, want %q", got, igcore.UserAgent)
+	}
+	if !strings.HasPrefix(got, "Mozilla/5.0 ") || !strings.Contains(got, "Chrome/") {
+		t.Errorf("UserAgent() = %q, want Chrome browser UA", got)
+	}
+}
+
 func TestExportCookiesJSON(t *testing.T) {
 	client, err := New(fakeCookies)
 	if err != nil {

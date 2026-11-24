@@ -1,8 +1,10 @@
 package com.goldrift.instadm.ui.login
 
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.SystemClock
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -69,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.GoClient
 import com.goldrift.instadm.data.canonicalCookieJson
 import com.goldrift.instadm.data.missingCookies
 import com.goldrift.instadm.data.parseCookieHeader
@@ -78,18 +81,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-private const val LOGIN_URL =
-    "https://www.instagram.com/accounts/login/?next=%2F&source=mobile_nav"
+private const val LOGIN_URL = "https://www.instagram.com/accounts/login/"
 
-/*
- * Instagram's mobile-web login page renders with a zero-height root in Android
- * WebView (the form is in the DOM but clipped), so this uses a desktop Chrome
- * UA. At phone widths Instagram shows a short landing with a "Log in" button
- * before the normal username/password form.
- */
-private const val LOGIN_USER_AGENT =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/141.0.0.0 Safari/537.36"
 private const val COOKIE_POLL_MS = 500L
 private const val LOGIN_POLL_LIMIT_MS = 10 * 60 * 1000L
 
@@ -256,7 +249,16 @@ fun LoginScreen(
                 } else AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
+                        if (viewContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                            WebView.setWebContentsDebuggingEnabled(true)
+                        }
                         WebView(viewContext).apply {
+                            // Compose wraps AndroidView children in WRAP_CONTENT by default, which
+                            // measures WebView with AT_MOST and breaks 100vh/fixed modals.
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = false
@@ -265,7 +267,8 @@ fun LoginScreen(
                             settings.setSupportMultipleWindows(false)
                             settings.useWideViewPort = true
                             settings.loadWithOverviewMode = true
-                            settings.userAgentString = LOGIN_USER_AGENT
+                            // Match the browser UA used by pinned mautrix-meta.
+                            settings.userAgentString = GoClient.userAgent()
                             CookieManager.getInstance().setAcceptCookie(true)
                             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -299,8 +302,7 @@ fun LoginScreen(
                                     request: WebResourceRequest?,
                                 ): Boolean {
                                     val target = request?.url ?: return false
-                                    return target.scheme != "https" ||
-                                        !isInstagramHost(target.host.orEmpty())
+                                    return !isAllowedLoginNavigation(target.scheme, target.host)
                                 }
 
                                 override fun onReceivedError(
@@ -411,6 +413,21 @@ fun LoginScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+private val ALLOWED_LOGIN_HOSTS = listOf(
+    "instagram.com",
+    "facebook.com",
+    "meta.com",
+    "fbsbx.com",
+)
+
+internal fun isAllowedLoginNavigation(scheme: String?, host: String?): Boolean {
+    if (!scheme.equals("https", ignoreCase = true)) return false
+    val normalized = host?.lowercase().orEmpty()
+    return ALLOWED_LOGIN_HOSTS.any { allowed ->
+        normalized == allowed || normalized.endsWith(".$allowed")
     }
 }
 

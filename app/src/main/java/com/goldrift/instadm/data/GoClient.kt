@@ -191,4 +191,8 @@ class GoClient(cookiesJson: String) : Closeable {
     override fun close() {
         client.close()
     }
+
+    companion object {
+        fun userAgent(): String = Mobile.userAgent()
+    }
 }

@@ -10,12 +10,17 @@ import (
 
 	"go.mau.fi/mautrix-meta/pkg/instameow/slidetypes"
 	"go.mau.fi/mautrix-meta/pkg/messagix/types"
+	"go.mau.fi/mautrix-meta/pkg/messagix/useragent"
 )
 
 // ProtocolVersion identifies the pinned upstream implementation used to
 // produce a response. Record it alongside fixtures so a doc-ID or parser
 // change is easy to correlate.
 const ProtocolVersion = "mautrix-meta@0e6bf6c054c0675176a93ee168333355fbd6a372"
+
+// UserAgent matches the browser UA sent by pinned mautrix-meta so login
+// cookies and subsequent protocol requests share one fingerprint.
+const UserAgent = useragent.UserAgent
 
 // MailboxView is the normalized, JSON-friendly form of the inbox returned by
 // instameow. It intentionally contains no cookies or bootstrap tokens, but it

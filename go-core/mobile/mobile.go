@@ -79,6 +79,10 @@ func Version() string {
 	return igcore.ProtocolVersion
 }
 
+func UserAgent() string {
+	return igcore.UserAgent
+}
+
 // StartWatch connects to DGW and delivers normalized event JSON to callback
 // until StopWatch or Close. It returns after the watch goroutine starts; the
 // caller should keep the callback object alive until StopWatch returns.
