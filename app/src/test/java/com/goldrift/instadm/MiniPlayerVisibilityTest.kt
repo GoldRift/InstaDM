@@ -83,5 +83,14 @@ class MiniPlayerVisibilityTest {
                 cameraOpen = true,
             ),
         )
+        assertFalse(
+            showVoiceMiniPlayer(
+                note,
+                visibleThreadId = null,
+                enabled = true,
+                finished = false,
+                sharePickerOpen = true,
+            ),
+        )
     }
 }

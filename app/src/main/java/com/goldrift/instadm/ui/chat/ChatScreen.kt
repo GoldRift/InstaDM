@@ -231,7 +231,6 @@ import com.goldrift.instadm.data.MessageMedia
 import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
-import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.data.VoiceRecorder
 import com.goldrift.instadm.data.VoiceRecordingState
 import com.goldrift.instadm.service.AppVisibility
@@ -375,8 +374,6 @@ fun ChatScreen(
     viewerAvatarUrl: String = "",
     likeEmoji: String = DEFAULT_DOUBLE_TAP_EMOJI,
     readReceiptsEnabled: Boolean = true,
-    sharedContent: SharedContent? = null,
-    onSharedContentConsumed: () -> Unit = {},
     // The inbox owns the player so a note can outlive this chat.
     voicePlayer: VoicePlayer,
     voiceBackgroundPlayback: Boolean = true,
@@ -454,7 +451,7 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val keepPlayingOnLeave by rememberUpdatedState(voiceBackgroundPlayback)
     val draft = rememberTextFieldState()
-    // Attachments picked or shared into this chat wait here until the viewer
+    // Attachments picked in this chat wait here until the viewer
     // sends them, in the order the strip shows.
     var stagedMedia by remember(conversation.id) { mutableStateOf<List<PickedMedia>>(emptyList()) }
     var lastComposerHeightPx by remember { mutableIntStateOf(-1) }
@@ -479,22 +476,6 @@ fun ChatScreen(
         }
     }
 
-    // Content shared from another app lands in this chat's composer once the
-    // viewer picks the conversation.
-    LaunchedEffect(sharedContent) {
-        val share = sharedContent ?: return@LaunchedEffect
-        if (share.text.isNotBlank()) {
-            draft.setTextAndPlaceCursorAtEnd(
-                if (draft.text.isBlank()) {
-                    share.text
-                } else {
-                    draft.text.trimEnd().toString() + "\n" + share.text
-                },
-            )
-        }
-        stageMedia(share.uris)
-        onSharedContentConsumed()
-    }
     var fallbackViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
     var fallbackCameraRequest by remember { mutableStateOf<CameraCaptureRequest?>(null) }
     var fallbackPickerRequest by remember { mutableStateOf<MediaPickerRequest?>(null) }

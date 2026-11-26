@@ -2,6 +2,7 @@ package com.goldrift.instadm.ui
 
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -45,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,7 +86,6 @@ import coil.imageLoader
 import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.PendingShare
-import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.CameraCaptureOverlay
 import com.goldrift.instadm.ui.chat.CameraCaptureRequest
@@ -112,6 +113,9 @@ import com.goldrift.instadm.ui.login.LoginScreen
 import com.goldrift.instadm.ui.search.SearchScreen
 import com.goldrift.instadm.ui.search.toSearchUsers
 import com.goldrift.instadm.ui.settings.SettingsScreen
+import com.goldrift.instadm.ui.share.ShareCompletion
+import com.goldrift.instadm.ui.share.SharePickerScreen
+import com.goldrift.instadm.ui.share.resolveShareCompletion
 import com.goldrift.instadm.update.UpdateState
 import com.goldrift.instadm.update.showUpdateBadge
 import kotlinx.coroutines.launch
@@ -187,30 +191,7 @@ fun InstaDmApp(
     var mediaViewerRequest by remember { mutableStateOf<MediaViewerRequest?>(null) }
     var cameraCaptureRequest by remember { mutableStateOf<CameraCaptureRequest?>(null) }
     var mediaPickerRequest by remember { mutableStateOf<MediaPickerRequest?>(null) }
-    // The chat the pending share was handed to; chosen by opening a chat.
-    var shareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
-    var shareTargetShareId by rememberSaveable { mutableLongStateOf(0L) }
     var handledShareId by rememberSaveable { mutableLongStateOf(0L) }
-    val activeShareTargetId = shareTargetId?.takeIf {
-        pendingShare != null && shareTargetShareId == pendingShare.id
-    }
-    val awaitingShareTarget = pendingShare != null && activeShareTargetId == null
-    val shareHint = if (awaitingShareTarget) {
-        stringResource(R.string.inbox_share_hint)
-    } else {
-        null
-    }
-    val claimShare: (String) -> Unit = { threadId ->
-        if (pendingShare != null && activeShareTargetId == null) {
-            shareTargetId = threadId
-            shareTargetShareId = pendingShare.id
-        }
-    }
-    val consumeShare: () -> Unit = {
-        shareTargetId = null
-        shareTargetShareId = 0L
-        onShareHandled()
-    }
 
     // A message in another chat lands as a banner over the screen. The exit
     // animation keeps drawing the last one after the state clears.
@@ -244,12 +225,15 @@ fun InstaDmApp(
     }
 
     val wide = LocalWindowInfo.current.containerDpSize.width >= TwoPaneMinWidth
+    val sharePickerOpen = pendingShare != null &&
+        currentRoute == Routes.Inbox &&
+        inboxState.status != InboxStatus.NoSession
     Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         // The bar floats over the screens so the surface shows around it: the
         // inbox keeps its own colour and the note sits on top like a player.
         // Only the detail pane of a wide inbox counts as "reading" a chat.
         val visibleThreadId = currentChatThreadId
-            ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide }
+            ?: selectedChatId?.takeIf { currentRoute == Routes.Inbox && wide && !sharePickerOpen }
         val showPlayerBar = showVoiceMiniPlayer(
             nowPlaying = nowPlaying,
             visibleThreadId = visibleThreadId,
@@ -257,6 +241,7 @@ fun InstaDmApp(
             finished = voicePlayer.finished,
             mediaViewerOpen = mediaViewerRequest != null,
             cameraOpen = cameraCaptureRequest != null || mediaPickerRequest != null,
+            sharePickerOpen = sharePickerOpen,
         )
         // The bar floats over the list, so the list keeps its last row clear.
         val listBottomInset =
@@ -273,7 +258,7 @@ fun InstaDmApp(
             val target = nowPlaying
             if (target != null) {
                 focusMessage = target.threadId to target.messageId
-                if (wide && currentRoute == Routes.Inbox) {
+                if (wide && currentRoute == Routes.Inbox && !sharePickerOpen) {
                     selectedChatId = target.threadId
                 } else {
                     navController.navigate(Routes.chat(target.threadId)) {
@@ -320,50 +305,103 @@ fun InstaDmApp(
             }
 
             composable(Routes.Inbox) {
-                MainPane(
-                    wide = wide,
-                    inboxState = inboxState,
-                    likeEmoji = settings.doubleTapEmoji,
-                    readReceiptsEnabled = settings.sendReadReceipts,
-                    voicePlayer = voicePlayer,
-                    voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
-                    focusMessage = focusMessage,
-                    onFocusHandled = { focusMessage = null },
-                    onComposerHeight = { composerHeight = it },
-                    listBottomInset = listBottomInset,
-                    selectedChatId = selectedChatId,
-                    onSelectChat = { selectedChatId = it },
-                    pendingShare = pendingShare?.content,
-                    shareTargetId = activeShareTargetId,
-                    shareHint = shareHint,
-                    pendingUpdate = updates.pendingUpdate,
-                    showUpdateBadge = hasUpdateBadge,
-                    updateState = updateState,
-                    onUpdateSeen = updates::markBadgeSeen,
-                    onInstallUpdate = updates::install,
-                    onClaimShare = claimShare,
-                    onShareConsumed = consumeShare,
-                    onRefresh = {
-                        inboxState.refresh()
-                        RealtimeService.restart(context)
-                    },
-                    onLogin = { navController.navigate(Routes.Login) },
-                    onOpenChat = { threadId ->
-                        inboxState.clearError()
-                        claimShare(threadId)
-                        navController.navigate(Routes.chat(threadId))
-                    },
-                    onSearch = { navController.navigate(Routes.Search) },
-                    onSettings = { navController.navigate(Routes.Settings) },
-                    onOpenMedia = { mediaViewerRequest = it },
-                    onOpenCamera = { cameraCaptureRequest = it },
-                    onOpenMediaPicker = { mediaPickerRequest = it },
-                    onLogout = {
-                        inboxState.logout()
-                        voicePlayer.stop()
-                        RealtimeService.stop(context)
-                    },
-                )
+                if (pendingShare != null && inboxState.status != InboxStatus.NoSession) {
+                    key(pendingShare.id) {
+                        SharePickerScreen(
+                            pendingShare = pendingShare,
+                            conversations = inboxState.conversations,
+                            status = inboxState.status,
+                            errorMessage = inboxState.errorMessage,
+                            hasMoreConversations = inboxState.hasMoreConversations,
+                            isLoadingMore = inboxState.isLoadingMoreConversations,
+                            moreError = inboxState.moreConversationsError,
+                            onLoadMore = inboxState::loadMoreConversations,
+                            onRetryMore = inboxState::retryMoreConversations,
+                            onRefresh = {
+                                inboxState.refresh()
+                                RealtimeService.restart(context)
+                            },
+                            onPrepareMedia = inboxState::prepareShareMedia,
+                            onSendShare = inboxState::sendShare,
+                            onShareSent = { result ->
+                                onShareHandled()
+                                if (result.failedMediaCount > 0 &&
+                                    !result.lastMediaError.isNullOrBlank()
+                                ) {
+                                    Toast.makeText(
+                                        context,
+                                        result.lastMediaError,
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                when (val completion = resolveShareCompletion(result.queuedThreadIds)) {
+                                    is ShareCompletion.OpenChat -> {
+                                        inboxState.clearError()
+                                        if (wide) {
+                                            selectedChatId = completion.threadId
+                                        } else {
+                                            navController.navigate(Routes.chat(completion.threadId))
+                                        }
+                                    }
+
+                                    is ShareCompletion.ReturnToInbox -> {
+                                        Toast.makeText(
+                                            context,
+                                            context.resources.getQuantityString(
+                                                R.plurals.share_sending_to,
+                                                completion.count,
+                                                completion.count,
+                                            ),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+
+                                    ShareCompletion.None -> Unit
+                                }
+                            },
+                            onDismiss = onShareHandled,
+                        )
+                    }
+                } else {
+                    MainPane(
+                        wide = wide,
+                        inboxState = inboxState,
+                        likeEmoji = settings.doubleTapEmoji,
+                        readReceiptsEnabled = settings.sendReadReceipts,
+                        voicePlayer = voicePlayer,
+                        voiceBackgroundPlayback = settings.voiceBackgroundPlayback,
+                        focusMessage = focusMessage,
+                        onFocusHandled = { focusMessage = null },
+                        onComposerHeight = { composerHeight = it },
+                        listBottomInset = listBottomInset,
+                        selectedChatId = selectedChatId,
+                        onSelectChat = { selectedChatId = it },
+                        pendingUpdate = updates.pendingUpdate,
+                        showUpdateBadge = hasUpdateBadge,
+                        updateState = updateState,
+                        onUpdateSeen = updates::markBadgeSeen,
+                        onInstallUpdate = updates::install,
+                        onRefresh = {
+                            inboxState.refresh()
+                            RealtimeService.restart(context)
+                        },
+                        onLogin = { navController.navigate(Routes.Login) },
+                        onOpenChat = { threadId ->
+                            inboxState.clearError()
+                            navController.navigate(Routes.chat(threadId))
+                        },
+                        onSearch = { navController.navigate(Routes.Search) },
+                        onSettings = { navController.navigate(Routes.Settings) },
+                        onOpenMedia = { mediaViewerRequest = it },
+                        onOpenCamera = { cameraCaptureRequest = it },
+                        onOpenMediaPicker = { mediaPickerRequest = it },
+                        onLogout = {
+                            inboxState.logout()
+                            voicePlayer.stop()
+                            RealtimeService.stop(context)
+                        },
+                    )
+                }
             }
 
             composable(Routes.Settings) {
@@ -417,7 +455,6 @@ fun InstaDmApp(
                             username = user.username,
                             avatarUrl = user.avatarUrl,
                         )
-                        if (existing != null) claimShare(existing.id)
                         navController.navigate(Routes.chat(threadId)) {
                             popUpTo(Routes.Inbox)
                             launchSingleTop = true
@@ -440,10 +477,6 @@ fun InstaDmApp(
                 if (conversation == null) {
                     // Unknown thread (for example after a process restart); return to the inbox.
                     LaunchedEffect(threadId) {
-                        if (shareTargetId == threadId) {
-                            shareTargetId = null
-                            shareTargetShareId = 0L
-                        }
                         navController.popBackStack()
                     }
                 } else {
@@ -458,14 +491,11 @@ fun InstaDmApp(
                             ?.takeIf { it.first == conversation.id }?.second,
                         onFocusHandled = { focusMessage = null },
                         onComposerHeight = { composerHeight = it },
-                        sharedContent = if (activeShareTargetId == conversation.id) pendingShare?.content else null,
-                        onSharedContentConsumed = consumeShare,
                         onBack = {
                             inboxState.clearError()
                             navController.popBackStack()
                         },
                         onStarted = { startedThreadId ->
-                            claimShare(startedThreadId)
                             navController.navigate(Routes.chat(startedThreadId)) {
                                 popUpTo(Routes.Inbox)
                                 launchSingleTop = true
@@ -518,7 +548,7 @@ fun InstaDmApp(
                 banner = incoming,
                 onOpen = {
                     inboxState.dismissBanner()
-                    if (wide && currentRoute == Routes.Inbox) {
+                    if (wide && currentRoute == Routes.Inbox && !sharePickerOpen) {
                         selectedChatId = incoming.threadId
                     } else {
                         navController.navigate(Routes.chat(incoming.threadId)) {
@@ -562,8 +592,6 @@ fun InstaDmApp(
         ) ?: return@LaunchedEffect
         handledShareId = action.markHandledId
         if (action.clearUiForPicker) {
-            shareTargetId = null
-            shareTargetShareId = 0L
             selectedChatId = null
             mediaViewerRequest = null
             cameraCaptureRequest = null
@@ -626,16 +654,11 @@ private fun MainPane(
     listBottomInset: Dp = 0.dp,
     selectedChatId: String?,
     onSelectChat: (String?) -> Unit,
-    pendingShare: SharedContent?,
-    shareTargetId: String?,
-    shareHint: String?,
     pendingUpdate: UpdateState.Available?,
     showUpdateBadge: Boolean,
     updateState: UpdateState,
     onUpdateSeen: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onClaimShare: (String) -> Unit,
-    onShareConsumed: () -> Unit,
     onRefresh: () -> Unit,
     onLogin: () -> Unit,
     onOpenChat: (String) -> Unit,
@@ -651,7 +674,6 @@ private fun MainPane(
             conversations = inboxState.conversations,
             status = inboxState.status,
             errorMessage = inboxState.errorMessage,
-            shareHint = shareHint,
             pendingUpdate = pendingUpdate,
             showUpdateBadge = showUpdateBadge,
             updateState = updateState,
@@ -673,7 +695,6 @@ private fun MainPane(
             isTyping = inboxState::isTyping,
             typingParticipants = inboxState::typingParticipants,
             onDismissError = inboxState::clearError,
-            onDismissShare = onShareConsumed,
             listBottomInset = listBottomInset,
         )
         return
@@ -691,7 +712,6 @@ private fun MainPane(
                 onRefresh = onRefresh,
                 onLogin = onLogin,
                 selectedConversationId = selectedChatId,
-                shareHint = shareHint,
                 pendingUpdate = pendingUpdate,
                 showUpdateBadge = showUpdateBadge,
                 updateState = updateState,
@@ -699,7 +719,6 @@ private fun MainPane(
                 onInstallUpdate = onInstallUpdate,
                 onConversationClick = { threadId ->
                     inboxState.clearError()
-                    onClaimShare(threadId)
                     onSelectChat(threadId)
                 },
                 modifier = Modifier.width(InboxPaneWidth),
@@ -716,7 +735,6 @@ private fun MainPane(
                 isTyping = inboxState::isTyping,
                 typingParticipants = inboxState::typingParticipants,
                 onDismissError = inboxState::clearError,
-                onDismissShare = onShareConsumed,
                 listBottomInset = listBottomInset,
             )
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -754,8 +772,6 @@ private fun MainPane(
                     focusMessageId = focusMessage?.takeIf { it.first == selected.id }?.second,
                     onFocusHandled = onFocusHandled,
                     onComposerHeight = onComposerHeight,
-                    sharedContent = if (shareTargetId == selected.id) pendingShare else null,
-                    onSharedContentConsumed = onShareConsumed,
                     onBack = { onSelectChat(null) },
                     onOpenMedia = onOpenMedia,
                     onOpenCamera = onOpenCamera,
@@ -916,8 +932,6 @@ private fun ChatDestination(
     focusMessageId: String? = null,
     onFocusHandled: () -> Unit = {},
     onComposerHeight: (Dp) -> Unit = {},
-    sharedContent: SharedContent?,
-    onSharedContentConsumed: () -> Unit,
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
     onOpenMedia: (MediaViewerRequest) -> Unit = {},
@@ -943,8 +957,6 @@ private fun ChatDestination(
     val activeConversation = inboxState.withActiveMessages(conversation)
     ChatScreen(
         conversation = activeConversation,
-        sharedContent = sharedContent,
-        onSharedContentConsumed = onSharedContentConsumed,
         onSend = { text, reply ->
             if (isDraft) {
                 sendingDraft = true

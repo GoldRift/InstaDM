@@ -45,7 +45,6 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -152,7 +151,6 @@ fun InboxScreen(
     moreError: Boolean = false,
     onLoadMore: () -> Unit = {},
     onRetryMore: () -> Unit = {},
-    shareHint: String? = null,
     pendingUpdate: UpdateState.Available? = null,
     showUpdateBadge: Boolean = false,
     updateState: UpdateState = UpdateState.Idle,
@@ -164,7 +162,6 @@ fun InboxScreen(
     isTyping: (String) -> Boolean = { false },
     typingParticipants: (String) -> List<ConversationParticipant> = { emptyList() },
     onDismissError: (() -> Unit)? = null,
-    onDismissShare: (() -> Unit)? = null,
     /** Space for a player bar floating over the bottom of the list. */
     listBottomInset: Dp = 0.dp,
 ) {
@@ -333,29 +330,9 @@ fun InboxScreen(
                     }
 
                     else -> Column(Modifier.fillMaxSize()) {
-                        var lastShareHint by remember { mutableStateOf(shareHint) }
-                        if (shareHint != null && shareHint != lastShareHint) {
-                            SideEffect { lastShareHint = shareHint }
-                        }
                         var lastErrorMessage by remember { mutableStateOf(errorMessage) }
                         if (errorMessage != null && errorMessage != lastErrorMessage) {
                             SideEffect { lastErrorMessage = errorMessage }
-                        }
-                        AnimatedVisibility(
-                            visible = shareHint != null,
-                            enter = expandVertically(motion.defaultSpatialSpec()) +
-                                fadeIn(motion.defaultEffectsSpec()),
-                            exit = shrinkVertically(motion.defaultSpatialSpec()) +
-                                fadeOut(motion.defaultEffectsSpec()),
-                        ) {
-                            val hint = shareHint ?: lastShareHint ?: return@AnimatedVisibility
-                            InlineBanner(
-                                text = hint,
-                                icon = Icons.Rounded.Share,
-                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                                onDismiss = onDismissShare,
-                            )
                         }
                         AnimatedVisibility(
                             visible = errorMessage != null,

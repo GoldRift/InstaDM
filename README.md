@@ -54,8 +54,8 @@ official app.
   outbox row that retries with the same offline threading ID after a failure or
   process death.
 - Share text, photos, videos, audio, or files into InstaDM from another app's
-  share sheet: pick a chat in the inbox and the content waits in that chat's
-  composer until you send it.
+  share sheet: filter the inbox, select one or more chats, add an optional note,
+  and send separately to each through the outbox.
 - Inline images, GIFs, stickers, videos, and reels, plus a full-screen viewer for
   attachments and shared reels.
 - Voice notes record with hold-to-send, slide-up to lock, and slide-left to

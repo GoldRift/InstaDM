@@ -167,7 +167,28 @@
     <string name="chat_unsend_title">Unsend message?</string>
     <string name="chat_unsend_body">This removes the message for everyone.</string>
     <string name="inbox_select_conversation">Choose a conversation to start messaging</string>
-    <string name="inbox_share_hint">Choose a chat to share to</string>
+    <string name="share_title">Send to</string>
+    <string name="share_cancel">Cancel share</string>
+    <string name="share_clear_selection">Clear</string>
+    <plurals name="share_selected_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+    <string name="share_filter_hint">Filter chats</string>
+    <string name="share_filter_clear">Clear filter</string>
+    <string name="share_no_matches">No chats match "%1$s".</string>
+    <string name="share_load_older">Load older chats</string>
+    <string name="share_remove_recipient">Remove %1$s</string>
+    <string name="share_note_hint">Add a message…</string>
+    <string name="share_preparing_media">Preparing attachments…</string>
+    <string name="share_send">Send</string>
+    <string name="share_send_count">Send (%1$d)</string>
+    <string name="share_text_too_long">%1$d / %2$d characters</string>
+    <plurals name="share_sending_to">
+        <item quantity="one">Sending to %d chat</item>
+        <item quantity="other">Sending to %d chats</item>
+    </plurals>
+    <string name="share_failed">Couldn\'t send shared content.</string>
     <string name="inbox_you_prefix">You: %1$s</string>
     <string name="inbox_sender_prefix">%1$s: %2$s</string>
     <string name="inbox_sent_you">Sent you %1$s</string>
