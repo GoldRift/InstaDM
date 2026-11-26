@@ -21,10 +21,12 @@ import com.goldrift.instadm.data.RealtimeMessage
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
 import com.goldrift.instadm.data.SettingsStore
+import com.goldrift.instadm.data.ShareEnqueueResult
 import com.goldrift.instadm.data.extractAudioWaveform
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.service.suppressesNotification
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -733,6 +735,33 @@ class InboxState(
         runCatching { mediaReader.prepare(uri) }
             .onFailure { error -> errorMessage = describeError(error) }
             .getOrNull()
+
+    /** Reads shared attachment metadata without polluting inbox [errorMessage]. */
+    suspend fun prepareShareMedia(uri: Uri): Result<PickedMedia> = try {
+        Result.success(mediaReader.prepare(uri))
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    /** Queues shared content across every selected existing conversation. */
+    suspend fun sendShare(
+        threadIds: List<String>,
+        rawText: String,
+        media: List<PickedMedia>,
+    ): ShareEnqueueResult {
+        val targets = threadIds
+            .distinct()
+            .filter { id ->
+                val existing = conversation(id)
+                existing != null && existing.draftRecipientFbid.isBlank()
+            }
+        if (targets.isEmpty()) return ShareEnqueueResult(emptyList())
+        targets.forEach(::stopTyping)
+        errorMessage = null
+        return outbox.enqueueShare(targets, rawText, media)
+    }
 
     /**
      * Copies picked attachments into the durable outbox and shows them as

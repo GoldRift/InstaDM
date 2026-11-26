@@ -1,5 +1,6 @@
 package com.goldrift.instadm
 
+import android.net.Uri
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -7,6 +8,7 @@ import com.goldrift.instadm.data.ChatStore
 import com.goldrift.instadm.data.MediaReader
 import com.goldrift.instadm.data.Outbox
 import com.goldrift.instadm.data.OutboxSender
+import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.db.InstaDmDatabase
 import com.goldrift.instadm.data.db.MessageStatus
@@ -194,10 +196,72 @@ class OutboxTest {
         assertEquals(1, sender.textCalls)
     }
 
+    @Test
+    fun enqueueShareQueuesMediaAndTextAcrossMultipleThreadsIndependently() = runBlocking {
+        val source = File(dir.apply { mkdirs() }, "source.jpg").apply {
+            writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte()))
+        }
+        val picked = PickedMedia(
+            uri = Uri.fromFile(source),
+            fileName = "photo.jpg",
+            mimeType = "image/jpeg",
+            sizeBytes = source.length(),
+            width = 10,
+            height = 10,
+        )
+
+        val result = outbox.enqueueShare(
+            threadIds = listOf("thread-1", "thread-2"),
+            text = "check this out",
+            media = listOf(picked),
+        )
+
+        assertEquals(listOf("thread-1", "thread-2"), result.queuedThreadIds)
+        assertEquals(0, result.failedMediaCount)
+
+        val pending1 = store.observeThread("thread-1").first()
+        val pending2 = store.observeThread("thread-2").first()
+        assertEquals(2, pending1.size)
+        assertEquals(2, pending2.size)
+        assertEquals(listOf("image", "text"), pending1.map { it.message.kind })
+        assertEquals(listOf("image", "text"), pending2.map { it.message.kind })
+        assertTrue(pending1.all { it.message.status == MessageStatus.PENDING })
+        assertTrue(pending2.all { it.message.status == MessageStatus.PENDING })
+        assertEquals("check this out", pending1[1].message.text)
+        assertEquals("check this out", pending2[1].message.text)
+
+        val localIds = (pending1 + pending2).map { it.message.id }
+        assertEquals(4, localIds.toSet().size)
+        val otids = (pending1 + pending2).map { it.message.otid }
+        assertEquals(4, otids.toSet().size)
+
+        val path1 = pending1[0].attachments.single().localPath
+        val path2 = pending2[0].attachments.single().localPath
+        assertTrue(path1.isNotBlank() && path2.isNotBlank() && path1 != path2)
+        assertTrue(File(path1).isFile)
+        assertTrue(File(path2).isFile)
+
+        sender.allowMedia = true
+        outbox.drain()
+
+        assertEquals(listOf("thread-1", "thread-2"), sender.mediaCalls.map { it.first })
+        assertEquals(2, sender.textCalls)
+        assertTrue(db.outbox().nextPending() == null)
+
+        val sent1 = store.observeThread("thread-1").first()
+        val sent2 = store.observeThread("thread-2").first()
+        assertEquals(2, sent1.size)
+        assertEquals(2, sent2.size)
+        assertTrue(sent1.all { it.message.status == MessageStatus.SENT })
+        assertTrue(sent2.all { it.message.status == MessageStatus.SENT })
+    }
+
     private class FakeSender : OutboxSender {
         var failuresLeft = 0
+        var allowMedia = false
         var textCalls = 0
         var lastOtid = ""
+        val mediaCalls = mutableListOf<Pair<String, String>>()
 
         override suspend fun sendText(
             threadId: String,
@@ -226,7 +290,14 @@ class OutboxTest {
             otid: String,
             voice: Boolean,
             waveformJson: String,
-        ): JSONObject = error("media is not used in these tests")
+        ): JSONObject {
+            if (!allowMedia) error("media is not used in these tests")
+            mediaCalls += threadId to filePath
+            return JSONObject()
+                .put("message_id", "mid.media.${mediaCalls.size}")
+                .put("offline_threading_id", otid)
+                .put("timestamp_ms", 1_800_000_100_000)
+        }
     }
 
     private companion object {
@@ -244,6 +315,19 @@ class OutboxTest {
                     { "ig_id": "ig-other", "fbid": 222, "name": "Test Participant" }
                   ],
                   "last_activity_ms": 1700000000000,
+                  "folder": "PRIMARY",
+                  "system_folder": "INBOX"
+                },
+                {
+                  "id": "thread-2",
+                  "thread_fbid": "thread-2",
+                  "thread_id": "long-thread-2",
+                  "thread_key": 333,
+                  "title": "Second Participant",
+                  "participants": [
+                    { "ig_id": "ig-other-2", "fbid": 333, "name": "Second Participant" }
+                  ],
+                  "last_activity_ms": 1699999000000,
                   "folder": "PRIMARY",
                   "system_folder": "INBOX"
                 }

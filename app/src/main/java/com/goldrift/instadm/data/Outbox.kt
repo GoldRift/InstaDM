@@ -7,8 +7,10 @@ import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
 import com.goldrift.instadm.data.db.OutboxEntity
 import com.goldrift.instadm.data.db.OutboxState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -21,6 +23,41 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 private const val MAX_ATTEMPTS = 3
 private const val RETRY_BACKOFF_MS = 2_000L
+
+data class ShareEnqueueResult(
+    val queuedThreadIds: List<String>,
+    val failedMediaCount: Int = 0,
+    val lastMediaError: String? = null,
+)
+
+/**
+ * Stages one independent file per OTID in [outboxDir] while invoking [writePrimary]
+ * once. Independent files ensure completing one thread's upload never moves or deletes
+ * the copy still queued for another thread.
+ */
+internal suspend fun stageMediaCopies(
+    outboxDir: File,
+    otids: List<String>,
+    extension: String,
+    writePrimary: suspend (File) -> Unit,
+): List<File> = withContext(Dispatchers.IO) {
+    if (otids.isEmpty()) return@withContext emptyList()
+    outboxDir.mkdirs()
+    val primary = File(outboxDir, "${otids.first()}.$extension")
+    val created = mutableListOf(primary)
+    try {
+        writePrimary(primary)
+        for (otid in otids.drop(1)) {
+            val copy = File(outboxDir, "$otid.$extension")
+            created += copy
+            primary.copyTo(copy, overwrite = true)
+        }
+        created.toList()
+    } catch (error: Throwable) {
+        created.forEach { runCatching { it.delete() } }
+        throw error
+    }
+}
 
 /** Sends an outbox row through the Go core. Kept behind an interface for tests. */
 interface OutboxSender {
@@ -108,54 +145,17 @@ class Outbox(
         threadId: String,
         text: String,
         reply: ReplySnapshot? = null,
+        timestampMs: Long = clock(),
     ): String {
-        val now = clock()
-        val localId = "local:${UUID.randomUUID()}"
         val otid = OfflineThreadingIds.next()
-        db.withTransaction {
-            messageDao.upsertMessage(
-                MessageEntity(
-                    id = localId,
-                    localId = localId,
-                    threadId = threadId,
-                    timestampMs = now,
-                    kind = "text",
-                    text = text,
-                    replyToId = reply?.id.orEmpty(),
-                    replyToText = reply?.text.orEmpty(),
-                    replyToSender = reply?.senderName.orEmpty(),
-                    replyToIsFromViewer = reply?.isFromViewer ?: false,
-                    replyToKind = reply?.kind.orEmpty(),
-                    replyToMediaCount = reply?.mediaCount ?: 0,
-                    otid = otid,
-                    isFromViewer = true,
-                    status = MessageStatus.PENDING,
-                ),
-            )
-            outboxDao.insert(
-                OutboxEntity(
-                    threadId = threadId,
-                    kind = "text",
-                    payloadJson = JSONObject()
-                        .put("text", text)
-                        .put("reply_to", reply?.id.orEmpty())
-                        .toString(),
-                    localMessageId = localId,
-                    otid = otid,
-                    state = OutboxState.PENDING,
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
-            threadDao.updateLastMessage(
+        val localId = db.withTransaction {
+            insertTextRow(
                 threadId = threadId,
-                messageId = localId,
-                timestampMs = now,
                 text = text,
-                kind = "text",
-                fromViewer = true,
-                senderFbid = chatStore.viewerFbid(),
-                now = now,
+                reply = reply,
+                otid = otid,
+                timestampMs = timestampMs,
+                viewerFbid = chatStore.viewerFbid(),
             )
         }
         wake.trySend(Unit)
@@ -173,79 +173,253 @@ class Outbox(
     ): String {
         val otid = OfflineThreadingIds.next()
         val extension = extensionFor(picked.mimeType, picked.kind)
-        val file = withContext(Dispatchers.IO) {
-            outboxDir.mkdirs()
-            File(outboxDir, "$otid.$extension").also { target ->
-                mediaReader.copyTo(picked, target)
-            }
+        val file = stageMediaCopies(outboxDir, listOf(otid), extension) { target ->
+            mediaReader.copyTo(picked, target)
         }
+            .single()
 
-        val now = timestampMs
-        val localId = "local:${UUID.randomUUID()}"
-        val localUri = file.toURI().toString()
-        db.withTransaction {
-            messageDao.upsertMessage(
-                MessageEntity(
-                    id = localId,
-                    localId = localId,
+        val localId = try {
+            db.withTransaction {
+                insertMediaRow(
                     threadId = threadId,
-                    timestampMs = now,
-                    kind = picked.kind,
+                    picked = picked,
+                    file = file,
                     otid = otid,
-                    isFromViewer = true,
-                    status = MessageStatus.PENDING,
-                    mediaCount = 1,
-                ),
-            )
-            messageDao.upsertAttachments(
-                listOf(
-                    AttachmentEntity(
-                        messageId = localId,
-                        partIndex = 0,
-                        kind = picked.kind,
-                        url = localUri,
-                        previewUrl = localUri,
-                        width = picked.width,
-                        height = picked.height,
-                        durationMs = picked.durationMs.toLong(),
-                        mimeType = picked.mimeType,
-                        localPath = file.absolutePath,
-                        downloadState = AttachmentEntity.DOWNLOAD_READY,
-                    ),
-                ),
-            )
-            outboxDao.insert(
-                OutboxEntity(
-                    threadId = threadId,
-                    kind = "media",
-                    payloadJson = JSONObject()
-                        .put("file_path", file.absolutePath)
-                        .put("file_name", picked.fileName)
-                        .put("mime_type", picked.mimeType)
-                        .put("kind", picked.kind)
-                        .put("width", picked.width)
-                        .put("height", picked.height)
-                        .put("duration_ms", picked.durationMs)
-                        .toString(),
-                    localMessageId = localId,
-                    otid = otid,
-                    state = OutboxState.PENDING,
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
-            threadDao.updateLastMessage(
-                threadId = threadId,
-                messageId = localId,
-                timestampMs = now,
-                text = "",
-                kind = picked.kind,
-                fromViewer = true,
-                senderFbid = chatStore.viewerFbid(),
-                now = now,
-            )
+                    timestampMs = timestampMs,
+                    viewerFbid = chatStore.viewerFbid(),
+                )
+            }
+        } catch (error: Throwable) {
+            runCatching { file.delete() }
+            throw error
         }
         wake.trySend(Unit)
+        return localId
+    }
+
+    /**
+     * Stages shared attachments once per file and queues independent messages
+     * across [threadIds] in one database transaction.
+     */
+    suspend fun enqueueShare(
+        threadIds: List<String>,
+        text: String,
+        media: List<PickedMedia>,
+    ): ShareEnqueueResult {
+        val targets = threadIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val trimmedText = text.trim()
+        if (targets.isEmpty() || (trimmedText.isEmpty() && media.isEmpty())) {
+            return ShareEnqueueResult(emptyList())
+        }
+
+        data class StagedShareMedia(
+            val picked: PickedMedia,
+            val otids: List<String>,
+            val files: List<File>,
+        )
+
+        val staged = mutableListOf<StagedShareMedia>()
+        var failedMediaCount = 0
+        var lastMediaError: String? = null
+        try {
+            for (picked in media) {
+                val otids = List(targets.size) { OfflineThreadingIds.next() }
+                val extension = extensionFor(picked.mimeType, picked.kind)
+                try {
+                    val files = stageMediaCopies(outboxDir, otids, extension) { target ->
+                        mediaReader.copyTo(picked, target)
+                    }
+                    staged += StagedShareMedia(picked = picked, otids = otids, files = files)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Throwable) {
+                    failedMediaCount++
+                    lastMediaError = error.message?.takeIf { it.isNotBlank() }
+                        ?: error.javaClass.simpleName
+                }
+            }
+        } catch (cancellation: CancellationException) {
+            staged.forEach { item -> item.files.forEach { runCatching { it.delete() } } }
+            throw cancellation
+        }
+
+        if (staged.isEmpty() && trimmedText.isEmpty()) {
+            return ShareEnqueueResult(
+                queuedThreadIds = emptyList(),
+                failedMediaCount = failedMediaCount,
+                lastMediaError = lastMediaError,
+            )
+        }
+
+        withContext(NonCancellable) {
+            try {
+                db.withTransaction {
+                    val viewerFbid = chatStore.viewerFbid()
+                    // Keep timestamps monotonic across threads so OutboxDao.nextPending
+                    // drains each thread's media and note together in order.
+                    var stamp = clock()
+                    targets.forEachIndexed { threadIndex, threadId ->
+                        staged.forEach { item ->
+                            insertMediaRow(
+                                threadId = threadId,
+                                picked = item.picked,
+                                file = item.files[threadIndex],
+                                otid = item.otids[threadIndex],
+                                timestampMs = stamp++,
+                                viewerFbid = viewerFbid,
+                            )
+                        }
+                        if (trimmedText.isNotEmpty()) {
+                            insertTextRow(
+                                threadId = threadId,
+                                text = trimmedText,
+                                reply = null,
+                                otid = OfflineThreadingIds.next(),
+                                timestampMs = stamp++,
+                                viewerFbid = viewerFbid,
+                            )
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                staged.forEach { item -> item.files.forEach { runCatching { it.delete() } } }
+                throw error
+            }
+        }
+        wake.trySend(Unit)
+        return ShareEnqueueResult(
+            queuedThreadIds = targets,
+            failedMediaCount = failedMediaCount,
+            lastMediaError = lastMediaError,
+        )
+    }
+
+    private suspend fun insertTextRow(
+        threadId: String,
+        text: String,
+        reply: ReplySnapshot?,
+        otid: String,
+        timestampMs: Long,
+        viewerFbid: Long,
+    ): String {
+        val localId = "local:${UUID.randomUUID()}"
+        messageDao.upsertMessage(
+            MessageEntity(
+                id = localId,
+                localId = localId,
+                threadId = threadId,
+                timestampMs = timestampMs,
+                kind = "text",
+                text = text,
+                replyToId = reply?.id.orEmpty(),
+                replyToText = reply?.text.orEmpty(),
+                replyToSender = reply?.senderName.orEmpty(),
+                replyToIsFromViewer = reply?.isFromViewer ?: false,
+                replyToKind = reply?.kind.orEmpty(),
+                replyToMediaCount = reply?.mediaCount ?: 0,
+                otid = otid,
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+            ),
+        )
+        outboxDao.insert(
+            OutboxEntity(
+                threadId = threadId,
+                kind = "text",
+                payloadJson = JSONObject()
+                    .put("text", text)
+                    .put("reply_to", reply?.id.orEmpty())
+                    .toString(),
+                localMessageId = localId,
+                otid = otid,
+                state = OutboxState.PENDING,
+                createdAt = timestampMs,
+                updatedAt = timestampMs,
+            ),
+        )
+        threadDao.updateLastMessage(
+            threadId = threadId,
+            messageId = localId,
+            timestampMs = timestampMs,
+            text = text,
+            kind = "text",
+            fromViewer = true,
+            senderFbid = viewerFbid,
+            now = timestampMs,
+        )
+        return localId
+    }
+
+    private suspend fun insertMediaRow(
+        threadId: String,
+        picked: PickedMedia,
+        file: File,
+        otid: String,
+        timestampMs: Long,
+        viewerFbid: Long,
+    ): String {
+        val localId = "local:${UUID.randomUUID()}"
+        val localUri = file.toURI().toString()
+        messageDao.upsertMessage(
+            MessageEntity(
+                id = localId,
+                localId = localId,
+                threadId = threadId,
+                timestampMs = timestampMs,
+                kind = picked.kind,
+                otid = otid,
+                isFromViewer = true,
+                status = MessageStatus.PENDING,
+                mediaCount = 1,
+            ),
+        )
+        messageDao.upsertAttachments(
+            listOf(
+                AttachmentEntity(
+                    messageId = localId,
+                    partIndex = 0,
+                    kind = picked.kind,
+                    url = localUri,
+                    previewUrl = localUri,
+                    width = picked.width,
+                    height = picked.height,
+                    durationMs = picked.durationMs.toLong(),
+                    mimeType = picked.mimeType,
+                    localPath = file.absolutePath,
+                    downloadState = AttachmentEntity.DOWNLOAD_READY,
+                ),
+            ),
+        )
+        outboxDao.insert(
+            OutboxEntity(
+                threadId = threadId,
+                kind = "media",
+                payloadJson = JSONObject()
+                    .put("file_path", file.absolutePath)
+                    .put("file_name", picked.fileName)
+                    .put("mime_type", picked.mimeType)
+                    .put("kind", picked.kind)
+                    .put("width", picked.width)
+                    .put("height", picked.height)
+                    .put("duration_ms", picked.durationMs)
+                    .toString(),
+                localMessageId = localId,
+                otid = otid,
+                state = OutboxState.PENDING,
+                createdAt = timestampMs,
+                updatedAt = timestampMs,
+            ),
+        )
+        threadDao.updateLastMessage(
+            threadId = threadId,
+            messageId = localId,
+            timestampMs = timestampMs,
+            text = "",
+            kind = picked.kind,
+            fromViewer = true,
+            senderFbid = viewerFbid,
+            now = timestampMs,
+        )
         return localId
     }
 
