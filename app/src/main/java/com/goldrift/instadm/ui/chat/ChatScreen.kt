@@ -84,6 +84,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -120,10 +121,13 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -138,16 +142,20 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -366,6 +374,8 @@ fun ChatScreen(
     onReact: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onEdit: (messageId: String, text: String) -> Unit = { _, _ -> },
     onUnsend: (messageId: String) -> Unit = {},
+    onPin: (messageId: String) -> Unit = {},
+    onUnpin: (messageId: String) -> Unit = {},
     onSendVoice: (RecordedVoice) -> Unit = {},
     // Off until the conversation exists on Instagram: a first message creates
     // the thread, so it can only be text.
@@ -896,6 +906,7 @@ fun ChatScreen(
         enabled = voiceBackgroundPlayback,
         finished = voicePlayer.finished,
     )
+    var showPinnedSheet by remember(conversation.id) { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -907,6 +918,9 @@ fun ChatScreen(
                     participants = conversation.participants,
                     isTyping = isTyping,
                     typingSenders = typingSenders,
+                    pinnedCount = conversation.pinnedMessages.size,
+                    showPinsAction = attachmentsEnabled,
+                    onShowPins = { showPinnedSheet = true },
                     onBack = onBack,
                 )
             },
@@ -1132,6 +1146,15 @@ fun ChatScreen(
                                     actionMessageId = null
                                     unsendMessageId = messageId
                                 },
+                                onTogglePinAt = { messageId ->
+                                    actionMessageId = null
+                                    val target = messages.firstOrNull { it.id == messageId }
+                                    if (target?.isPinned == true) {
+                                        onUnpin(messageId)
+                                    } else {
+                                        onPin(messageId)
+                                    }
+                                },
                                 onRetryMedia = onRetryMedia,
                                 onLoadMedia = onLoadMedia,
                                 onEnsureVoiceWaveform = onEnsureVoiceWaveform,
@@ -1319,6 +1342,19 @@ fun ChatScreen(
             onDismiss = { unsendMessageId = null },
         )
     }
+
+    if (showPinnedSheet) {
+        PinnedMessagesSheet(
+            pinnedMessages = conversation.pinnedMessages,
+            contact = conversation.contact,
+            onSelect = { messageId ->
+                showPinnedSheet = false
+                jumpToQuotedMessage(messageId)
+            },
+            onUnpin = onUnpin,
+            onDismiss = { showPinnedSheet = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -1329,6 +1365,9 @@ private fun ChatTopSection(
     participants: List<ConversationParticipant>,
     isTyping: Boolean,
     typingSenders: List<ConversationParticipant>,
+    pinnedCount: Int = 0,
+    showPinsAction: Boolean = true,
+    onShowPins: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val motion = MaterialTheme.motionScheme
@@ -1418,6 +1457,32 @@ private fun ChatTopSection(
                     )
                 }
             },
+            actions = {
+                if (showPinsAction) {
+                    IconButton(
+                        onClick = onShowPins,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (pinnedCount > 0) {
+                                    Badge { Text(pinnedCount.toString()) }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PushPin,
+                                contentDescription = stringResource(R.string.chat_pinned_messages),
+                                tint = if (pinnedCount > 0) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                }
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -1425,6 +1490,142 @@ private fun ChatTopSection(
                 navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ),
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PinnedMessagesSheet(
+    pinnedMessages: List<PinnedMessage>,
+    contact: Contact,
+    onSelect: (messageId: String) -> Unit,
+    onUnpin: (messageId: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 24.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PushPin,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = stringResource(R.string.chat_pinned_messages),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            if (pinnedMessages.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.chat_pinned_messages_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                ) {
+                    items(
+                        items = pinnedMessages,
+                        key = { it.messageId },
+                    ) { pin ->
+                        val senderLabel = when {
+                            pin.sender == MessageSender.Me -> stringResource(R.string.chat_you)
+                            pin.senderName.isNotBlank() -> pin.senderName
+                            else -> contact.name
+                        }
+                        val previewText = pin.text.trim().ifEmpty {
+                            mediaNoun(pin.kind)?.let { stringResource(it) }
+                                ?: stringResource(R.string.chat_pinned_badge)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(pin.messageId) }
+                                .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        text = senderLabel,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (pin.timestamp.isNotBlank()) {
+                                        Text(
+                                            text = pin.timestamp,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = previewText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            IconButton(
+                                onClick = { onUnpin(pin.messageId) },
+                                shapes = IconButtonDefaults.shapes(),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.chat_action_unpin),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1468,6 +1669,7 @@ private fun MessageList(
     onMoreEmojiAt: (messageId: String) -> Unit,
     onEditAt: (messageId: String) -> Unit,
     onUnsendAt: (messageId: String) -> Unit,
+    onTogglePinAt: (messageId: String) -> Unit,
     onRetryMedia: (messageId: String) -> Unit,
     onLoadMedia: MediaLoader?,
     onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
@@ -1658,6 +1860,7 @@ private fun MessageList(
                         onMoreEmoji = { onMoreEmojiAt(message.id) },
                         onEdit = { onEditAt(message.id) },
                         onUnsend = { onUnsendAt(message.id) },
+                        onTogglePin = { onTogglePinAt(message.id) },
                         onRetry = { onRetryMedia(message.id) },
                         onLoadMedia = onLoadMedia,
                         onEnsureVoiceWaveform = onEnsureVoiceWaveform,
@@ -1797,6 +2000,7 @@ private fun MessageRow(
     onMoreEmoji: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
+    onTogglePin: () -> Unit,
     onRetry: () -> Unit,
     onLoadMedia: MediaLoader?,
     onEnsureVoiceWaveform: ((messageId: String, media: MessageMedia) -> Unit)?,
@@ -2063,6 +2267,7 @@ private fun MessageRow(
                         onMoreEmoji = onMoreEmoji,
                         onEdit = onEdit,
                         onUnsend = onUnsend,
+                        onTogglePin = onTogglePin,
                     )
                 }
             }
@@ -2819,6 +3024,7 @@ private fun MessageActionsPopup(
     onMoreEmoji: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
+    onTogglePin: () -> Unit,
 ) {
     val density = LocalDensity.current
     val motion = MaterialTheme.motionScheme
@@ -2893,6 +3099,7 @@ private fun MessageActionsPopup(
                 onReply = onReply,
                 onEdit = onEdit,
                 onUnsend = onUnsend,
+                onTogglePin = onTogglePin,
             )
         }
     }
@@ -3016,6 +3223,7 @@ private fun MessageMenu(
     onReply: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
+    onTogglePin: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val primaryItems = buildList {
@@ -3025,6 +3233,19 @@ private fun MessageMenu(
                     icon = Icons.AutoMirrored.Rounded.Reply,
                     label = R.string.chat_action_reply,
                     onClick = onReply,
+                ),
+            )
+        }
+        if (message.canPin()) {
+            add(
+                MenuActionItem(
+                    icon = Icons.Rounded.PushPin,
+                    label = if (message.isPinned) {
+                        R.string.chat_action_unpin
+                    } else {
+                        R.string.chat_action_pin
+                    },
+                    onClick = onTogglePin,
                 ),
             )
         }

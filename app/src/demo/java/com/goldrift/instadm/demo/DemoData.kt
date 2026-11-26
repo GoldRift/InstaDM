@@ -42,6 +42,7 @@ private class ThreadSpec(
     val viewerWatermarkMs: Long,
     val otherWatermarkMs: Long,
     val olderMessages: List<JSONObject> = emptyList(),
+    val pinnedMessages: List<JSONObject> = emptyList(),
     val markedUnread: Boolean = false,
 ) {
     val other: DemoPerson get() = participants.first { !it.isViewer }
@@ -128,6 +129,7 @@ internal object DemoData {
             spec.id to JSONObject()
                 .put("thread", meta(spec))
                 .put("messages", array(spec.messages))
+                .put("pinned_messages", array(spec.pinnedMessages))
                 .put("read_receipts", receipts(spec))
                 .put("has_more_older", spec.olderMessages.isNotEmpty())
                 .put("oldest_cursor", olderCursor(spec))
@@ -136,6 +138,7 @@ internal object DemoData {
             spec.id to JSONObject()
                 .put("thread", meta(spec))
                 .put("messages", JSONArray())
+                .put("pinned_messages", array(spec.pinnedMessages))
                 .put("has_more_older", spec.olderMessages.isNotEmpty())
                 .put("oldest_cursor", olderCursor(spec))
         } + mapOf(
@@ -245,6 +248,7 @@ internal object DemoData {
             viewerWatermarkMs = now - 50 * MINUTE,
             otherWatermarkMs = now,
             olderMessages = older,
+            pinnedMessages = listOf(found, older.first()),
         )
     }
 

@@ -142,8 +142,13 @@
     </plurals>
     <string name="chat_action_copy">Copy</string>
     <string name="chat_action_edit">Edit</string>
+    <string name="chat_action_pin">Pin</string>
+    <string name="chat_action_unpin">Unpin</string>
     <string name="chat_action_reply">Reply</string>
     <string name="chat_action_unsend">Unsend</string>
+    <string name="chat_pinned_messages">Pinned messages</string>
+    <string name="chat_pinned_messages_empty">No pinned messages yet</string>
+    <string name="chat_pinned_badge">Pinned</string>
     <string name="chat_reply_cancel">Cancel reply</string>
     <string name="chat_you">You</string>
     <string name="chat_someone">Someone</string>

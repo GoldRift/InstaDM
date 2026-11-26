@@ -1003,6 +1003,8 @@ private fun ChatDestination(
         onReact = { messageId, emoji -> inboxState.react(threadId, messageId, emoji) },
         onEdit = { messageId, text -> inboxState.edit(threadId, messageId, text) },
         onUnsend = { messageId -> inboxState.unsend(threadId, messageId) },
+        onPin = { messageId -> inboxState.pinMessage(threadId, messageId) },
+        onUnpin = { messageId -> inboxState.unpinMessage(threadId, messageId) },
         attachmentsEnabled = !isDraft,
         viewerName = inboxState.viewerName,
         viewerAvatarUrl = inboxState.viewerAvatarUrl,

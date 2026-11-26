@@ -5,9 +5,13 @@ import com.goldrift.instadm.data.RealtimeEvent
 import com.goldrift.instadm.data.db.PinnedMessageEntity
 import com.goldrift.instadm.data.parsePinnedMessages
 import com.goldrift.instadm.ui.chat.ADMIN_KIND
+import com.goldrift.instadm.ui.chat.ActiveThreadState
 import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
+import com.goldrift.instadm.ui.chat.Contact
+import com.goldrift.instadm.ui.chat.Conversation
 import com.goldrift.instadm.ui.chat.MessageSender
+import com.goldrift.instadm.ui.chat.PinnedMessage
 import com.goldrift.instadm.ui.chat.canPin
 import com.goldrift.instadm.ui.chat.toPinnedMessage
 import org.json.JSONArray
@@ -124,5 +128,25 @@ class PinnedMessagesTest {
         assertEquals("Maya", mapped.senderName)
         assertEquals(MessageSender.Them, mapped.sender)
         assertEquals("address is 42 Pine St", mapped.text)
+    }
+
+    @Test
+    fun activeThreadStateMergesPinnedMessagesAndMarksMatchingMessages() {
+        val m1 = ChatMessage("mid.1", "first", MessageSender.Them, "")
+        val m2 = ChatMessage("mid.2", "second", MessageSender.Me, "")
+        val pin = PinnedMessage("mid.1", "first", MessageSender.Them, senderName = "Maya")
+        val state = ActiveThreadState(
+            threadId = "t1",
+            messages = listOf(m1, m2),
+            loaded = true,
+            pinnedMessages = listOf(pin),
+        )
+        val base = Conversation(id = "t1", contact = Contact("t1", "Maya", "M"))
+
+        val merged = state.mergeInto(base)
+
+        assertEquals(listOf(pin), merged.pinnedMessages)
+        assertTrue(merged.messages[0].isPinned)
+        assertFalse(merged.messages[1].isPinned)
     }
 }

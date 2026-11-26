@@ -52,6 +52,7 @@ enum class InboxStatus { Loading, Ready, NoSession, Error }
 data class ActiveThreadState(
     val threadId: String = "",
     val messages: List<ChatMessage> = emptyList(),
+    val pinnedMessages: List<PinnedMessage> = emptyList(),
     val loaded: Boolean = false,
     val hasMoreLocal: Boolean = false,
     val isLoadingOlder: Boolean = false,
@@ -61,8 +62,18 @@ data class ActiveThreadState(
 ) {
     fun mergeInto(conversation: Conversation): Conversation {
         if (threadId != conversation.id) return conversation
+        val markedMessages = if (pinnedMessages.isEmpty()) {
+            messages
+        } else {
+            val pinnedIds = pinnedMessages.mapTo(HashSet(pinnedMessages.size)) { it.messageId }
+            messages.map { message ->
+                val pinned = message.id in pinnedIds
+                if (message.isPinned == pinned) message else message.copy(isPinned = pinned)
+            }
+        }
         return conversation.copy(
-            messages = messages,
+            messages = markedMessages,
+            pinnedMessages = pinnedMessages,
             messagesLoaded = loaded,
             hasMoreOlder = hasMoreLocal || conversation.hasMoreOlder,
             isLoadingOlder = isLoadingOlder,
@@ -162,6 +173,7 @@ class InboxState(
     private var openThreadId: String? = null
     private var messageCollector: Job? = null
     private var unreadCollector: Job? = null
+    private var pinnedCollector: Job? = null
     private var threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
     private var networkLoadOlderInFlight = false
     private var refreshInFlight = false
@@ -504,12 +516,14 @@ class InboxState(
         if (banner?.threadId == threadId) dismissBanner()
         if (openThreadId == threadId &&
             messageCollector?.isActive == true &&
-            unreadCollector?.isActive == true
+            unreadCollector?.isActive == true &&
+            pinnedCollector?.isActive == true
         ) {
             return
         }
         messageCollector?.cancel()
         unreadCollector?.cancel()
+        pinnedCollector?.cancel()
         openThreadId = threadId
         networkLoadOlderInFlight = false
         threadWindowSize = MutableStateFlow(INITIAL_THREAD_WINDOW)
@@ -539,6 +553,14 @@ class InboxState(
                     updateActiveThread(threadId) { it.copy(unreadCount = count) }
                 }
         }
+        pinnedCollector = scope.launch {
+            chatStore.observePinnedMessages(threadId)
+                .map { rows -> rows.map { it.toPinnedMessage() } }
+                .flowOn(Dispatchers.Default)
+                .collect { pins ->
+                    updateActiveThread(threadId) { it.copy(pinnedMessages = pins) }
+                }
+        }
     }
 
     /** Stops the database observer, unless the reader already moved to another thread. */
@@ -550,6 +572,8 @@ class InboxState(
         messageCollector = null
         unreadCollector?.cancel()
         unreadCollector = null
+        pinnedCollector?.cancel()
+        pinnedCollector = null
         if (activeThread.threadId == threadId) {
             activeThread = ActiveThreadState()
         }
@@ -907,6 +931,55 @@ class InboxState(
                     }
                     errorMessage = describeError(error)
                 }
+        }
+    }
+
+    /** Pins a message in [threadId], replacing the oldest pin when at the limit. */
+    fun pinMessage(threadId: String, messageId: String) {
+        val message = messagesFor(threadId).firstOrNull { it.id == messageId }
+        if (message != null && !message.canPin()) return
+        errorMessage = null
+
+        scope.launch {
+            runCatching { repository.pinMessage(threadId, messageId, replaceOldest = true) }
+                .onSuccess { response ->
+                    val ids = parsePinnedIds(response)
+                    chatStore.setPinnedMessage(threadId, messageId, pinned = true, pinnedIds = ids)
+                }
+                .onFailure { error ->
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    /** Unpins a message in [threadId]. */
+    fun unpinMessage(threadId: String, messageId: String) {
+        val previous = activeThread.pinnedMessages
+        updateActiveThread(threadId) { current ->
+            current.copy(pinnedMessages = current.pinnedMessages.filterNot { it.messageId == messageId })
+        }
+        errorMessage = null
+
+        scope.launch {
+            runCatching { repository.unpinMessage(threadId, messageId) }
+                .onSuccess { response ->
+                    val ids = parsePinnedIds(response)
+                    chatStore.setPinnedMessage(threadId, messageId, pinned = false, pinnedIds = ids)
+                }
+                .onFailure { error ->
+                    updateActiveThread(threadId) { it.copy(pinnedMessages = previous) }
+                    errorMessage = describeError(error)
+                }
+        }
+    }
+
+    private fun parsePinnedIds(json: JSONObject): List<String> {
+        val array = json.optJSONArray("pinned_message_ids") ?: return emptyList()
+        return buildList(array.length()) {
+            for (index in 0 until array.length()) {
+                val id = array.optString(index).trim()
+                if (id.isNotEmpty()) add(id)
+            }
         }
     }
 
