@@ -25,6 +25,13 @@ const val EDIT_WINDOW_MS = 15 * 60_000L
 /** Maximum text length accepted by the Go core for sends, edits, and new DMs. */
 const val MAX_MESSAGE_LENGTH = 1000
 
+/** Instagram caps pinned messages per conversation at 3. */
+const val MAX_PINNED_MESSAGES = 3
+
+/** True when pinning another message will replace the oldest existing pin. */
+fun needsPinReplacementConfirmation(pinnedCount: Int, alreadyPinned: Boolean): Boolean =
+    !alreadyPinned && pinnedCount >= MAX_PINNED_MESSAGES
+
 // Activity kinds from the Go core; `admin-*` is the family fallback for any
 // subtype the app does not know yet.
 const val ADMIN_KIND = "admin"

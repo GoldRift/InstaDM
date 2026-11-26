@@ -10,9 +10,11 @@ import com.goldrift.instadm.ui.chat.CALL_KIND
 import com.goldrift.instadm.ui.chat.ChatMessage
 import com.goldrift.instadm.ui.chat.Contact
 import com.goldrift.instadm.ui.chat.Conversation
+import com.goldrift.instadm.ui.chat.MAX_PINNED_MESSAGES
 import com.goldrift.instadm.ui.chat.MessageSender
 import com.goldrift.instadm.ui.chat.PinnedMessage
 import com.goldrift.instadm.ui.chat.canPin
+import com.goldrift.instadm.ui.chat.needsPinReplacementConfirmation
 import com.goldrift.instadm.ui.chat.toPinnedMessage
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -148,5 +150,15 @@ class PinnedMessagesTest {
         assertEquals(listOf(pin), merged.pinnedMessages)
         assertTrue(merged.messages[0].isPinned)
         assertFalse(merged.messages[1].isPinned)
+    }
+
+    @Test
+    fun pinReplacementConfirmationTriggersAtLimitOnlyForUnpinnedMessages() {
+        assertEquals(3, MAX_PINNED_MESSAGES)
+        assertFalse(needsPinReplacementConfirmation(pinnedCount = 0, alreadyPinned = false))
+        assertFalse(needsPinReplacementConfirmation(pinnedCount = 2, alreadyPinned = false))
+        assertTrue(needsPinReplacementConfirmation(pinnedCount = 3, alreadyPinned = false))
+        assertTrue(needsPinReplacementConfirmation(pinnedCount = 4, alreadyPinned = false))
+        assertFalse(needsPinReplacementConfirmation(pinnedCount = 3, alreadyPinned = true))
     }
 }

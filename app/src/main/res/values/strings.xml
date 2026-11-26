@@ -149,6 +149,9 @@
     <string name="chat_pinned_messages">Pinned messages</string>
     <string name="chat_pinned_messages_empty">No pinned messages yet</string>
     <string name="chat_pinned_badge">Pinned</string>
+    <string name="chat_pin_replace_title">Replace oldest pin?</string>
+    <string name="chat_pin_replace_body">You can pin up to 3 messages per chat. Pinning this message unpins the oldest one.</string>
+    <string name="chat_pin_replace_confirm">Replace pin</string>
     <string name="chat_reply_cancel">Cancel reply</string>
     <string name="chat_you">You</string>
     <string name="chat_someone">Someone</string>

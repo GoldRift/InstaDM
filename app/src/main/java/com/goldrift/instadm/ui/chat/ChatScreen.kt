@@ -905,6 +905,7 @@ fun ChatScreen(
         finished = voicePlayer.finished,
     )
     var showPinnedSheet by remember(conversation.id) { mutableStateOf(false) }
+    var replacePinMessageId by remember(conversation.id) { mutableStateOf<String?>(null) }
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -1146,11 +1147,14 @@ fun ChatScreen(
                                 },
                                 onTogglePinAt = { messageId ->
                                     actionMessageId = null
-                                    val target = messages.firstOrNull { it.id == messageId }
-                                    if (target?.isPinned == true) {
-                                        onUnpin(messageId)
-                                    } else {
-                                        onPin(messageId)
+                                    val alreadyPinned = messages.firstOrNull { it.id == messageId }?.isPinned == true
+                                    when {
+                                        alreadyPinned -> onUnpin(messageId)
+                                        needsPinReplacementConfirmation(
+                                            pinnedCount = conversation.pinnedMessages.size,
+                                            alreadyPinned = false,
+                                        ) -> replacePinMessageId = messageId
+                                        else -> onPin(messageId)
                                     }
                                 },
                                 onRetryMedia = onRetryMedia,
@@ -1338,6 +1342,16 @@ fun ChatScreen(
                 onUnsend(message.id)
             },
             onDismiss = { unsendMessageId = null },
+        )
+    }
+
+    replacePinMessageId?.let { messageId ->
+        ReplacePinDialog(
+            onConfirm = {
+                replacePinMessageId = null
+                onPin(messageId)
+            },
+            onDismiss = { replacePinMessageId = null },
         )
     }
 
@@ -3365,6 +3379,46 @@ private fun MessageMenu(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ReplacePinDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.PushPin,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = { Text(stringResource(R.string.chat_pin_replace_title)) },
+        text = { Text(stringResource(R.string.chat_pin_replace_body)) },
+        confirmButton = {
+            Button(
+                shapes = ButtonDefaults.shapes(),
+                onClick = {
+                    haptic.confirm()
+                    onConfirm()
+                },
+            ) {
+                Text(stringResource(R.string.chat_pin_replace_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                shapes = ButtonDefaults.shapes(),
+                onClick = onDismiss,
+            ) {
+                Text(stringResource(R.string.chat_cancel))
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
