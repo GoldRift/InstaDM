@@ -348,7 +348,14 @@ class ChatStore(
             // The echo of an optimistic reply may omit the quoted snapshot, so
             // fall back to the pending row that was just matched by OTID.
             val previous = existing?.withReplySnapshotFrom(duplicate) ?: duplicate
-            val timestamp = sentTimestamp(previous, message.isFromViewer, serverTimestamp)
+            val hasPendingSiblings = message.isFromViewer &&
+                messageDao.hasPendingMessages(threadId, message.id)
+            val timestamp = sentTimestamp(
+                previous = previous,
+                fromViewer = message.isFromViewer,
+                serverMs = serverTimestamp,
+                hasPendingSiblings = hasPendingSiblings,
+            )
             val replyToId = message.replyToId.ifBlank { previous?.replyToId.orEmpty() }
             val storedReply = previous?.takeIf { it.replyToId == replyToId }
             val reply = message.reply
@@ -396,8 +403,9 @@ class ChatStore(
                 )
             }
 
-            threadDao.updateLastMessage(
+            updatePreviewAfterReplace(
                 threadId = threadId,
+                supersededId = duplicate?.id?.takeIf { it != message.id },
                 messageId = entity.id,
                 timestampMs = timestamp,
                 text = entity.text,
@@ -475,10 +483,17 @@ class ChatStore(
                 ?: result.optString("offline_threading_id").trim()
                     .takeIf { it.isNotEmpty() }
                     ?.let { messageDao.byOtid(it) }
-            val timestamp = sentTimestamp(previous, fromViewer = true, serverMs = serverTimestamp)
-            if (previous != null && previous.id != messageId) {
-                messageDao.delete(previous.id)
+            val supersededId = previous?.id?.takeIf { it != messageId }
+            if (supersededId != null) {
+                messageDao.delete(supersededId)
             }
+            val hasPendingSiblings = messageDao.hasPendingMessages(threadId, messageId)
+            val timestamp = sentTimestamp(
+                previous = previous,
+                fromViewer = true,
+                serverMs = serverTimestamp,
+                hasPendingSiblings = hasPendingSiblings,
+            )
             messageDao.upsertMessage(
                 MessageEntity(
                     id = messageId,
@@ -497,8 +512,9 @@ class ChatStore(
                     status = MessageStatus.SENT,
                 ),
             )
-            threadDao.updateLastMessage(
+            updatePreviewAfterReplace(
                 threadId = threadId,
+                supersededId = supersededId,
                 messageId = messageId,
                 timestampMs = timestamp,
                 text = text,
@@ -540,8 +556,14 @@ class ChatStore(
             // An echo may already have swapped the pending row for the server
             // one, so take the send time from whichever row still exists.
             val previous = messageDao.message(localMessageId) ?: messageDao.message(messageId)
-            val timestamp = sentTimestamp(previous, fromViewer = true, serverMs = serverTimestamp)
             messageDao.delete(localMessageId)
+            val hasPendingSiblings = messageDao.hasPendingMessages(threadId, messageId)
+            val timestamp = sentTimestamp(
+                previous = previous,
+                fromViewer = true,
+                serverMs = serverTimestamp,
+                hasPendingSiblings = hasPendingSiblings,
+            )
             messageDao.upsertMessage(
                 MessageEntity(
                     id = messageId,
@@ -572,8 +594,9 @@ class ChatStore(
                     ),
                 ),
             )
-            threadDao.updateLastMessage(
+            updatePreviewAfterReplace(
                 threadId = threadId,
+                supersededId = localMessageId.takeIf { it != messageId },
                 messageId = messageId,
                 timestampMs = timestamp,
                 text = "",
@@ -766,6 +789,49 @@ class ChatStore(
         if (plan.reactions.isNotEmpty()) {
             messageDao.upsertReactions(plan.reactions)
         }
+    }
+
+    private suspend fun updatePreviewAfterReplace(
+        threadId: String,
+        supersededId: String?,
+        messageId: String,
+        timestampMs: Long,
+        text: String,
+        kind: String,
+        fromViewer: Boolean,
+        senderFbid: Long,
+        now: Long,
+    ) {
+        // When a local pending row is replaced by an earlier server timestamp
+        // (device clock ahead of Instagram), recompute the preview unconditionally
+        // so last_message_ts does not stay pinned above incoming replies.
+        val currentPreviewId = supersededId?.let { threadDao.thread(threadId)?.lastMessageId }
+        if (supersededId != null && currentPreviewId == supersededId) {
+            val newest = messageDao.newest(threadId)
+            if (newest != null) {
+                threadDao.setLastMessage(
+                    threadId = threadId,
+                    messageId = newest.id,
+                    timestampMs = newest.timestampMs,
+                    text = newest.text,
+                    kind = newest.kind,
+                    fromViewer = newest.isFromViewer,
+                    senderFbid = newest.senderFbid,
+                    now = now,
+                )
+                return
+            }
+        }
+        threadDao.updateLastMessage(
+            threadId = threadId,
+            messageId = messageId,
+            timestampMs = timestampMs,
+            text = text,
+            kind = kind,
+            fromViewer = fromViewer,
+            senderFbid = senderFbid,
+            now = now,
+        )
     }
 
     private suspend fun updatePreviewFromNewest(threadId: String, now: Long) {
@@ -1300,12 +1366,22 @@ private fun MessageEntity.withReplySnapshotFrom(fallback: MessageEntity?): Messa
 }
 
 /**
- * The viewer's own send time wins over Instagram's, so a staged batch keeps the
- * order it was sent in while each attachment is acked. Other senders have no
- * stored row, so their server time stands.
+ * Keeps the viewer's local send time only while pending sibling uploads are
+ * still waiting behind it (so an earlier attachment in a batch does not jump
+ * below them on ack). Once no pending siblings remain, or if the local clock is
+ * ahead of Instagram's server clock, the server timestamp wins so fast replies
+ * (such as Meta AI's `user_ts + 1 ms`) stay in server order.
  */
-internal fun sentTimestamp(previous: MessageEntity?, fromViewer: Boolean, serverMs: Long): Long =
-    if (fromViewer) previous?.timestampMs?.takeIf { it > 0 } ?: serverMs else serverMs
+internal fun sentTimestamp(
+    previous: MessageEntity?,
+    fromViewer: Boolean,
+    serverMs: Long,
+    hasPendingSiblings: Boolean = false,
+): Long {
+    if (!fromViewer || !hasPendingSiblings) return serverMs
+    val localMs = previous?.timestampMs ?: 0L
+    return if (localMs in 1 until serverMs) localMs else serverMs
+}
 
 internal fun attachments(json: JSONObject, messageId: String): List<AttachmentEntity> {
     val array = json.optJSONArray("media") ?: return emptyList()

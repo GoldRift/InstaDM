@@ -94,7 +94,7 @@ class ChatStoreBatchTest {
         assertEquals(listOf("local:1"), plan.duplicateIdsToDelete)
 
         val echoed = plan.messages.first { it.id == "mid.echo" }
-        assertEquals(4500L, echoed.timestampMs)
+        assertEquals(5000L, echoed.timestampMs)
         assertEquals("mid.orig", echoed.replyToId)
         assertEquals("quoted", echoed.replyToText)
 

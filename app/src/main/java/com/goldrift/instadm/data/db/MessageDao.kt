@@ -55,6 +55,12 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages WHERE thread_id = :threadId")
     suspend fun count(threadId: String): Int
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM messages WHERE thread_id = :threadId " +
+            "AND id != :excludingId AND status IN ('pending', 'sending'))",
+    )
+    suspend fun hasPendingMessages(threadId: String, excludingId: String): Boolean
+
     @Query("SELECT * FROM messages WHERE local_id = :localId LIMIT 1")
     suspend fun byLocalId(localId: String): MessageEntity?
 
