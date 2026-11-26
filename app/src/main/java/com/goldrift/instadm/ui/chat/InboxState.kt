@@ -290,14 +290,9 @@ class InboxState(
         return draft.id
     }
 
-    /** The inbox conversation that already contains the account, if any. */
+    /** The direct inbox conversation that already contains the account, if any. */
     fun conversationForRecipient(recipientFbid: String, igId: String = ""): Conversation? =
-        conversations.firstOrNull { conversation ->
-            conversation.participants.any { participant ->
-                (recipientFbid.isNotBlank() && participant.fbid.toString() == recipientFbid) ||
-                    (igId.isNotBlank() && participant.igId == igId)
-            }
-        }
+        conversations.directConversationForRecipient(recipientFbid, igId)
 
     private suspend fun loadViewer() {
         val profile = chatStore.viewerProfile()
@@ -1176,6 +1171,21 @@ class InboxState(
 
     private fun describeError(error: Throwable): String =
         error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+}
+
+/**
+ * The direct chat that already contains the account, if any. A group lists its
+ * members as participants too, so matching one would open the group instead of
+ * the person's DM.
+ */
+internal fun List<Conversation>.directConversationForRecipient(
+    recipientFbid: String,
+    igId: String,
+): Conversation? = firstOrNull { conversation ->
+    !conversation.isGroup && conversation.participants.any { participant ->
+        (recipientFbid.isNotBlank() && participant.fbid.toString() == recipientFbid) ||
+            (igId.isNotBlank() && participant.igId == igId)
+    }
 }
 
 /** Typing senders in arrival order, without duplicates. */

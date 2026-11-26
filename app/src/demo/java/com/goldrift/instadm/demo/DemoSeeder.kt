@@ -81,11 +81,15 @@ internal class DemoSeeder(private val chatStore: ChatStore) {
             .sortedBy { it.name }
     }
 
-    /** The demo thread that lists [fbid] as a participant, if any. */
+    /** The demo direct thread that lists [fbid] as a participant, if any. */
     suspend fun threadForPerson(fbid: Long): String? {
         ensureSeeded()
-        return checkNotNull(seed).others.entries
-            .firstOrNull { (_, people) -> people.any { it.fbid == fbid } }
+        val seed = checkNotNull(seed)
+        return seed.others.entries
+            .firstOrNull { (threadId, people) ->
+                seed.metaThreads[threadId]?.optBoolean("is_group") == false &&
+                    people.any { person -> person.fbid == fbid }
+            }
             ?.key
     }
 
