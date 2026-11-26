@@ -49,6 +49,7 @@ data class RealtimeEvent(
                             mediaCount = quoted.optInt("media_count"),
                         )
                     },
+                    needsSync = payload.optBoolean("needs_sync"),
                 )
             }
 
@@ -83,6 +84,8 @@ data class RealtimeMessage(
     val media: List<MessageMedia> = emptyList(),
     val replyToId: String = "",
     val reply: RealtimeReply? = null,
+    /** True when DGW delivered a degraded stub (e.g. Meta AI placeholder) needing a thread fetch. */
+    val needsSync: Boolean = false,
 )
 
 /** The quoted snapshot Instagram embeds in a reply event. */

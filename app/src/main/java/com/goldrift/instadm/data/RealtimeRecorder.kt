@@ -50,7 +50,38 @@ class RealtimeRecorder(
         val known = chatStore.threadExists(event.threadId)
         chatStore.ingestRealtimeMessage(event.threadId, message)
         if (!known) refreshUnknownThread(event.threadId)
-        onIncomingMessage(event)
+        if (message.needsSync) {
+            syncDegradedMessage(event, message)
+        } else {
+            onIncomingMessage(event)
+        }
+    }
+
+    /**
+     * DGW degrades some messages (such as Meta AI's GEN_AI_RICH_RESPONSE_XMA)
+     * to a placeholder stub with only a short snippet, while IGDThreadDetailQuery
+     * returns the full response. Fetch the thread so Room and notifications get
+     * the complete body immediately.
+     */
+    private fun syncDegradedMessage(event: RealtimeEvent, message: RealtimeMessage) {
+        scope.launch {
+            reactionLock(event.threadId).withLock {
+                runCatching { syncThread(event.threadId) }
+                val updated = chatStore.message(message.id)
+                val resolved = if (updated != null && updated.text.isNotBlank()) {
+                    event.copy(
+                        message = message.copy(
+                            text = updated.text,
+                            kind = updated.kind,
+                            needsSync = false,
+                        ),
+                    )
+                } else {
+                    event
+                }
+                onIncomingMessage(resolved)
+            }
+        }
     }
 
     private suspend fun editMessage(event: RealtimeEvent) {

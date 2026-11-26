@@ -322,6 +322,44 @@ class RealtimeRecorderTest {
         assertNull(notified.tryReceive().getOrNull())
     }
 
+    @Test
+    fun degradedAIMessageFetchesFullThreadAndNotifiesWithFullText() = runBlocking {
+        val notified = Channel<RealtimeEvent>(Channel.UNLIMITED)
+        recorder = RealtimeRecorder(
+            chatStore = store,
+            scope = scope,
+            onIncomingMessage = { notified.trySend(it) },
+            syncThread = { threadId -> store.ingestThread(JSONObject(threadWithFullAI(threadId))) },
+        ) { mailboxRefreshes++ }
+
+        recorder.apply(
+            RealtimeEvent(
+                type = "message.new",
+                threadId = "thread-1",
+                message = RealtimeMessage(
+                    id = "mid.ai-1",
+                    offlineThreadingId = "otid-ai-1",
+                    text = "Short",
+                    senderName = "Meta AI",
+                    senderFbid = 222,
+                    isFromViewer = false,
+                    timestampMs = 1_700_000_005_001,
+                    kind = "ai",
+                    needsSync = true,
+                ),
+            ),
+        )
+
+        val event = withTimeout(5_000) { notified.receive() }
+        assertEquals("mid.ai-1", event.message?.id)
+        assertEquals("Full Meta AI response text.", event.message?.text)
+        assertFalse(event.message!!.needsSync)
+        assertEquals(
+            "Full Meta AI response text.",
+            store.observeThread("thread-1").first().single().message.text,
+        )
+    }
+
     private fun incoming(
         id: String,
         text: String,
@@ -339,6 +377,30 @@ class RealtimeRecorderTest {
     )
 
     private companion object {
+        fun threadWithFullAI(threadId: String): String = """
+            {
+              "thread": {
+                "id": "$threadId",
+                "thread_id": "long-thread-1",
+                "thread_fbid": "thread-1",
+                "title": "Meta AI"
+              },
+              "messages": [
+                {
+                  "id": "mid.ai-1",
+                  "sender_fbid": 222,
+                  "sender_name": "Meta AI",
+                  "is_from_viewer": false,
+                  "timestamp_ms": 1700000005001,
+                  "kind": "ai",
+                  "text": "Full Meta AI response text."
+                }
+              ],
+              "oldest_cursor": "cursor-1",
+              "has_more_older": false
+            }
+        """.trimIndent()
+
         /** Newest page for thread-1 whose last entry is the reaction activity log. */
         fun threadWithLog(threadId: String): String = """
             {

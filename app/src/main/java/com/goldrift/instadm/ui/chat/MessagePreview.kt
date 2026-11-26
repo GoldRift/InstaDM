@@ -90,7 +90,7 @@ internal fun mediaNoun(kind: String): Int? = when (kind.trim().lowercase()) {
     "music" -> R.string.inbox_noun_music
     "unavailable" -> R.string.inbox_noun_attachment
     "admin", "call", "reaction-log" -> null
-    "", "text" -> null
+    "", "text", "ai", "ai-search" -> null
     else -> if (kind.trim().lowercase().startsWith("$ADMIN_KIND-")) {
         null
     } else {

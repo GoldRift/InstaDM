@@ -39,6 +39,33 @@ class RealtimeEventTest {
         assertEquals(42L, event.seqId)
         assertFalse(event.message!!.isFromViewer)
         assertEquals("hello", event.message.text)
+        assertFalse(event.message.needsSync)
+    }
+
+    @Test
+    fun parsesDegradedAIMessageNeedsSyncFlag() {
+        val event = RealtimeEvent.fromJson(
+            """
+            {
+              "type": "message.new",
+              "thread_id": "thread-ai",
+              "message": {
+                "id": "mid.ai",
+                "text": "Short preview",
+                "sender_name": "Meta AI",
+                "is_from_viewer": false,
+                "timestamp_ms": 1700000000001,
+                "kind": "ai",
+                "needs_sync": true
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(event)
+        assertEquals("ai", event!!.message!!.kind)
+        assertEquals("Short preview", event.message.text)
+        assertTrue(event.message.needsSync)
     }
 
     @Test

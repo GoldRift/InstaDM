@@ -128,6 +128,8 @@ class MessagePreviewTest {
     fun nothingToShowMeansNoLabel() {
         assertNull(ConversationPreview().label(isGroup = false))
         assertNull(ConversationPreview(kind = "text").label(isGroup = true))
+        assertNull(ConversationPreview(kind = "ai").label(isGroup = false))
+        assertNull(ConversationPreview(kind = "ai-search").label(isGroup = false))
         assertNull(ConversationPreview(kind = ADMIN_RESTRICTED_KIND).label(isGroup = true))
         assertNull(ConversationPreview(kind = "reaction-log").label(isGroup = false))
     }
