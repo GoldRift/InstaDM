@@ -241,6 +241,44 @@ func TestHandleDeltaUnknownAndIgnored(t *testing.T) {
 	}
 }
 
+func TestHandleDeltaDegradedAIMessageSetsNeedsSync(t *testing.T) {
+	client, events := newEventCapture()
+	client.handleEvent(&slidetypes.Delta{
+		TypeName:   "SlideUQPPNewMessage",
+		ThreadIGID: "thread-ai",
+		UQSeqID:    99,
+		Data: &slidetypes.NewMessageEvent{
+			Message: &slidetypes.Message{
+				MessageID:     "mid.ai-1",
+				SenderFBID:    222,
+				ThreadFBID:    "thread-ai",
+				ContentType:   "GEN_AI_RICH_RESPONSE_XMA",
+				BotResponseID: "resp-1",
+				IGDSnippet:    "Short preview",
+				TimestampMS:   jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_001)},
+				Content: slidetypes.MessageContentWrapper{
+					TypeName: "SlideMessageXMAContent",
+					Content: &slidetypes.MessageContentXMA{
+						XMA: &slidetypes.XMAContent{
+							Typename:        "SlideMessagePlaceholderXMA",
+							TitleText:       "Message unavailable",
+							CaptionBodyText: "Use the Instagram mobile app to view this message.",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if len(*events) != 1 || (*events)[0].Message == nil {
+		t.Fatalf("events = %+v, want 1 message event", *events)
+	}
+	msg := (*events)[0].Message
+	if msg.Kind != "ai" || msg.Text != "Short preview" || !msg.NeedsSync {
+		t.Errorf("message = %+v, want kind=ai text=%q needs_sync=true", msg, "Short preview")
+	}
+}
+
 var errTest = testError("test error")
 
 type testError string

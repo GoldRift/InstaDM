@@ -1584,3 +1584,85 @@ func TestUnknownMessageUsesSnippet(t *testing.T) {
 		t.Errorf("text = %q, want the inbox snippet fallback", view.Text)
 	}
 }
+
+func TestAIRichResponseStubFallsBackToSnippet(t *testing.T) {
+	stub := &slidetypes.Message{
+		MessageID:   "mid.ai-stub",
+		SenderFBID:  222,
+		ContentType: "GEN_AI_RICH_RESPONSE_XMA",
+		IGDSnippet:  "Here is the answer.",
+		TimestampMS: jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_001)},
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageGenAIRichResponseXMAContent",
+			Content:  &slidetypes.MessageContentAIRichResponse{},
+		},
+	}
+	thread := &slidetypes.ThreadInfo{
+		ID:            "thread-ai",
+		ThreadSubtype: slidetypes.ThreadSubtypeAIBot,
+		SlideMessages: &slidetypes.SlideMessages{
+			Edges: []slidetypes.Node[*slidetypes.Message]{{Node: stub}},
+		},
+	}
+
+	threadView := newThreadView(thread, 111)
+	if threadView.LastMessage == nil {
+		t.Fatal("last_message = nil, want AI preview")
+	}
+	if threadView.LastMessage.Kind != "ai" || threadView.LastMessage.Text != "Here is the answer." {
+		t.Errorf("last_message = %+v, want kind=ai text=%q", threadView.LastMessage, "Here is the answer.")
+	}
+
+	stubView := newMessageView(stub, 111, nil)
+	if !stubView.NeedsSync {
+		t.Error("empty AI stub should set needs_sync")
+	}
+
+	full := &slidetypes.Message{
+		MessageID:   "mid.ai-full",
+		SenderFBID:  222,
+		ContentType: "GEN_AI_RICH_RESPONSE_XMA",
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageGenAIRichResponseXMAContent",
+			Content:  &slidetypes.MessageContentAIRichResponse{UnifiedResponse: "Full answer."},
+		},
+	}
+	fullView := newMessageView(full, 111, nil)
+	if fullView.Kind != "ai" || fullView.Text != "Full answer." || fullView.NeedsSync {
+		t.Errorf("full AI view = %+v, want kind=ai text=%q needs_sync=false", fullView, "Full answer.")
+	}
+}
+
+func TestDegradedAIPlaceholderXMAUsesSnippetAndRequestsSync(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID:     "mid.ai-dgw",
+		SenderFBID:    222,
+		ContentType:   "GEN_AI_RICH_RESPONSE_XMA",
+		BotResponseID: "resp-1",
+		IGDSnippet:    "ok",
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageXMAContent",
+			Content: &slidetypes.MessageContentXMA{
+				XMA: &slidetypes.XMAContent{
+					Typename:        "SlideMessagePlaceholderXMA",
+					TitleText:       "Message unavailable",
+					CaptionBodyText: "Use the Instagram mobile app to view this message.",
+				},
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if view.Kind != "ai" || view.ContentType != "GEN_AI_RICH_RESPONSE_XMA" {
+		t.Errorf("kind/content_type = %q/%q, want ai/GEN_AI_RICH_RESPONSE_XMA", view.Kind, view.ContentType)
+	}
+	if view.Text != "ok" {
+		t.Errorf("text = %q, want %q", view.Text, "ok")
+	}
+	if view.MediaCount != 0 || len(view.Media) != 0 {
+		t.Errorf("media_count/media = %d/%+v, want empty", view.MediaCount, view.Media)
+	}
+	if !view.NeedsSync {
+		t.Error("degraded AI placeholder should set needs_sync")
+	}
+}

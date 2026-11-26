@@ -424,6 +424,10 @@ type MessageView struct {
 	// Seen is true when another participant's read watermark has reached this
 	// message. It is only meaningful for messages sent by the viewer.
 	Seen bool `json:"seen"`
+	// NeedsSync is true when Instagram delivered a degraded stub (for example,
+	// DGW downgrades GEN_AI_RICH_RESPONSE_XMA to SlideMessagePlaceholderXMA
+	// with only igd_snippet) and the full body requires IGDThreadDetailQuery.
+	NeedsSync bool `json:"needs_sync,omitempty"`
 }
 
 func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int) *ThreadDetailView {
@@ -630,6 +634,7 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		RepliedToMessageID: repliedToID,
 		RepliedToMessage:   reply,
 		Reactions:          reactions,
+		NeedsSync:          messageNeedsSync(message),
 	}
 }
 
@@ -1150,6 +1155,11 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 			text = content.AltText
 		}
 	case *slidetypes.MessageContentXMA:
+		if isDegradedAIPlaceholder(message, content) {
+			kind = aiKindForContentType(message.ContentType)
+			text = firstNonEmpty(strings.TrimSpace(message.TextBody), strings.TrimSpace(message.IGDSnippet))
+			break
+		}
 		text = content.XMATextBody
 		if _, _, ok := sharedReelTarget(content.XMA); ok {
 			kind = "reel"
@@ -1192,13 +1202,16 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		text = content.UnifiedResponse
 	case *slidetypes.MessageContentAISearchResponse:
 		kind = "ai-search"
-		text = content.MessageTextBody
+		text = aiSearchText(content)
 	case slidetypes.MessageContentUnknown:
 		kind = "unknown"
 	}
 
 	if text == "" && isAdminTextKind(kind) {
 		text = message.IGDSnippet
+	}
+	if text == "" && isAIKind(kind) {
+		text = firstNonEmpty(message.TextBody, message.IGDSnippet)
 	}
 	if text == "" && mediaCount == 0 && (kind == "link" || kind == "unknown") &&
 		message.TextBody == "" {
@@ -1211,6 +1224,61 @@ func describeMessageContent(message *slidetypes.Message) (kind, text string, med
 		text = message.TextBody
 	}
 	return kind, text, mediaCount
+}
+
+func isAIKind(kind string) bool {
+	return kind == "ai" || kind == "ai-search"
+}
+
+func aiKindForContentType(contentType string) string {
+	if strings.Contains(strings.ToUpper(contentType), "SEARCH") {
+		return "ai-search"
+	}
+	return "ai"
+}
+
+func aiSearchText(content *slidetypes.MessageContentAISearchResponse) string {
+	if content == nil {
+		return ""
+	}
+	if content.MessageTextBody != "" {
+		return content.MessageTextBody
+	}
+	if raw, ok := content.Unrecognized["message_text_body"].(string); ok {
+		return raw
+	}
+	return ""
+}
+
+// isDegradedAIPlaceholder detects Meta AI replies that DGW downgraded to a
+// generic SlideMessagePlaceholderXMA without the response body.
+func isDegradedAIPlaceholder(message *slidetypes.Message, content *slidetypes.MessageContentXMA) bool {
+	if message == nil || content == nil || content.XMA == nil {
+		return false
+	}
+	if !strings.HasPrefix(message.ContentType, "GEN_AI_") && message.BotResponseID == nil {
+		return false
+	}
+	if strings.TrimSpace(content.XMATextBody) != "" || strings.TrimSpace(content.XMA.TargetURL) != "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(content.XMA.Typename), "placeholder")
+}
+
+func messageNeedsSync(message *slidetypes.Message) bool {
+	if message == nil {
+		return false
+	}
+	switch content := message.Content.Content.(type) {
+	case *slidetypes.MessageContentXMA:
+		return isDegradedAIPlaceholder(message, content)
+	case *slidetypes.MessageContentAIRichResponse:
+		return strings.TrimSpace(content.UnifiedResponse) == ""
+	case *slidetypes.MessageContentAISearchResponse:
+		return strings.TrimSpace(aiSearchText(content)) == ""
+	default:
+		return false
+	}
 }
 
 func joinTextFragments(fragments []slidetypes.TextFragment) string {
