@@ -1349,7 +1349,12 @@ fun ChatScreen(
                 showPinnedSheet = false
                 jumpToQuotedMessage(messageId)
             },
-            onUnpin = onUnpin,
+            onUnpin = { messageId ->
+                if (conversation.pinnedMessages.size <= 1) {
+                    showPinnedSheet = false
+                }
+                onUnpin(messageId)
+            },
             onDismiss = { showPinnedSheet = false },
         )
     }
@@ -1456,70 +1461,48 @@ private fun ChatTopSection(
                 }
             },
             actions = {
-                if (showPinsAction) {
-                    val hasPins = pinnedCount > 0
-                    val pinContainerColor by animateColorAsState(
-                        targetValue = if (hasPins) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            Color.Transparent
-                        },
-                        animationSpec = motion.fastEffectsSpec(),
-                        label = "pinActionContainer",
-                    )
-                    val pinContentColor by animateColorAsState(
-                        targetValue = if (hasPins) {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        animationSpec = motion.fastEffectsSpec(),
-                        label = "pinActionContent",
-                    )
+                var lastPinnedCount by remember { mutableIntStateOf(pinnedCount.coerceAtLeast(1)) }
+                if (pinnedCount > 0 && pinnedCount != lastPinnedCount) {
+                    SideEffect { lastPinnedCount = pinnedCount }
+                }
+                AnimatedVisibility(
+                    visible = showPinsAction && pinnedCount > 0,
+                    enter = scaleIn(motion.fastSpatialSpec(), initialScale = 0.8f) +
+                        fadeIn(motion.fastEffectsSpec()),
+                    exit = scaleOut(motion.fastSpatialSpec(), targetScale = 0.8f) +
+                        fadeOut(motion.fastEffectsSpec()),
+                ) {
+                    val displayedCount = if (pinnedCount > 0) pinnedCount else lastPinnedCount
                     FilledTonalButton(
                         onClick = onShowPins,
                         shapes = ButtonDefaults.shapes(),
                         colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = pinContainerColor,
-                            contentColor = pinContentColor,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         ),
-                        contentPadding = PaddingValues(
-                            horizontal = if (hasPins) 12.dp else 10.dp,
-                            vertical = 0.dp,
-                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         modifier = Modifier
-                            .padding(end = 4.dp)
-                            .heightIn(min = 36.dp)
-                            .widthIn(min = 40.dp),
+                            .padding(end = 8.dp)
+                            .heightIn(min = 36.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.PushPin,
                             contentDescription = stringResource(R.string.chat_pinned_messages),
                             modifier = Modifier.size(18.dp),
                         )
-                        AnimatedVisibility(
-                            visible = hasPins,
-                            enter = expandHorizontally(motion.fastSpatialSpec()) +
-                                fadeIn(motion.fastEffectsSpec()),
-                            exit = shrinkHorizontally(motion.fastSpatialSpec()) +
-                                fadeOut(motion.fastEffectsSpec()),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Spacer(Modifier.width(5.dp))
-                                AnimatedContent(
-                                    targetState = pinnedCount,
-                                    transitionSpec = {
-                                        fadeIn(motion.fastEffectsSpec()) togetherWith
-                                            fadeOut(motion.fastEffectsSpec())
-                                    },
-                                    label = "pinActionCount",
-                                ) { count ->
-                                    Text(
-                                        text = count.toString(),
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
-                                }
-                            }
+                        Spacer(Modifier.width(5.dp))
+                        AnimatedContent(
+                            targetState = displayedCount,
+                            transitionSpec = {
+                                fadeIn(motion.fastEffectsSpec()) togetherWith
+                                    fadeOut(motion.fastEffectsSpec())
+                            },
+                            label = "pinActionCount",
+                        ) { count ->
+                            Text(
+                                text = count.toString(),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
                         }
                     }
                 }
