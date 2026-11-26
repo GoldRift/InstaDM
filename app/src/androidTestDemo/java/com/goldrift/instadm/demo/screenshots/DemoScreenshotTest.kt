@@ -51,6 +51,12 @@ class DemoScreenshotTest {
         session.capture("04-actions-light")
         session.back()
 
+        session.nodeWithDescription("Pinned messages").performClick()
+        session.awaitText("Pinned messages")
+        Thread.sleep(400)
+        session.capture("17-pinned-messages-light")
+        session.back()
+
         compose.onNodeWithContentDescription("Play voice message").performClick()
         Thread.sleep(700)
         session.capture("05-voice-light")

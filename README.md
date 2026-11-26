@@ -161,6 +161,12 @@ Captured from the offline demo build on an API 37 emulator.
       <td align="center"><img src="docs/screenshots/light/15-banner-light.png" width="220" alt="Banner for another chat"><br><sub>Banner for another chat</sub></td>
       <td align="center"><img src="docs/screenshots/light/16-music-and-location-light.png" width="220" alt="Music and live location"><br><sub>Music and live location</sub></td>
     </tr>
+    <tr>
+      <td align="center"><img src="docs/screenshots/light/17-pinned-messages-light.png" width="220" alt="Pinned messages"><br><sub>Pinned messages</sub></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
 </table>
 
 ### Dark
