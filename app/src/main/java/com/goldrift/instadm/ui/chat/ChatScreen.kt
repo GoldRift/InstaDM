@@ -126,8 +126,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ReportProblem
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -142,7 +140,7 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -1459,26 +1457,69 @@ private fun ChatTopSection(
             },
             actions = {
                 if (showPinsAction) {
-                    IconButton(
+                    val hasPins = pinnedCount > 0
+                    val pinContainerColor by animateColorAsState(
+                        targetValue = if (hasPins) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            Color.Transparent
+                        },
+                        animationSpec = motion.fastEffectsSpec(),
+                        label = "pinActionContainer",
+                    )
+                    val pinContentColor by animateColorAsState(
+                        targetValue = if (hasPins) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        animationSpec = motion.fastEffectsSpec(),
+                        label = "pinActionContent",
+                    )
+                    FilledTonalButton(
                         onClick = onShowPins,
-                        shapes = IconButtonDefaults.shapes(),
+                        shapes = ButtonDefaults.shapes(),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = pinContainerColor,
+                            contentColor = pinContentColor,
+                        ),
+                        contentPadding = PaddingValues(
+                            horizontal = if (hasPins) 12.dp else 10.dp,
+                            vertical = 0.dp,
+                        ),
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .heightIn(min = 36.dp)
+                            .widthIn(min = 40.dp),
                     ) {
-                        BadgedBox(
-                            badge = {
-                                if (pinnedCount > 0) {
-                                    Badge { Text(pinnedCount.toString()) }
-                                }
-                            },
+                        Icon(
+                            imageVector = Icons.Rounded.PushPin,
+                            contentDescription = stringResource(R.string.chat_pinned_messages),
+                            modifier = Modifier.size(18.dp),
+                        )
+                        AnimatedVisibility(
+                            visible = hasPins,
+                            enter = expandHorizontally(motion.fastSpatialSpec()) +
+                                fadeIn(motion.fastEffectsSpec()),
+                            exit = shrinkHorizontally(motion.fastSpatialSpec()) +
+                                fadeOut(motion.fastEffectsSpec()),
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PushPin,
-                                contentDescription = stringResource(R.string.chat_pinned_messages),
-                                tint = if (pinnedCount > 0) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.width(5.dp))
+                                AnimatedContent(
+                                    targetState = pinnedCount,
+                                    transitionSpec = {
+                                        fadeIn(motion.fastEffectsSpec()) togetherWith
+                                            fadeOut(motion.fastEffectsSpec())
+                                    },
+                                    label = "pinActionCount",
+                                ) { count ->
+                                    Text(
+                                        text = count.toString(),
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1502,6 +1543,7 @@ private fun PinnedMessagesSheet(
     onUnpin: (messageId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val motion = MaterialTheme.motionScheme
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
@@ -1521,7 +1563,7 @@ private fun PinnedMessagesSheet(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.PushPin,
@@ -1531,7 +1573,7 @@ private fun PinnedMessagesSheet(
                 )
                 Text(
                     text = stringResource(R.string.chat_pinned_messages),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLargeEmphasized,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -1539,10 +1581,18 @@ private fun PinnedMessagesSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                        .padding(horizontal = 24.dp, vertical = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    ExpressiveStateBadge(
+                        shape = MaterialShapes.Cookie4Sided.toShape(),
+                        icon = Icons.Rounded.PushPin,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        size = 64.dp,
+                        iconSize = 28.dp,
+                    )
                     Text(
                         text = stringResource(R.string.chat_pinned_messages_empty),
                         style = MaterialTheme.typography.bodyMedium,
@@ -1554,6 +1604,8 @@ private fun PinnedMessagesSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
                         items = pinnedMessages,
@@ -1568,60 +1620,68 @@ private fun PinnedMessagesSheet(
                             mediaNoun(pin.kind)?.let { stringResource(it) }
                                 ?: stringResource(R.string.chat_pinned_badge)
                         }
-                        Row(
+                        Surface(
+                            onClick = { onSelect(pin.messageId) },
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onSelect(pin.messageId) }
-                                .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                                .animateItem(
+                                    fadeInSpec = motion.defaultEffectsSpec(),
+                                    fadeOutSpec = motion.fastEffectsSpec(),
+                                    placementSpec = motion.defaultSpatialSpec(),
+                                ),
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(
+                                            text = senderLabel,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (pin.timestamp.isNotBlank()) {
+                                            Text(
+                                                text = pin.timestamp,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        text = senderLabel,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
+                                        text = previewText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (pin.timestamp.isNotBlank()) {
-                                        Text(
-                                            text = pin.timestamp,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
                                 }
-                                Text(
-                                    text = previewText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            IconButton(
-                                onClick = { onUnpin(pin.messageId) },
-                                shapes = IconButtonDefaults.shapes(),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = stringResource(R.string.chat_action_unpin),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                IconButton(
+                                    onClick = { onUnpin(pin.messageId) },
+                                    shapes = IconButtonDefaults.shapes(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = stringResource(R.string.chat_action_unpin),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                         }
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 20.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                        )
                     }
                 }
             }
