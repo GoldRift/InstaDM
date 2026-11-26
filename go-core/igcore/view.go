@@ -327,12 +327,27 @@ func displayTitle(participants []ParticipantView, ownFBID int64) string {
 // ordered oldest-to-newest for display, even though Instagram returns the newest
 // page first.
 type ThreadDetailView struct {
-	ProtocolVersion string            `json:"protocol_version"`
-	Thread          ThreadView        `json:"thread"`
-	Messages        []MessageView     `json:"messages"`
-	ReadReceipts    []ReadReceiptView `json:"read_receipts,omitempty"`
-	HasMoreOlder    bool              `json:"has_more_older"`
-	OldestCursor    string            `json:"oldest_cursor,omitempty"`
+	ProtocolVersion string              `json:"protocol_version"`
+	Thread          ThreadView          `json:"thread"`
+	Messages        []MessageView       `json:"messages"`
+	PinnedMessages  []PinnedMessageView `json:"pinned_messages,omitempty"`
+	ReadReceipts    []ReadReceiptView   `json:"read_receipts,omitempty"`
+	HasMoreOlder    bool                `json:"has_more_older"`
+	OldestCursor    string              `json:"oldest_cursor,omitempty"`
+}
+
+// PinnedMessageView is a compact snapshot of a message pinned in a thread, so
+// clients can display all pins even when the pinned message is older than the
+// currently loaded page.
+type PinnedMessageView struct {
+	ID           string `json:"id"`
+	SenderFBID   int64  `json:"sender_fbid,omitempty"`
+	SenderName   string `json:"sender_name,omitempty"`
+	IsFromViewer bool   `json:"is_from_viewer,omitempty"`
+	TimestampMS  int64  `json:"timestamp_ms,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Text         string `json:"text,omitempty"`
+	MediaCount   int    `json:"media_count,omitempty"`
 }
 
 // ReadReceiptView is a participant's read watermark for a thread. FromViewer
@@ -424,6 +439,8 @@ type MessageView struct {
 	// Seen is true when another participant's read watermark has reached this
 	// message. It is only meaningful for messages sent by the viewer.
 	Seen bool `json:"seen"`
+	// IsPinned is true when the message is pinned in its thread.
+	IsPinned bool `json:"is_pinned,omitempty"`
 	// NeedsSync is true when Instagram delivered a degraded stub (for example,
 	// DGW downgrades GEN_AI_RICH_RESPONSE_XMA to SlideMessagePlaceholderXMA
 	// with only igd_snippet) and the full body requires IGDThreadDetailQuery.
@@ -431,16 +448,137 @@ type MessageView struct {
 }
 
 func newThreadDetailView(thread *slidetypes.ThreadInfo, ownFBID int64, limit int) *ThreadDetailView {
+	participants := participantNames(thread)
 	view := &ThreadDetailView{
 		ProtocolVersion: ProtocolVersion,
 		Thread:          newThreadView(thread, ownFBID),
 		ReadReceipts:    newReadReceiptViews(thread.SlideReadReceipts, ownFBID),
 	}
 	view.Messages, view.HasMoreOlder, view.OldestCursor = normalizeMessagePage(
-		thread.SlideMessages, ownFBID, participantNames(thread), limit,
+		thread.SlideMessages, ownFBID, participants, limit,
 	)
+	view.PinnedMessages = normalizePinnedMessages(thread.PinnedMessages, view.Messages, ownFBID, participants)
 	applyReadReceipts(view.Messages, view.ReadReceipts)
 	return view
+}
+
+// normalizePinnedMessages merges thread-level pinned_messages entries (which
+// upstream leaves as []any because Instagram can return either full message
+// objects or compact {id, message_id} stubs) with any loaded messages marked
+// is_pinned. Loaded messages are also marked IsPinned when referenced by ID.
+func normalizePinnedMessages(raw []any, messages []MessageView, ownFBID int64, participants map[int64]string) []PinnedMessageView {
+	byID := make(map[string]int, len(messages))
+	for i := range messages {
+		if messages[i].ID != "" {
+			byID[messages[i].ID] = i
+		}
+	}
+
+	seen := make(map[string]bool)
+	pinned := make([]PinnedMessageView, 0, len(raw))
+
+	for _, entry := range raw {
+		view, ok := decodePinnedEntry(entry, ownFBID, participants)
+		if !ok || view.ID == "" || seen[view.ID] {
+			continue
+		}
+		if idx, found := byID[view.ID]; found {
+			messages[idx].IsPinned = true
+			view = enrichPinnedFromMessage(view, messages[idx])
+		}
+		seen[view.ID] = true
+		pinned = append(pinned, view)
+	}
+
+	for i := range messages {
+		if !messages[i].IsPinned || messages[i].ID == "" || seen[messages[i].ID] {
+			continue
+		}
+		seen[messages[i].ID] = true
+		pinned = append(pinned, pinnedViewFromMessage(messages[i]))
+	}
+
+	if len(pinned) == 0 {
+		return nil
+	}
+	return pinned
+}
+
+func decodePinnedEntry(entry any, ownFBID int64, participants map[int64]string) (PinnedMessageView, bool) {
+	switch value := entry.(type) {
+	case string:
+		id := strings.TrimSpace(value)
+		if id == "" {
+			return PinnedMessageView{}, false
+		}
+		return PinnedMessageView{ID: id}, true
+	case map[string]any:
+		target := value
+		if nested, ok := value["message"].(map[string]any); ok {
+			target = nested
+		}
+		data, err := json.Marshal(target)
+		if err != nil {
+			return PinnedMessageView{}, false
+		}
+		var msg slidetypes.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return PinnedMessageView{}, false
+		}
+		id := firstNonEmpty(msg.MessageID, msg.ID)
+		if id == "" {
+			return PinnedMessageView{}, false
+		}
+		mv := newMessageView(&msg, ownFBID, participants)
+		return PinnedMessageView{
+			ID:           id,
+			SenderFBID:   mv.SenderFBID,
+			SenderName:   mv.SenderName,
+			IsFromViewer: mv.IsFromViewer,
+			TimestampMS:  mv.TimestampMS,
+			Kind:         mv.Kind,
+			Text:         mv.Text,
+			MediaCount:   mv.MediaCount,
+		}, true
+	default:
+		return PinnedMessageView{}, false
+	}
+}
+
+func pinnedViewFromMessage(msg MessageView) PinnedMessageView {
+	return PinnedMessageView{
+		ID:           msg.ID,
+		SenderFBID:   msg.SenderFBID,
+		SenderName:   msg.SenderName,
+		IsFromViewer: msg.IsFromViewer,
+		TimestampMS:  msg.TimestampMS,
+		Kind:         msg.Kind,
+		Text:         msg.Text,
+		MediaCount:   msg.MediaCount,
+	}
+}
+
+func enrichPinnedFromMessage(pin PinnedMessageView, msg MessageView) PinnedMessageView {
+	if pin.SenderFBID == 0 {
+		pin.SenderFBID = msg.SenderFBID
+		pin.IsFromViewer = msg.IsFromViewer
+	}
+	if pin.SenderName == "" {
+		pin.SenderName = msg.SenderName
+	}
+	if pin.TimestampMS == 0 {
+		pin.TimestampMS = msg.TimestampMS
+	}
+	if pin.Text == "" {
+		pin.Text = msg.Text
+	}
+	if pin.Kind == "" || pin.Kind == "unknown" {
+		pin.Kind = msg.Kind
+	}
+	if pin.MediaCount == 0 {
+		pin.MediaCount = msg.MediaCount
+	}
+	return pin
 }
 
 func newReadReceiptViews(receipts []slidetypes.ReadReceipt, ownFBID int64) []ReadReceiptView {
@@ -634,6 +772,7 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		RepliedToMessageID: repliedToID,
 		RepliedToMessage:   reply,
 		Reactions:          reactions,
+		IsPinned:           message.IsPinned,
 		NeedsSync:          messageNeedsSync(message),
 	}
 }

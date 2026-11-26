@@ -427,6 +427,36 @@ func (c *Client) ReactJSON(threadID, messageID, emoji string, remove bool, timeo
 	return encode(result)
 }
 
+func (c *Client) PinMessageJSON(threadID, messageID string, replaceOldest bool, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.PinMessage(ctx, threadID, messageID, replaceOldest)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
+func (c *Client) UnpinMessageJSON(threadID, messageID string, timeoutSeconds int32) (string, error) {
+	client, err := c.client()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := timeoutContext(timeoutSeconds)
+	defer cancel()
+
+	result, err := client.UnpinMessage(ctx, threadID, messageID)
+	if err != nil {
+		return "", err
+	}
+	return encode(result)
+}
+
 // MarkReadJSON marks a thread read up to messageID. When longThreadID and
 // timestampMS are provided (both come from the normalized thread view), no
 // extra thread query is needed; otherwise the core resolves them itself.

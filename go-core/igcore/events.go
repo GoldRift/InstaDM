@@ -18,9 +18,11 @@ type Event struct {
 	ParticipantIGID int64        `json:"participant_ig_id,omitempty"`
 	FromViewer      bool         `json:"from_viewer,omitempty"`
 	TimestampMS     int64        `json:"timestamp_ms,omitempty"`
-	ActivityStatus  int          `json:"activity_status,omitempty"`
-	LongThreadID    string       `json:"long_thread_id,omitempty"`
-	Message         *MessageView `json:"message,omitempty"`
+	ActivityStatus     int          `json:"activity_status,omitempty"`
+	LongThreadID       string       `json:"long_thread_id,omitempty"`
+	PinnedMessageIDs   []string     `json:"pinned_message_ids,omitempty"`
+	UnpinnedMessageIDs []string     `json:"unpinned_message_ids,omitempty"`
+	Message            *MessageView `json:"message,omitempty"`
 }
 
 func (c *Client) handleEvent(event slidetypes.ClientEvent) {
@@ -117,6 +119,10 @@ func (c *Client) handleDelta(delta *slidetypes.Delta) {
 	case *slidetypes.DeleteMessageEvent:
 		event.Type = "message.delete"
 		event.Message = &MessageView{ID: data.MessageID}
+	case *slidetypes.PinMessageEvent:
+		event.Type = "message.pin"
+		event.PinnedMessageIDs = data.PinnedMessages
+		event.UnpinnedMessageIDs = data.UnpinnedMessages
 	case *slidetypes.CreateReactionEvent:
 		event.Type = "reaction.add"
 		event.Message = &MessageView{ID: data.MessageID}
