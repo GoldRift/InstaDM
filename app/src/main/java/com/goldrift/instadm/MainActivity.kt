@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.goldrift.instadm.data.PendingShare
 import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.AppVisibility
 import com.goldrift.instadm.service.MessageNotifier
@@ -31,10 +32,12 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private var pendingThreadId by mutableStateOf<String?>(null)
-    private var pendingShare by mutableStateOf<SharedContent?>(null)
+    private var pendingShare by mutableStateOf<PendingShare?>(null)
+    private var nextShareId: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        nextShareId = savedInstanceState?.getLong(KEY_NEXT_SHARE_ID, 0L) ?: 0L
         pendingShare = restoreShare(savedInstanceState)
         handleNotificationIntent(intent)
         handleShareIntent(intent)
@@ -92,11 +95,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putLong(KEY_NEXT_SHARE_ID, nextShareId)
         val share = pendingShare ?: return
-        outState.putString(KEY_SHARE_TEXT, share.text)
+        outState.putLong(KEY_SHARE_ID, share.id)
+        outState.putString(KEY_SHARE_TEXT, share.content.text)
         outState.putStringArrayList(
             KEY_SHARE_URIS,
-            ArrayList(share.uris.map(Uri::toString)),
+            ArrayList(share.content.uris.map(Uri::toString)),
         )
     }
 
@@ -133,22 +138,30 @@ class MainActivity : ComponentActivity() {
 
     private fun handleShareIntent(intent: Intent?) {
         val share = SharedContent.from(intent) ?: return
-        pendingShare = share
+        nextShareId += 1L
+        pendingShare = PendingShare(id = nextShareId, content = share)
+        pendingThreadId = null
         // A rotation or relaunch replays the intent; clear it once read so the
         // share is not applied twice.
         if (intent != null) intent.action = null
     }
 
-    private fun restoreShare(state: Bundle?): SharedContent? {
+    private fun restoreShare(state: Bundle?): PendingShare? {
         if (state == null) return null
+        val id = state.getLong(KEY_SHARE_ID, 0L)
+        if (id <= 0L) return null
+        if (id > nextShareId) nextShareId = id
         val text = state.getString(KEY_SHARE_TEXT).orEmpty()
         // shortcut: a content URI restored after process death may have lost its
         // read grant, so sending it then fails with the media error.
         val uris = state.getStringArrayList(KEY_SHARE_URIS).orEmpty().map(Uri::parse)
-        return SharedContent(text, uris).takeUnless { it.isEmpty }
+        val content = SharedContent(text, uris).takeUnless { it.isEmpty } ?: return null
+        return PendingShare(id = id, content = content)
     }
 
     private companion object {
+        const val KEY_NEXT_SHARE_ID = "next_share_id"
+        const val KEY_SHARE_ID = "share_id"
         const val KEY_SHARE_TEXT = "share_text"
         const val KEY_SHARE_URIS = "share_uris"
     }

@@ -1,9 +1,12 @@
 package com.goldrift.instadm
 
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.goldrift.instadm.data.SharedContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -49,5 +52,28 @@ class SharedContentTest {
     fun ignoresEmptyAndOtherIntents() {
         assertNull(SharedContent.from(Intent(Intent.ACTION_VIEW)))
         assertNull(SharedContent.from(Intent(Intent.ACTION_SEND).apply { type = "text/plain" }))
+    }
+
+    @Test
+    fun ignoresHistoryReplayedShareIntent() {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "stale share")
+            addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+        }
+
+        assertNull(SharedContent.from(intent))
+    }
+
+    @Test
+    fun mainActivityUsesSingleTaskAndNeverLaunchesNewDocuments() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val info = context.packageManager.getActivityInfo(
+            ComponentName(context, MainActivity::class.java),
+            0,
+        )
+
+        assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
+        assertEquals(ActivityInfo.DOCUMENT_LAUNCH_NEVER, info.documentLaunchMode)
     }
 }

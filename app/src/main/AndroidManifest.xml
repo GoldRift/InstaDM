@@ -27,8 +27,9 @@
         android:theme="@style/Theme.InstaDM">
         <activity
             android:name=".MainActivity"
+            android:documentLaunchMode="never"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.InstaDM"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

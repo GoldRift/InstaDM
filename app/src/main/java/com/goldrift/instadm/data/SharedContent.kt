@@ -16,6 +16,7 @@ data class SharedContent(
 
         fun from(intent: Intent?): SharedContent? {
             if (intent == null) return null
+            if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null
             val action = intent.action
             if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
 
@@ -48,3 +49,8 @@ data class SharedContent(
         }
     }
 }
+
+data class PendingShare(
+    val id: Long,
+    val content: SharedContent,
+)

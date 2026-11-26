@@ -46,6 +46,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,6 +83,7 @@ import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import com.goldrift.instadm.InstaDmApplication
 import com.goldrift.instadm.R
+import com.goldrift.instadm.data.PendingShare
 import com.goldrift.instadm.data.SharedContent
 import com.goldrift.instadm.service.RealtimeService
 import com.goldrift.instadm.ui.chat.CameraCaptureOverlay
@@ -130,6 +132,26 @@ private object Routes {
 internal fun resolveStartRoute(hasInitialSession: Boolean): String =
     if (hasInitialSession) Routes.Inbox else Routes.Login
 
+internal data class ShareArrivalAction(
+    val markHandledId: Long,
+    val clearUiForPicker: Boolean,
+    val popToInbox: Boolean,
+)
+
+internal fun resolveShareArrival(
+    pendingShareId: Long?,
+    handledShareId: Long,
+    currentRoute: String?,
+): ShareArrivalAction? {
+    if (pendingShareId == null || pendingShareId == handledShareId) return null
+    if (currentRoute == null) return null
+    return ShareArrivalAction(
+        markHandledId = pendingShareId,
+        clearUiForPicker = true,
+        popToInbox = currentRoute != Routes.Inbox && currentRoute != Routes.Login,
+    )
+}
+
 /** Expanded-width breakpoint for the side-by-side inbox and chat panes. */
 private val TwoPaneMinWidth = 840.dp
 private val InboxPaneWidth = 380.dp
@@ -139,7 +161,7 @@ private val InboxPaneWidth = 380.dp
 fun InstaDmApp(
     pendingThreadId: String? = null,
     onPendingThreadHandled: () -> Unit = {},
-    pendingShare: SharedContent? = null,
+    pendingShare: PendingShare? = null,
     onShareHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -166,16 +188,27 @@ fun InstaDmApp(
     var cameraCaptureRequest by remember { mutableStateOf<CameraCaptureRequest?>(null) }
     var mediaPickerRequest by remember { mutableStateOf<MediaPickerRequest?>(null) }
     // The chat the pending share was handed to; chosen by opening a chat.
-    var shareTargetId by remember { mutableStateOf<String?>(null) }
-    val awaitingShareTarget = pendingShare != null && shareTargetId == null
+    var shareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var shareTargetShareId by rememberSaveable { mutableLongStateOf(0L) }
+    var handledShareId by rememberSaveable { mutableLongStateOf(0L) }
+    val activeShareTargetId = shareTargetId?.takeIf {
+        pendingShare != null && shareTargetShareId == pendingShare.id
+    }
+    val awaitingShareTarget = pendingShare != null && activeShareTargetId == null
     val shareHint = if (awaitingShareTarget) {
         stringResource(R.string.inbox_share_hint)
     } else {
         null
     }
-    val claimShare: (String) -> Unit = { shareTargetId = it }
+    val claimShare: (String) -> Unit = { threadId ->
+        if (pendingShare != null && activeShareTargetId == null) {
+            shareTargetId = threadId
+            shareTargetShareId = pendingShare.id
+        }
+    }
     val consumeShare: () -> Unit = {
         shareTargetId = null
+        shareTargetShareId = 0L
         onShareHandled()
     }
 
@@ -300,8 +333,8 @@ fun InstaDmApp(
                     listBottomInset = listBottomInset,
                     selectedChatId = selectedChatId,
                     onSelectChat = { selectedChatId = it },
-                    pendingShare = pendingShare,
-                    shareTargetId = shareTargetId,
+                    pendingShare = pendingShare?.content,
+                    shareTargetId = activeShareTargetId,
                     shareHint = shareHint,
                     pendingUpdate = updates.pendingUpdate,
                     showUpdateBadge = hasUpdateBadge,
@@ -317,6 +350,7 @@ fun InstaDmApp(
                     onLogin = { navController.navigate(Routes.Login) },
                     onOpenChat = { threadId ->
                         inboxState.clearError()
+                        claimShare(threadId)
                         navController.navigate(Routes.chat(threadId))
                     },
                     onSearch = { navController.navigate(Routes.Search) },
@@ -383,6 +417,7 @@ fun InstaDmApp(
                             username = user.username,
                             avatarUrl = user.avatarUrl,
                         )
+                        if (existing != null) claimShare(existing.id)
                         navController.navigate(Routes.chat(threadId)) {
                             popUpTo(Routes.Inbox)
                             launchSingleTop = true
@@ -404,7 +439,13 @@ fun InstaDmApp(
 
                 if (conversation == null) {
                     // Unknown thread (for example after a process restart); return to the inbox.
-                    LaunchedEffect(threadId) { navController.popBackStack() }
+                    LaunchedEffect(threadId) {
+                        if (shareTargetId == threadId) {
+                            shareTargetId = null
+                            shareTargetShareId = 0L
+                        }
+                        navController.popBackStack()
+                    }
                 } else {
                     ChatDestination(
                         conversation = conversation,
@@ -417,15 +458,14 @@ fun InstaDmApp(
                             ?.takeIf { it.first == conversation.id }?.second,
                         onFocusHandled = { focusMessage = null },
                         onComposerHeight = { composerHeight = it },
-                        sharedContent = if (shareTargetId == conversation.id) pendingShare else null,
-                        hasPendingShare = awaitingShareTarget,
-                        onClaimShare = { claimShare(conversation.id) },
+                        sharedContent = if (activeShareTargetId == conversation.id) pendingShare?.content else null,
                         onSharedContentConsumed = consumeShare,
                         onBack = {
                             inboxState.clearError()
                             navController.popBackStack()
                         },
                         onStarted = { startedThreadId ->
+                            claimShare(startedThreadId)
                             navController.navigate(Routes.chat(startedThreadId)) {
                                 popUpTo(Routes.Inbox)
                                 launchSingleTop = true
@@ -512,6 +552,28 @@ fun InstaDmApp(
             request = mediaPickerRequest,
             onDismiss = { mediaPickerRequest = null },
         )
+    }
+
+    LaunchedEffect(pendingShare?.id, currentRoute) {
+        val action = resolveShareArrival(
+            pendingShareId = pendingShare?.id,
+            handledShareId = handledShareId,
+            currentRoute = currentRoute,
+        ) ?: return@LaunchedEffect
+        handledShareId = action.markHandledId
+        if (action.clearUiForPicker) {
+            shareTargetId = null
+            shareTargetShareId = 0L
+            selectedChatId = null
+            mediaViewerRequest = null
+            cameraCaptureRequest = null
+            mediaPickerRequest = null
+        }
+        if (action.popToInbox && !navController.popBackStack(Routes.Inbox, inclusive = false)) {
+            navController.navigate(Routes.Inbox) {
+                launchSingleTop = true
+            }
+        }
     }
 
     LaunchedEffect(
@@ -637,6 +699,7 @@ private fun MainPane(
                 onInstallUpdate = onInstallUpdate,
                 onConversationClick = { threadId ->
                     inboxState.clearError()
+                    onClaimShare(threadId)
                     onSelectChat(threadId)
                 },
                 modifier = Modifier.width(InboxPaneWidth),
@@ -692,8 +755,6 @@ private fun MainPane(
                     onFocusHandled = onFocusHandled,
                     onComposerHeight = onComposerHeight,
                     sharedContent = if (shareTargetId == selected.id) pendingShare else null,
-                    hasPendingShare = pendingShare != null && shareTargetId == null,
-                    onClaimShare = { onClaimShare(selected.id) },
                     onSharedContentConsumed = onShareConsumed,
                     onBack = { onSelectChat(null) },
                     onOpenMedia = onOpenMedia,
@@ -856,8 +917,6 @@ private fun ChatDestination(
     onFocusHandled: () -> Unit = {},
     onComposerHeight: (Dp) -> Unit = {},
     sharedContent: SharedContent?,
-    hasPendingShare: Boolean,
-    onClaimShare: () -> Unit,
     onSharedContentConsumed: () -> Unit,
     onBack: () -> Unit,
     onStarted: (String) -> Unit = {},
@@ -872,10 +931,6 @@ private fun ChatDestination(
     var draftError by remember(threadId) { mutableStateOf<String?>(null) }
     var sendingDraft by remember(threadId) { mutableStateOf(false) }
 
-    // The first existing chat opened while a share is waiting receives it.
-    LaunchedEffect(threadId, hasPendingShare) {
-        if (hasPendingShare && !isDraft) onClaimShare()
-    }
     LaunchedEffect(threadId) {
         if (!isDraft) inboxState.loadThread(threadId)
     }
