@@ -160,6 +160,20 @@ internal class DemoProtocol(
 
     override suspend fun unsend(threadId: String, messageId: String): JSONObject = ok()
 
+    override suspend fun pinMessage(
+        threadId: String,
+        messageId: String,
+        replaceOldest: Boolean,
+    ): JSONObject = JSONObject()
+        .put("thread_id", threadId)
+        .put("message_id", messageId)
+        .put("pinned", true)
+
+    override suspend fun unpinMessage(threadId: String, messageId: String): JSONObject = JSONObject()
+        .put("thread_id", threadId)
+        .put("message_id", messageId)
+        .put("pinned", false)
+
     override suspend fun downloadMedia(
         threadId: String,
         messageId: String,

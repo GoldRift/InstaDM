@@ -52,6 +52,8 @@ internal interface ProtocolBackend : Closeable {
     fun react(threadId: String, messageId: String, emoji: String, remove: Boolean): JSONObject
     fun edit(threadId: String, messageId: String, text: String): JSONObject
     fun unsend(threadId: String, messageId: String): JSONObject
+    fun pinMessage(threadId: String, messageId: String, replaceOldest: Boolean): JSONObject
+    fun unpinMessage(threadId: String, messageId: String): JSONObject
     fun downloadMedia(
         threadId: String,
         messageId: String,
@@ -105,6 +107,10 @@ private class GoClientBackend(private val inner: GoClient) : ProtocolBackend {
         inner.edit(threadId, messageId, text)
     override fun unsend(threadId: String, messageId: String): JSONObject =
         inner.unsend(threadId, messageId)
+    override fun pinMessage(threadId: String, messageId: String, replaceOldest: Boolean): JSONObject =
+        inner.pinMessage(threadId, messageId, replaceOldest)
+    override fun unpinMessage(threadId: String, messageId: String): JSONObject =
+        inner.unpinMessage(threadId, messageId)
     override fun downloadMedia(
         threadId: String,
         messageId: String,
@@ -304,6 +310,17 @@ class ProtocolRepository internal constructor(
     override suspend fun unsend(threadId: String, messageId: String): JSONObject = withRpcClient {
         it.unsend(threadId, messageId)
     }
+
+    override suspend fun pinMessage(
+        threadId: String,
+        messageId: String,
+        replaceOldest: Boolean,
+    ): JSONObject = withRpcClient {
+        it.pinMessage(threadId, messageId, replaceOldest)
+    }
+
+    override suspend fun unpinMessage(threadId: String, messageId: String): JSONObject =
+        withRpcClient { it.unpinMessage(threadId, messageId) }
 
     /**
      * Downloads one attachment into the app cache and returns the local file.

@@ -252,6 +252,42 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun createsPinnedMessagesTableOnV9ToV10() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(9) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V6_THREADS)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            InstaDmDatabase.MIGRATION_9_10.migrate(db)
+            db.execSQL(
+                "INSERT INTO pinned_messages (thread_id, message_id, text, pinned_order) " +
+                    "VALUES ('t1', 'm1', 'address', 0)",
+            )
+            db.query("SELECT thread_id, message_id, text, pinned_order FROM pinned_messages").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("t1", cursor.getString(0))
+                assertEquals("m1", cursor.getString(1))
+                assertEquals("address", cursor.getString(2))
+                assertEquals(0, cursor.getInt(3))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
+    @Test
     fun reArmsOlderHistoryPagingForResetCursors() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB)

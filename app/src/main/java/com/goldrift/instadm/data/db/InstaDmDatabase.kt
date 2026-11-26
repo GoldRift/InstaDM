@@ -22,15 +22,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         AttachmentEntity::class,
         ReactionEntity::class,
+        PinnedMessageEntity::class,
         OutboxEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
     abstract fun appMeta(): AppMetaDao
     abstract fun threads(): ThreadDao
     abstract fun messages(): MessageDao
+    abstract fun pinnedMessages(): PinnedMessageDao
     abstract fun outbox(): OutboxDao
 
     companion object {
@@ -133,6 +135,32 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /** v10 adds per-thread pinned message snapshots. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pinned_messages` (" +
+                        "`thread_id` TEXT NOT NULL, " +
+                        "`message_id` TEXT NOT NULL, " +
+                        "`sender_fbid` INTEGER NOT NULL DEFAULT 0, " +
+                        "`sender_name` TEXT NOT NULL DEFAULT '', " +
+                        "`is_from_viewer` INTEGER NOT NULL DEFAULT 0, " +
+                        "`timestamp_ms` INTEGER NOT NULL DEFAULT 0, " +
+                        "`kind` TEXT NOT NULL DEFAULT '', " +
+                        "`text` TEXT NOT NULL DEFAULT '', " +
+                        "`media_count` INTEGER NOT NULL DEFAULT 0, " +
+                        "`pinned_order` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`thread_id`, `message_id`), " +
+                        "FOREIGN KEY(`thread_id`) REFERENCES `threads`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pinned_messages_thread_id` " +
+                        "ON `pinned_messages` (`thread_id`)",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
                 .addMigrations(
@@ -144,6 +172,7 @@ abstract class InstaDmDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
     }

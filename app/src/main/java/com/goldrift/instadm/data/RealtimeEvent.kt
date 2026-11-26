@@ -20,6 +20,8 @@ data class RealtimeEvent(
     val activityStatus: Int = 0,
     /** Typing events address the thread by its long ID instead of [threadId]. */
     val longThreadId: String = "",
+    val pinnedMessageIds: List<String> = emptyList(),
+    val unpinnedMessageIds: List<String> = emptyList(),
 ) {
     companion object {
         fun fromJson(raw: String): RealtimeEvent? = runCatching {
@@ -67,8 +69,20 @@ data class RealtimeEvent(
                 fromViewer = json.optBoolean("from_viewer"),
                 activityStatus = json.optInt("activity_status"),
                 longThreadId = json.optString("long_thread_id"),
+                pinnedMessageIds = stringList(json.optJSONArray("pinned_message_ids")),
+                unpinnedMessageIds = stringList(json.optJSONArray("unpinned_message_ids")),
             )
         }.getOrNull()
+
+        private fun stringList(array: org.json.JSONArray?): List<String> {
+            if (array == null || array.length() == 0) return emptyList()
+            return buildList(array.length()) {
+                for (index in 0 until array.length()) {
+                    val value = array.optString(index).trim()
+                    if (value.isNotEmpty()) add(value)
+                }
+            }
+        }
     }
 }
 

@@ -66,10 +66,24 @@ data class Conversation(
      * inbox until then.
      */
     val draftRecipientFbid: String = "",
+    /** Messages pinned in this conversation, in display order. */
+    val pinnedMessages: List<PinnedMessage> = emptyList(),
 ) {
     /** Whether the inbox row should stand out as having unseen messages. */
     val hasUnread: Boolean get() = unreadCount > 0 || markedUnread
 }
+
+/** A message pinned in a DM, shown in the pinned messages sheet. */
+data class PinnedMessage(
+    val messageId: String,
+    val text: String,
+    val sender: MessageSender,
+    val senderName: String = "",
+    val timestamp: String = "",
+    val timestampMs: Long = 0,
+    val kind: String = "",
+    val mediaCount: Int = 0,
+)
 
 data class ChatMessage(
     val id: String,
@@ -94,6 +108,8 @@ data class ChatMessage(
     val localMedia: PendingMedia? = null,
     /** Offline threading ID used to match the realtime echo of a send. */
     val offlineThreadingId: String = "",
+    /** True when this message is currently pinned in the conversation. */
+    val isPinned: Boolean = false,
 )
 
 /**

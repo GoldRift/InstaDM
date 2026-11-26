@@ -8,6 +8,7 @@ import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
+import com.goldrift.instadm.data.db.PinnedMessageEntity
 import com.goldrift.instadm.data.db.ReactionEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadUnreadCount
@@ -98,6 +99,7 @@ class ChatStore(
 ) {
     private val threadDao = db.threads()
     private val messageDao = db.messages()
+    private val pinnedMessageDao = db.pinnedMessages()
     private val metaDao = db.appMeta()
 
     @Volatile
@@ -131,6 +133,9 @@ class ChatStore(
     /** Observes the newest [limit] visible messages in descending order. */
     fun observeThreadWindow(threadId: String, limit: Int): Flow<List<MessageWithMedia>> =
         messageDao.observeThreadWindowDesc(threadId, limit)
+
+    fun observePinnedMessages(threadId: String): Flow<List<PinnedMessageEntity>> =
+        pinnedMessageDao.observeThread(threadId)
 
     fun observeThreadMeta(threadId: String): Flow<ThreadWithParticipants?> =
         threadDao.observeThread(threadId)
@@ -206,6 +211,10 @@ class ChatStore(
             }
 
             upsertServerMessages(threadId, parsed.messages)
+            pinnedMessageDao.deleteForThread(threadId)
+            if (parsed.pinnedMessages.isNotEmpty()) {
+                pinnedMessageDao.upsertAll(parsed.pinnedMessages)
+            }
             if (previous == null || previous.oldestCursor.isBlank()) {
                 threadDao.updateNewestPage(
                     threadId = threadId,
@@ -613,6 +622,7 @@ class ChatStore(
         val now = clock()
         db.withTransaction {
             messageDao.editText(messageId, text, now)
+            pinnedMessageDao.updateText(messageId, text)
             val message = messageDao.message(messageId) ?: return@withTransaction
             threadDao.setLastMessage(
                 threadId = message.threadId,
@@ -633,6 +643,7 @@ class ChatStore(
         db.withTransaction {
             val message = messageDao.message(messageId) ?: return@withTransaction
             messageDao.tombstone(messageId, now)
+            pinnedMessageDao.deleteByMessageId(messageId)
             val newest = messageDao.newest(message.threadId)
             if (newest != null) {
                 threadDao.setLastMessage(
@@ -681,6 +692,96 @@ class ChatStore(
     suspend fun removeViewerReaction(messageId: String) {
         if (messageId.isBlank()) return
         messageDao.deleteViewerReaction(messageId)
+    }
+
+    /**
+     * Records a local pin or unpin mutation. When Instagram returns the
+     * authoritative [pinnedIds] list (for example after replacing the oldest
+     * pin at the 3-pin cap), the table is reconciled to that exact order.
+     */
+    suspend fun setPinnedMessage(
+        threadId: String,
+        messageId: String,
+        pinned: Boolean,
+        pinnedIds: List<String> = emptyList(),
+    ) {
+        if (threadId.isBlank() || messageId.isBlank()) return
+        db.withTransaction {
+            val existing = pinnedMessageDao.forThread(threadId).associateBy { it.messageId }
+            if (pinnedIds.isNotEmpty()) {
+                val ordered = pinnedIds.mapIndexed { index, id ->
+                    buildPinnedEntity(threadId, id, index, existing[id])
+                }
+                pinnedMessageDao.deleteForThread(threadId)
+                pinnedMessageDao.upsertAll(ordered)
+            } else if (pinned) {
+                val nextOrder = (existing.values.maxOfOrNull { it.pinnedOrder } ?: -1) + 1
+                pinnedMessageDao.upsert(buildPinnedEntity(threadId, messageId, nextOrder, existing[messageId]))
+            } else {
+                pinnedMessageDao.delete(threadId, messageId)
+            }
+        }
+    }
+
+    /**
+     * Applies a realtime `message.pin` delta. Returns true when any newly
+     * pinned message is not yet in Room so the caller can fetch the thread to
+     * populate its preview text.
+     */
+    suspend fun applyPinEvent(
+        threadId: String,
+        pinnedIds: List<String>,
+        unpinnedIds: List<String>,
+    ): Boolean {
+        if (threadId.isBlank()) return false
+        var missingMetadata = false
+        db.withTransaction {
+            if (threadDao.thread(threadId) == null) return@withTransaction
+            unpinnedIds.forEach { id ->
+                if (id.isNotBlank()) pinnedMessageDao.delete(threadId, id)
+            }
+            if (pinnedIds.isNotEmpty()) {
+                val existing = pinnedMessageDao.forThread(threadId).associateBy { it.messageId }
+                var nextOrder = (existing.values.maxOfOrNull { it.pinnedOrder } ?: -1) + 1
+                for (id in pinnedIds) {
+                    if (id.isBlank()) continue
+                    val entity = buildPinnedEntity(threadId, id, existing[id]?.pinnedOrder ?: nextOrder++, existing[id])
+                    if (entity.text.isBlank() && entity.kind.isBlank() && entity.timestampMs == 0L) {
+                        missingMetadata = true
+                    }
+                    pinnedMessageDao.upsert(entity)
+                }
+            }
+        }
+        return missingMetadata
+    }
+
+    private suspend fun buildPinnedEntity(
+        threadId: String,
+        messageId: String,
+        order: Int,
+        fallback: PinnedMessageEntity?,
+    ): PinnedMessageEntity {
+        val msg = messageDao.message(messageId)
+        if (msg != null) {
+            return PinnedMessageEntity(
+                threadId = threadId,
+                messageId = messageId,
+                senderFbid = msg.senderFbid,
+                senderName = msg.senderName,
+                isFromViewer = msg.isFromViewer,
+                timestampMs = msg.timestampMs,
+                kind = msg.kind,
+                text = msg.text,
+                mediaCount = msg.mediaCount,
+                pinnedOrder = order,
+            )
+        }
+        return fallback?.copy(pinnedOrder = order) ?: PinnedMessageEntity(
+            threadId = threadId,
+            messageId = messageId,
+            pinnedOrder = order,
+        )
     }
 
     /** Applies another participant's read receipt to the viewer's messages. */
@@ -914,6 +1015,7 @@ private data class ParsedThreadPayload(
     val thread: ParsedThreadFields?,
     val participants: List<ParticipantEntity>,
     val messages: List<ParsedServerMessage>,
+    val pinnedMessages: List<PinnedMessageEntity>,
     val oldestCursor: String,
     val hasMoreOlder: Boolean,
     val readReceipts: ParsedReadReceipts,
@@ -1228,10 +1330,35 @@ private fun parseThreadPayload(json: JSONObject): ParsedThreadPayload? {
         thread = parsedThread,
         participants = parsedParticipants,
         messages = parseThreadMessages(json.optJSONArray("messages")),
+        pinnedMessages = parsePinnedMessages(json.optJSONArray("pinned_messages"), threadId),
         oldestCursor = json.optString("oldest_cursor"),
         hasMoreOlder = json.optBoolean("has_more_older"),
         readReceipts = parseReadReceipts(json.optJSONArray("read_receipts")),
     )
+}
+
+internal fun parsePinnedMessages(pins: JSONArray?, threadId: String): List<PinnedMessageEntity> {
+    if (pins == null || pins.length() == 0) return emptyList()
+    val result = ArrayList<PinnedMessageEntity>(pins.length())
+    var order = 0
+    for (index in 0 until pins.length()) {
+        val item = pins.optJSONObject(index) ?: continue
+        val messageId = item.optString("id").trim()
+        if (messageId.isEmpty()) continue
+        result += PinnedMessageEntity(
+            threadId = threadId,
+            messageId = messageId,
+            senderFbid = item.optLong("sender_fbid"),
+            senderName = item.optString("sender_name"),
+            isFromViewer = item.optBoolean("is_from_viewer"),
+            timestampMs = item.optLong("timestamp_ms"),
+            kind = item.optString("kind"),
+            text = item.optString("text"),
+            mediaCount = item.optInt("media_count"),
+            pinnedOrder = order++,
+        )
+    }
+    return result
 }
 
 private fun parseOlderPagePayload(json: JSONObject): ParsedOlderPagePayload? {

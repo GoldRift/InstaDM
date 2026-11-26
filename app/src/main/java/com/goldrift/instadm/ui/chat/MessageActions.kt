@@ -47,6 +47,9 @@ fun ChatMessage.canReact(): Boolean = isServerMessage() && !isAdminNotice()
 fun ChatMessage.canReply(): Boolean =
     isServerMessage() && !isAdminNotice() && !isReactionLog()
 
+fun ChatMessage.canPin(): Boolean =
+    isServerMessage() && !isAdminNotice() && !isReactionLog()
+
 /**
  * Likes and reactions arrive as a reaction on the target message plus an
  * activity entry ("Liked a message", "Reacted ❤ to your message"). The

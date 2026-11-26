@@ -37,6 +37,7 @@ class RealtimeRecorder(
             "message.new", "message.admin" -> newMessage(event)
             "message.edit" -> editMessage(event)
             "message.delete" -> deleteMessage(event)
+            "message.pin" -> pinMessage(event)
             "reaction.add", "reaction.remove" -> reaction(event)
             "read.receipt" -> readReceipt(event)
             "mark.read" -> markRead(event)
@@ -94,6 +95,22 @@ class RealtimeRecorder(
         val message = event.message ?: return
         if (event.threadId.isBlank() || message.id.isBlank()) return
         chatStore.tombstoneMessage(message.id)
+    }
+
+    private suspend fun pinMessage(event: RealtimeEvent) {
+        if (event.threadId.isBlank()) return
+        val missingMetadata = chatStore.applyPinEvent(
+            threadId = event.threadId,
+            pinnedIds = event.pinnedMessageIds,
+            unpinnedIds = event.unpinnedMessageIds,
+        )
+        if (missingMetadata) {
+            scope.launch {
+                reactionLock(event.threadId).withLock {
+                    runCatching { syncThread(event.threadId) }
+                }
+            }
+        }
     }
 
     private suspend fun reaction(event: RealtimeEvent) {

@@ -231,6 +231,8 @@ class ProtocolRepositoryConcurrencyTest {
             JSONObject()
         override fun edit(threadId: String, messageId: String, text: String): JSONObject = JSONObject()
         override fun unsend(threadId: String, messageId: String): JSONObject = JSONObject()
+        override fun pinMessage(threadId: String, messageId: String, replaceOldest: Boolean): JSONObject = JSONObject()
+        override fun unpinMessage(threadId: String, messageId: String): JSONObject = JSONObject()
         override fun downloadMedia(
             threadId: String,
             messageId: String,

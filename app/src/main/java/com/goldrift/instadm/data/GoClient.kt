@@ -136,6 +136,21 @@ class GoClient(cookiesJson: String) : Closeable {
         timeoutSeconds: Int = 90,
     ): JSONObject = JSONObject(client.pinJSON(threadId, pin, timeoutSeconds))
 
+    fun pinMessage(
+        threadId: String,
+        messageId: String,
+        replaceOldest: Boolean = true,
+        timeoutSeconds: Int = 90,
+    ): JSONObject = JSONObject(
+        client.pinMessageJSON(threadId, messageId, replaceOldest, timeoutSeconds),
+    )
+
+    fun unpinMessage(
+        threadId: String,
+        messageId: String,
+        timeoutSeconds: Int = 90,
+    ): JSONObject = JSONObject(client.unpinMessageJSON(threadId, messageId, timeoutSeconds))
+
     /**
      * Signals typing in [threadId]. Instagram drops the state after a few
      * seconds, so callers re-send it while the viewer keeps typing. Needs a

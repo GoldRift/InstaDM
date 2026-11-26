@@ -7,6 +7,7 @@ import com.goldrift.instadm.data.db.MessageEntity
 import com.goldrift.instadm.data.db.MessageStatus
 import com.goldrift.instadm.data.db.MessageWithMedia
 import com.goldrift.instadm.data.db.ParticipantEntity
+import com.goldrift.instadm.data.db.PinnedMessageEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
 import com.goldrift.instadm.data.parseWaveform
@@ -66,8 +67,20 @@ fun ThreadWithParticipants.toConversation(
         olderError = previous?.olderError ?: false,
         unreadCount = unreadCount,
         markedUnread = thread.markedUnread,
+        pinnedMessages = previous?.pinnedMessages.orEmpty(),
     )
 }
+
+fun PinnedMessageEntity.toPinnedMessage(): PinnedMessage = PinnedMessage(
+    messageId = messageId,
+    text = text,
+    sender = if (isFromViewer) MessageSender.Me else MessageSender.Them,
+    senderName = senderName,
+    timestamp = if (timestampMs > 0) formatMessageTime(timestampMs) else "",
+    timestampMs = timestampMs,
+    kind = kind,
+    mediaCount = mediaCount,
+)
 
 /** Maps a persisted message and its media into the Compose model. */
 fun MessageWithMedia.toChatMessage(): ChatMessage = ChatMessage(

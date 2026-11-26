@@ -69,6 +69,14 @@ interface ProtocolApi {
 
     suspend fun unsend(threadId: String, messageId: String): JSONObject
 
+    suspend fun pinMessage(
+        threadId: String,
+        messageId: String,
+        replaceOldest: Boolean = true,
+    ): JSONObject
+
+    suspend fun unpinMessage(threadId: String, messageId: String): JSONObject
+
     suspend fun downloadMedia(
         threadId: String,
         messageId: String,

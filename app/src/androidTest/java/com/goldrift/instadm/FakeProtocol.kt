@@ -107,6 +107,14 @@ internal class FakeProtocol(
 
     override suspend fun unsend(threadId: String, messageId: String): JSONObject = unsupported()
 
+    override suspend fun pinMessage(
+        threadId: String,
+        messageId: String,
+        replaceOldest: Boolean,
+    ): JSONObject = JSONObject()
+
+    override suspend fun unpinMessage(threadId: String, messageId: String): JSONObject = JSONObject()
+
     override suspend fun downloadMedia(
         threadId: String,
         messageId: String,
