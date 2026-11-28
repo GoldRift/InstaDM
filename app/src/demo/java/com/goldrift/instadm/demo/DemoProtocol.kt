@@ -120,6 +120,7 @@ internal class DemoProtocol(
         text: String,
         replyTo: String,
         otid: String,
+        mentionsJson: String,
     ): JSONObject {
         scheduleReply(threadId)
         return sentMessage(threadId, text, otid)

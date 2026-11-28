@@ -78,7 +78,7 @@ class ComposerActionExitTest {
             InstaDMTheme(darkTheme = false, dynamicColor = false) {
                 ChatScreen(
                     conversation = conversation,
-                    onSend = { _, _ -> },
+                    onSend = { _, _, _ -> },
                     onBack = {},
                     voicePlayer = voicePlayer,
                 )

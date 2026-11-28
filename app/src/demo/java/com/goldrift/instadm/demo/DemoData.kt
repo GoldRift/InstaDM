@@ -257,13 +257,19 @@ internal object DemoData {
             "demo_design_1",
             dev,
             now - 4 * HOUR,
-            "did you get a chance to look at the deck?",
+            "@everyone did you get a chance to look at the deck?",
+            mentions = listOf(
+                mention(offset = 0, length = 9, type = "everyone", fbid = "demo_design".hashCode().toLong()),
+            ),
         )
         val skim = message(
             "demo_design_2",
             viewer,
             now - 210 * MINUTE,
-            "skimming it now — the intro slide is great",
+            "@dev.patel skimming it now — the intro slide is great",
+            mentions = listOf(
+                mention(offset = 0, length = 10, type = "person", fbid = dev.fbid),
+            ),
         )
         val heart = message(
             "demo_design_3",
@@ -580,6 +586,7 @@ internal object DemoData {
         kind: String = "text",
         media: List<JSONObject> = emptyList(),
         reactions: List<JSONObject> = emptyList(),
+        mentions: List<JSONObject> = emptyList(),
         reply: JSONObject? = null,
     ): JSONObject = JSONObject()
         .put("id", id)
@@ -595,8 +602,20 @@ internal object DemoData {
         .apply {
             if (media.isNotEmpty()) put("media", array(media))
             if (reactions.isNotEmpty()) put("reactions", array(reactions))
+            if (mentions.isNotEmpty()) put("mentions", array(mentions))
             reply?.let { put("replied_to_message", it) }
         }
+
+    private fun mention(
+        offset: Int,
+        length: Int,
+        type: String,
+        fbid: Long,
+    ): JSONObject = JSONObject()
+        .put("offset", offset)
+        .put("length", length)
+        .put("type", type)
+        .put("fbid", fbid)
 
     private fun quote(message: JSONObject): JSONObject = JSONObject()
         .put("id", message.getString("id"))

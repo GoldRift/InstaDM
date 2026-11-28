@@ -10,6 +10,7 @@ import com.goldrift.instadm.data.db.ParticipantEntity
 import com.goldrift.instadm.data.db.PinnedMessageEntity
 import com.goldrift.instadm.data.db.ThreadEntity
 import com.goldrift.instadm.data.db.ThreadWithParticipants
+import com.goldrift.instadm.data.parseMentionsJson
 import com.goldrift.instadm.data.parseWaveform
 import java.util.Locale
 import java.util.TimeZone
@@ -54,10 +55,12 @@ fun ThreadWithParticipants.toConversation(
                 initials = initialsOf(participant.name.ifBlank { participant.username }),
                 avatarUrl = participant.avatarUrl,
                 igId = participant.igUserId,
+                username = participant.username,
             )
         },
         messagesLoaded = previous?.messagesLoaded ?: false,
         threadFbid = thread.threadFbid,
+        threadKey = thread.threadKey,
         longThreadId = thread.longThreadId,
         systemFolder = thread.systemFolder,
         messagesSyncedAt = thread.messagesSyncedAt,
@@ -106,6 +109,7 @@ fun MessageWithMedia.toChatMessage(): ChatMessage = ChatMessage(
     },
     reply = message.replySnapshot(),
     offlineThreadingId = message.otid,
+    mentions = parseMentionsJson(message.mentionsJson),
 )
 
 private fun MessageEntity.replySnapshot(): ReplySnapshot? {

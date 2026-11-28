@@ -234,6 +234,7 @@ import coil.compose.AsyncImage
 import com.goldrift.instadm.R
 import com.goldrift.instadm.data.DEFAULT_DOUBLE_TAP_EMOJI
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.MessageMention
 import com.goldrift.instadm.data.PickedMedia
 import com.goldrift.instadm.data.RecordedVoice
 import com.goldrift.instadm.data.ReplySnapshot
@@ -352,7 +353,7 @@ private val STAGED_MEDIA_EDGE = 48.dp
 @Composable
 fun ChatScreen(
     conversation: Conversation,
-    onSend: (String, ChatMessage?) -> Unit,
+    onSend: (String, ChatMessage?, List<MessageMention>) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onPrepareMedia: suspend (Uri) -> PickedMedia? = { null },
@@ -459,6 +460,7 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val keepPlayingOnLeave by rememberUpdatedState(voiceBackgroundPlayback)
     val draft = rememberTextFieldState()
+    var draftMentions by remember(conversation.id) { mutableStateOf<List<DraftMention>>(emptyList()) }
     // Attachments picked in this chat wait here until the viewer
     // sends them, in the order the strip shows.
     var stagedMedia by remember(conversation.id) { mutableStateOf<List<PickedMedia>>(emptyList()) }
@@ -819,15 +821,65 @@ fun ChatScreen(
             cancelEditing()
             return
         }
-        val text = draft.text.trim().toString()
+        val rawText = draft.text.toString()
+        val text = rawText.trim()
         if (text.isEmpty() && stagedMedia.isEmpty()) return
 
+        val outgoingMentions = resolveOutgoingMentions(rawText, draftMentions)
         haptic.confirm()
-        if (text.isNotEmpty()) onSend(text, replyTarget)
+        if (text.isNotEmpty()) onSend(text, replyTarget, outgoingMentions)
         if (stagedMedia.isNotEmpty()) onSendMedia(stagedMedia)
         stagedMedia = emptyList()
+        draftMentions = emptyList()
         draft.clearText()
         replyTarget = null
+    }
+
+    val activeQuery by remember(draft, conversation.id, editMessageId, attachmentsEnabled) {
+        derivedStateOf {
+            if (!attachmentsEnabled || editMessageId != null) {
+                null
+            } else {
+                val selection = draft.selection
+                if (!selection.collapsed) null else activeMentionQuery(draft.text, selection.end)
+            }
+        }
+    }
+    val mentionCandidates by remember(
+        activeQuery,
+        conversation.isGroup,
+        conversation.threadKey,
+        conversation.participants,
+    ) {
+        derivedStateOf {
+            val query = activeQuery ?: return@derivedStateOf emptyList()
+            mentionSuggestions(
+                query = query.query,
+                isGroup = conversation.isGroup,
+                threadKey = conversation.threadKey,
+                participants = conversation.participants,
+            )
+        }
+    }
+    LaunchedEffect(draft, conversation.id) {
+        snapshotFlow { draft.text.toString() }.collect { current ->
+            if (draftMentions.isNotEmpty()) {
+                val reconciled = reconcileDraftMentions(current, draftMentions)
+                if (reconciled != draftMentions) draftMentions = reconciled
+            }
+        }
+    }
+
+    fun selectMentionSuggestion(suggestion: MentionSuggestion) {
+        val query = activeQuery ?: return
+        val current = draft.text.toString()
+        val insertion = applyMentionSuggestion(current, query, suggestion, draftMentions)
+        draftMentions = insertion.mentions
+        draft.edit {
+            replace(0, length, insertion.text)
+            selection = androidx.compose.ui.text.TextRange(insertion.cursor)
+        }
+        haptic.segmentTick()
     }
 
     val typing = rememberUpdatedState(onTyping)
@@ -927,6 +979,8 @@ fun ChatScreen(
                 MessageComposer(
                     draft = draft,
                     onSend = ::sendMessage,
+                    mentionSuggestions = mentionCandidates,
+                    onSelectMention = ::selectMentionSuggestion,
                     // Keyboard GIFs and stickers join the strip like a picked image.
                     onCommitMedia = { uri ->
                         cancelEditing()
@@ -2918,14 +2972,47 @@ private fun MessageBubbleContent(
                     modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
                 )
             } else if (message.text.isNotBlank() && !locationEnded) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(
-                        horizontal = if (hasAttachment) 10.dp else 0.dp,
-                        vertical = if (hasAttachment) 6.dp else 0.dp,
-                    ),
+                val textModifier = Modifier.padding(
+                    horizontal = if (hasAttachment) 10.dp else 0.dp,
+                    vertical = if (hasAttachment) 6.dp else 0.dp,
                 )
+                if (message.mentions.isEmpty()) {
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = textModifier,
+                    )
+                } else {
+                    val isMe = message.sender == MessageSender.Me
+                    val highlightColor = if (isMe) {
+                        LocalContentColor.current
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                    val highlightBackground = if (isMe) {
+                        LocalContentColor.current.copy(alpha = 0.16f)
+                    } else {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    }
+                    val styled = remember(
+                        message.text,
+                        message.mentions,
+                        highlightColor,
+                        highlightBackground,
+                    ) {
+                        buildMentionAnnotatedString(
+                            text = message.text,
+                            mentions = message.mentions,
+                            highlightColor = highlightColor,
+                            highlightBackground = highlightBackground,
+                        )
+                    }
+                    Text(
+                        text = styled,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = textModifier,
+                    )
+                }
             }
         }
     }
@@ -3701,6 +3788,8 @@ private fun Modifier.inputOnlyWhen(active: Boolean): Modifier =
 private fun MessageComposer(
     draft: TextFieldState,
     onSend: () -> Unit,
+    mentionSuggestions: List<MentionSuggestion>,
+    onSelectMention: (MentionSuggestion) -> Unit,
     onCommitMedia: (Uri) -> Unit,
     replyingTo: ReplySnapshot?,
     replyingToLabel: String,
@@ -3741,6 +3830,10 @@ private fun MessageComposer(
     var shownStagedMedia by remember { mutableStateOf(stagedMedia) }
     LaunchedEffect(stagedMedia) {
         if (stagedMedia.isNotEmpty()) shownStagedMedia = stagedMedia
+    }
+    var shownMentions by remember { mutableStateOf(mentionSuggestions) }
+    LaunchedEffect(mentionSuggestions) {
+        if (mentionSuggestions.isNotEmpty()) shownMentions = mentionSuggestions
     }
     // Keyboard GIFs and stickers arrive through commitContent, which
     // BasicTextField hands over as an image URI.
@@ -3788,6 +3881,20 @@ private fun MessageComposer(
                         .imePadding()
                         .inputOnlyWhen(isTarget),
                 ) {
+                    AnimatedVisibility(
+                        visible = mentionSuggestions.isNotEmpty() && !editing && !recording,
+                        enter = expandVertically(motion.defaultSpatialSpec()) +
+                            fadeIn(motion.defaultEffectsSpec()),
+                        exit = shrinkVertically(motion.defaultSpatialSpec()) +
+                            fadeOut(motion.defaultEffectsSpec()),
+                    ) {
+                        val suggestions = mentionSuggestions.ifEmpty { shownMentions }
+                        if (suggestions.isEmpty()) return@AnimatedVisibility
+                        MentionSuggestionsBar(
+                            suggestions = suggestions,
+                            onSelect = onSelectMention,
+                        )
+                    }
                     AnimatedVisibility(
                         visible = editingMessage != null,
                         enter = expandVertically(motion.defaultSpatialSpec()) +
@@ -4327,6 +4434,110 @@ private fun StagedMediaStrip(
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
+private fun MentionSuggestionsBar(
+    suggestions: List<MentionSuggestion>,
+    onSelect: (MentionSuggestion) -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 220.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
+        ) {
+            items(
+                items = suggestions,
+                key = { item ->
+                    when (item) {
+                        is MentionSuggestion.Everyone -> "everyone"
+                        is MentionSuggestion.Person -> "person:${item.participant.fbid}"
+                    }
+                },
+            ) { suggestion ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(suggestion) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    when (suggestion) {
+                        is MentionSuggestion.Everyone -> {
+                            Surface(
+                                modifier = Modifier.size(34.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Groups,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.chat_mention_everyone),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = stringResource(R.string.chat_mention_everyone_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+
+                        is MentionSuggestion.Person -> {
+                            val person = suggestion.participant
+                            Avatar(
+                                initials = person.initials,
+                                size = 34.dp,
+                                imageUrl = person.avatarUrl,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = person.name.ifBlank { "@${person.username}" },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (person.username.isNotBlank()) {
+                                    Text(
+                                        text = "@${person.username}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReplyComposerBar(
     reply: ReplySnapshot,
     label: String,
@@ -4830,7 +5041,7 @@ private fun ChatScreenLightPreview() {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = false,
-            onSend = { _, _ -> },
+            onSend = { _, _, _ -> },
             onBack = {},
             voicePlayer = player,
         )
@@ -4852,7 +5063,7 @@ private fun ChatScreenDarkPreview() {
         ChatScreen(
             conversation = sampleConversations().first(),
             isTyping = true,
-            onSend = { _, _ -> },
+            onSend = { _, _, _ -> },
             onBack = {},
             voicePlayer = player,
         )

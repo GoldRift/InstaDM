@@ -1,6 +1,7 @@
 package com.goldrift.instadm.ui.chat
 
 import com.goldrift.instadm.data.MessageMedia
+import com.goldrift.instadm.data.MessageMention
 import com.goldrift.instadm.data.ReplySnapshot
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -29,6 +30,8 @@ data class ConversationParticipant(
     val avatarUrl: String = "",
     /** Instagram user ID; realtime events name people by this, not by FBID. */
     val igId: String = "",
+    /** Instagram handle without leading `@`, used for mention autocomplete. */
+    val username: String = "",
 )
 
 /** A single DM thread shown in the inbox. */
@@ -44,6 +47,8 @@ data class Conversation(
     val participants: List<ConversationParticipant> = emptyList(),
     val messagesLoaded: Boolean = false,
     val threadFbid: String = "",
+    /** Numeric thread key used as the target FBID for `@everyone` commands. */
+    val threadKey: Long = 0L,
     /** Instagram's long thread ID (`thread_id`), needed for read receipts. */
     val longThreadId: String = "",
     val systemFolder: String = "",
@@ -110,6 +115,8 @@ data class ChatMessage(
     val offlineThreadingId: String = "",
     /** True when this message is currently pinned in the conversation. */
     val isPinned: Boolean = false,
+    /** Normalized mention spans inside [text], in UTF-16 code units. */
+    val mentions: List<MessageMention> = emptyList(),
 )
 
 /**

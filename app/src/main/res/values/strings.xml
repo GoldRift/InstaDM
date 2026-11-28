@@ -27,6 +27,8 @@
     <string name="chat_activity_announcement">Chat activity: %1$s</string>
     <string name="chat_call_announcement">Call activity: %1$s</string>
     <string name="chat_message_hint">Message…</string>
+    <string name="chat_mention_everyone">@everyone</string>
+    <string name="chat_mention_everyone_subtitle">Notify everyone in this chat</string>
     <string name="chat_new_message_from">New message from %1$s</string>
     <string name="chat_new_message_from_text">New message from %1$s: %2$s</string>
     <string name="chat_typing">Typing…</string>

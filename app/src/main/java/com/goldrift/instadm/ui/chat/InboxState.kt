@@ -695,13 +695,18 @@ class InboxState(
         hasMoreConversations = hasOlderConversations(inboxCursor, page.optBoolean("has_next_page"))
     }
 
-    fun send(threadId: String, rawText: String, reply: ReplySnapshot? = null) {
+    fun send(
+        threadId: String,
+        rawText: String,
+        reply: ReplySnapshot? = null,
+        mentions: List<com.goldrift.instadm.data.MessageMention> = emptyList(),
+    ) {
         val text = rawText.trim()
         if (text.isEmpty() || conversation(threadId) == null) return
         stopTyping(threadId)
         errorMessage = null
         scope.launch {
-            runCatching { outbox.enqueueText(threadId, text, reply) }
+            runCatching { outbox.enqueueText(threadId, text, reply, mentions) }
                 .onSuccess { markRead(threadId, fromSend = true) }
                 .onFailure { error -> errorMessage = describeError(error) }
         }

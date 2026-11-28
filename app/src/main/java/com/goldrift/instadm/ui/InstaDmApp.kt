@@ -957,7 +957,7 @@ private fun ChatDestination(
     val activeConversation = inboxState.withActiveMessages(conversation)
     ChatScreen(
         conversation = activeConversation,
-        onSend = { text, reply ->
+        onSend = { text, reply, mentions ->
             if (isDraft) {
                 sendingDraft = true
                 draftError = null
@@ -974,7 +974,7 @@ private fun ChatDestination(
                     },
                 )
             } else {
-                inboxState.send(threadId, text, reply?.toReplySnapshot())
+                inboxState.send(threadId, text, reply?.toReplySnapshot(), mentions)
             }
         },
         onBack = onBack,
