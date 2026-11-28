@@ -480,13 +480,14 @@ func NewOTID() string {
 }
 
 type SendResult struct {
-	ProtocolVersion    string `json:"protocol_version"`
-	ThreadID           string `json:"thread_id"`
-	OfflineThreadingID string `json:"offline_threading_id"`
-	MessageID          string `json:"message_id,omitempty"`
-	ID                 string `json:"id,omitempty"`
-	TimestampMS        int64  `json:"timestamp_ms,omitempty"`
-	Text               string `json:"text"`
+	ProtocolVersion    string        `json:"protocol_version"`
+	ThreadID           string        `json:"thread_id"`
+	OfflineThreadingID string        `json:"offline_threading_id"`
+	MessageID          string        `json:"message_id,omitempty"`
+	ID                 string        `json:"id,omitempty"`
+	TimestampMS        int64         `json:"timestamp_ms,omitempty"`
+	Text               string        `json:"text"`
+	Mentions           []MentionView `json:"mentions,omitempty"`
 }
 
 // MentionInput describes one mention span to attach to an outgoing text message.
@@ -530,7 +531,7 @@ func (c *Client) SendTextWithMentions(ctx context.Context, threadID, text, reply
 		return nil, errors.New("Instagram returned an empty send response")
 	}
 
-	return newSendResult(strings.TrimSpace(threadID), request.OfflineThreadingID, text, response.Message), nil
+	return newSendResult(strings.TrimSpace(threadID), request, response.Message), nil
 }
 
 func buildSendTextRequest(threadID, text, replyTo, otid string) (*slidetypes.SendTextRequest, error) {
@@ -556,17 +557,21 @@ func buildSendTextRequestWithMentions(threadID, text, replyTo, otid string, ment
 		request.ReplyToMessageID = &replyTo
 	}
 	if len(mentions) > 0 {
-		utf16Len := len(utf16.Encode([]rune(text)))
+		utf16Units := utf16.Encode([]rune(text))
+		origUTF16Len := len(utf16Units)
 		sorted := make([]MentionInput, len(mentions))
 		copy(sorted, mentions)
 		sort.SliceStable(sorted, func(i, j int) bool {
 			return sorted[i].Offset < sorted[j].Offset
 		})
 		seenUsers := make(map[int64]bool, len(sorted))
+		shift := 0
 		for _, m := range sorted {
-			if m.Offset < 0 || m.Length <= 0 || m.Offset+m.Length > utf16Len {
-				return nil, fmt.Errorf("mention span [%d, %d) is out of range for text length %d", m.Offset, m.Offset+m.Length, utf16Len)
+			if m.Offset < 0 || m.Length <= 0 || m.Offset+m.Length > origUTF16Len {
+				return nil, fmt.Errorf("mention span [%d, %d) is out of range for text length %d", m.Offset, m.Offset+m.Length, origUTF16Len)
 			}
+			offset := m.Offset + shift
+			length := m.Length
 			kind := strings.ToLower(strings.TrimSpace(m.Type))
 			if kind == "" {
 				kind = MentionTypePerson
@@ -577,8 +582,8 @@ func buildSendTextRequestWithMentions(threadID, text, replyTo, otid string, ment
 					return nil, errors.New("person mention requires a positive fbid")
 				}
 				request.Mentions = append(request.Mentions, slidetypes.InputMention{
-					Offset: m.Offset,
-					Length: m.Length,
+					Offset: offset,
+					Length: length,
 					FBID:   m.FBID,
 				})
 				if !seenUsers[m.FBID] {
@@ -594,15 +599,32 @@ func buildSendTextRequestWithMentions(threadID, text, replyTo, otid string, ment
 					}
 					targetID = parsed
 				}
+				// Instagram's official client inserts U+200D (ZWJ) after '@' in
+				// "@everyone" so its mobile @username linkifier does not turn
+				// the command into a clickable link to the @everyone account.
+				const zwj uint16 = 0x200D
+				if offset < len(utf16Units) && utf16Units[offset] == '@' &&
+					(length < 2 || offset+1 >= len(utf16Units) || utf16Units[offset+1] != zwj) {
+					updated := make([]uint16, len(utf16Units)+1)
+					copy(updated, utf16Units[:offset+1])
+					updated[offset+1] = zwj
+					copy(updated[offset+2:], utf16Units[offset+1:])
+					utf16Units = updated
+					length++
+					shift++
+				}
 				request.Commands = append(request.Commands, slidetypes.InputCommand{
-					Offset:           m.Offset,
-					Length:           m.Length,
+					Offset:           offset,
+					Length:           length,
 					Type:             "EVERYONE",
 					UserOrThreadFBID: targetID,
 				})
 			default:
 				return nil, fmt.Errorf("unsupported mention type %q", m.Type)
 			}
+		}
+		if shift > 0 {
+			request.Text.Value = string(utf16.Decode(utf16Units))
 		}
 	}
 	return request, nil
@@ -623,19 +645,45 @@ func newSendTextRequest(threadID, text, otid string) *slidetypes.SendTextRequest
 	}
 }
 
-func newSendResult(threadID, otid, text string, message slidetypes.SentMessage) *SendResult {
+func newSendResult(threadID string, request *slidetypes.SendTextRequest, message slidetypes.SentMessage) *SendResult {
 	var timestampMS int64
 	if !message.TimestampMS.IsZero() {
 		timestampMS = message.TimestampMS.UnixMilli()
 	}
+	var mentions []MentionView
+	if request != nil && (len(request.Mentions) > 0 || len(request.Commands) > 0) {
+		mentions = make([]MentionView, 0, len(request.Mentions)+len(request.Commands))
+		for _, m := range request.Mentions {
+			mentions = append(mentions, MentionView{
+				Offset: m.Offset,
+				Length: m.Length,
+				Type:   MentionTypePerson,
+				FBID:   m.FBID,
+			})
+		}
+		for _, cmd := range request.Commands {
+			if cmd.Type == "EVERYONE" {
+				mentions = append(mentions, MentionView{
+					Offset: cmd.Offset,
+					Length: cmd.Length,
+					Type:   MentionTypeEveryone,
+					FBID:   cmd.UserOrThreadFBID,
+				})
+			}
+		}
+		sort.SliceStable(mentions, func(i, j int) bool {
+			return mentions[i].Offset < mentions[j].Offset
+		})
+	}
 	return &SendResult{
 		ProtocolVersion:    ProtocolVersion,
 		ThreadID:           threadID,
-		OfflineThreadingID: otid,
+		OfflineThreadingID: request.OfflineThreadingID,
 		MessageID:          message.MessageID,
 		ID:                 message.ID,
 		TimestampMS:        timestampMS,
-		Text:               text,
+		Text:               request.Text.Value,
+		Mentions:           mentions,
 	}
 }
 

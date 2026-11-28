@@ -505,6 +505,7 @@ class ChatStore(
                 serverMs = serverTimestamp,
                 hasPendingSiblings = hasPendingSiblings,
             )
+            val responseMentions = mentionsToJson(parseMentions(result.optJSONArray("mentions")))
             messageDao.upsertMessage(
                 MessageEntity(
                     id = messageId,
@@ -512,7 +513,7 @@ class ChatStore(
                     timestampMs = timestamp,
                     kind = "text",
                     text = text,
-                    mentionsJson = previous?.mentionsJson.orEmpty(),
+                    mentionsJson = responseMentions.ifBlank { previous?.mentionsJson.orEmpty() },
                     replyToId = previous?.replyToId.orEmpty(),
                     replyToText = previous?.replyToText.orEmpty(),
                     replyToSender = previous?.replyToSender.orEmpty(),

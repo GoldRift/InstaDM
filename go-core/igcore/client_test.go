@@ -79,7 +79,7 @@ func TestBuildSendTextRequestWithMentions(t *testing.T) {
 	// Leading emoji takes 2 UTF-16 code units, matching Instagram's offset space.
 	text := "👋 @maya.chen and @everyone!"
 	mentions := []MentionInput{
-		{Offset: 17, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000},
+		{Offset: 18, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000},
 		{Offset: 3, Length: 10, Type: MentionTypePerson, FBID: 42},
 	}
 
@@ -99,8 +99,51 @@ func TestBuildSendTextRequestWithMentions(t *testing.T) {
 	if len(request.Commands) != 1 {
 		t.Fatalf("commands len = %d, want 1", len(request.Commands))
 	}
-	if got := request.Commands[0]; got.Offset != 17 || got.Length != 9 || got.Type != "EVERYONE" || got.UserOrThreadFBID != 200000000000000 {
-		t.Errorf("command[0] = %+v, want offset=17 length=9 type=EVERYONE fbid=200000000000000", got)
+	if request.Text.Value != "👋 @maya.chen and @\u200deveryone!" {
+		t.Errorf("text = %q, want ZWJ after @ in @everyone", request.Text.Value)
+	}
+	if got := request.Commands[0]; got.Offset != 18 || got.Length != 10 || got.Type != "EVERYONE" || got.UserOrThreadFBID != 200000000000000 {
+		t.Errorf("command[0] = %+v, want offset=18 length=10 type=EVERYONE fbid=200000000000000", got)
+	}
+}
+
+func TestBuildSendTextRequestEveryoneShiftsSubsequentMentionsAndAvoidsDoubleZWJ(t *testing.T) {
+	text := "@everyone ping @maya"
+	mentions := []MentionInput{
+		{Offset: 0, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000},
+		{Offset: 15, Length: 5, Type: MentionTypePerson, FBID: 42},
+	}
+
+	request, err := buildSendTextRequestWithMentions("1234567890", text, "", "999", mentions)
+	if err != nil {
+		t.Fatalf("buildSendTextRequestWithMentions: %v", err)
+	}
+	if request.Text.Value != "@\u200deveryone ping @maya" {
+		t.Errorf("text = %q, want @\\u200deveryone ping @maya", request.Text.Value)
+	}
+	if got := request.Commands[0]; got.Offset != 0 || got.Length != 10 {
+		t.Errorf("command[0] = %+v, want offset=0 length=10", got)
+	}
+	if got := request.Mentions[0]; got.Offset != 16 || got.Length != 5 {
+		t.Errorf("mention[0] = %+v, want shifted offset=16 length=5", got)
+	}
+
+	// Already containing U+200D should not insert a second ZWJ.
+	already, err := buildSendTextRequestWithMentions(
+		"1234567890",
+		"@\u200deveryone hi",
+		"",
+		"999",
+		[]MentionInput{{Offset: 0, Length: 10, Type: MentionTypeEveryone, FBID: 200000000000000}},
+	)
+	if err != nil {
+		t.Fatalf("already-zwj buildSendTextRequestWithMentions: %v", err)
+	}
+	if already.Text.Value != "@\u200deveryone hi" {
+		t.Errorf("already text = %q, want unchanged", already.Text.Value)
+	}
+	if got := already.Commands[0]; got.Offset != 0 || got.Length != 10 {
+		t.Errorf("already command[0] = %+v, want offset=0 length=10", got)
 	}
 }
 
@@ -278,13 +321,26 @@ func TestNewSendResult(t *testing.T) {
 		ID:          "message-id",
 		TimestampMS: jsontime.UnixMilliString{Time: time.UnixMilli(1_700_000_000_000)},
 	}
-	result := newSendResult("thread-id", "otid", "hello", message)
+	request, err := buildSendTextRequestWithMentions(
+		"1234567890",
+		"@everyone hello",
+		"",
+		"otid",
+		[]MentionInput{{Offset: 0, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000}},
+	)
+	if err != nil {
+		t.Fatalf("buildSendTextRequestWithMentions: %v", err)
+	}
+	result := newSendResult("1234567890", request, message)
 
 	if result.ProtocolVersion != ProtocolVersion {
 		t.Errorf("protocol version = %q, want %q", result.ProtocolVersion, ProtocolVersion)
 	}
-	if result.ThreadID != "thread-id" || result.OfflineThreadingID != "otid" || result.Text != "hello" {
+	if result.ThreadID != "1234567890" || result.OfflineThreadingID != "otid" || result.Text != "@\u200deveryone hello" {
 		t.Errorf("result = %+v", result)
+	}
+	if len(result.Mentions) != 1 || result.Mentions[0] != (MentionView{Offset: 0, Length: 10, Type: MentionTypeEveryone, FBID: 200000000000000}) {
+		t.Errorf("mentions = %+v, want adjusted everyone span", result.Mentions)
 	}
 	if result.MessageID != "mid.$1" || result.ID != "message-id" {
 		t.Errorf("message IDs = %q / %q", result.MessageID, result.ID)
