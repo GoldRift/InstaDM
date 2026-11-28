@@ -63,6 +63,12 @@ func TestValidationBeforeNetwork(t *testing.T) {
 	if _, err := client.SendTextJSON("thread-id", " ", "", "", 1); err == nil || !strings.Contains(err.Error(), "text is required") {
 		t.Errorf("send text error = %v", err)
 	}
+	if _, err := client.SendTextWithMentionsJSON("thread-id", "hi @maya", "", "", "not-json", 1); err == nil || !strings.Contains(err.Error(), "parse mentions") {
+		t.Errorf("send text bad mentions error = %v", err)
+	}
+	if _, err := client.SendTextWithMentionsJSON("thread-id", "hi @maya", "", "", `[{"offset":0,"length":50,"type":"person","fbid":1}]`, 1); err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Errorf("send text out of range mention error = %v", err)
+	}
 	if _, err := client.SendMediaJSON("123", "photo.png", "image/png", nil, "", "", 1); err == nil || !strings.Contains(err.Error(), "media file is empty") {
 		t.Errorf("send media error = %v", err)
 	}

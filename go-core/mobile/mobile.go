@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -242,14 +244,24 @@ func (c *Client) ThreadJSON(threadID string, limit int32, afterCursor string, ti
 }
 
 func (c *Client) SendTextJSON(threadID, text, replyTo, otid string, timeoutSeconds int32) (string, error) {
+	return c.SendTextWithMentionsJSON(threadID, text, replyTo, otid, "", timeoutSeconds)
+}
+
+func (c *Client) SendTextWithMentionsJSON(threadID, text, replyTo, otid, mentionsJSON string, timeoutSeconds int32) (string, error) {
 	client, err := c.client()
 	if err != nil {
 		return "", err
 	}
+	var mentions []igcore.MentionInput
+	if trimmed := strings.TrimSpace(mentionsJSON); trimmed != "" {
+		if err := json.Unmarshal([]byte(trimmed), &mentions); err != nil {
+			return "", fmt.Errorf("parse mentions: %w", err)
+		}
+	}
 	ctx, cancel := timeoutContext(timeoutSeconds)
 	defer cancel()
 
-	result, err := client.SendText(ctx, threadID, text, replyTo, otid)
+	result, err := client.SendTextWithMentions(ctx, threadID, text, replyTo, otid, mentions)
 	if err != nil {
 		return "", err
 	}

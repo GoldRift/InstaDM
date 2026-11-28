@@ -1666,3 +1666,53 @@ func TestDegradedAIPlaceholderXMAUsesSnippetAndRequestsSync(t *testing.T) {
 		t.Error("degraded AI placeholder should set needs_sync")
 	}
 }
+
+func TestMessageViewNormalizesMentions(t *testing.T) {
+	message := &slidetypes.Message{
+		MessageID: "mid.mentions",
+		Content: slidetypes.MessageContentWrapper{
+			TypeName: "SlideMessageTextContent",
+			Content: &slidetypes.MessageContentText{
+				TextBody: "hey @maya and @everyone",
+			},
+		},
+		Mentions: slidetypes.MentionList{
+			nil,
+			{
+				Offset:           14,
+				Length:           9,
+				ProfileRangeType: slidetypes.ProfileRangeTypeThread,
+				UserFBID:         200000000000000,
+			},
+			{
+				Offset:           4,
+				Length:           5,
+				ProfileRangeType: slidetypes.ProfileRangeTypeProfile,
+				UserFBID:         42,
+			},
+			{
+				Offset:           -1,
+				Length:           3,
+				ProfileRangeType: slidetypes.ProfileRangeTypeProfile,
+				UserFBID:         99,
+			},
+			{
+				Offset:           0,
+				Length:           0,
+				ProfileRangeType: slidetypes.ProfileRangeTypeProfile,
+				UserFBID:         99,
+			},
+		},
+	}
+
+	view := newMessageView(message, 111, nil)
+	if len(view.Mentions) != 2 {
+		t.Fatalf("mentions len = %d, want 2 (%+v)", len(view.Mentions), view.Mentions)
+	}
+	if got := view.Mentions[0]; got != (MentionView{Offset: 4, Length: 5, Type: MentionTypePerson, FBID: 42}) {
+		t.Errorf("mentions[0] = %+v, want person at 4..9 fbid=42", got)
+	}
+	if got := view.Mentions[1]; got != (MentionView{Offset: 14, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000}) {
+		t.Errorf("mentions[1] = %+v, want everyone at 14..23 fbid=200000000000000", got)
+	}
+}

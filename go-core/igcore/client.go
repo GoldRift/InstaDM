@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-meta/pkg/instameow"
@@ -487,15 +489,30 @@ type SendResult struct {
 	Text               string `json:"text"`
 }
 
+// MentionInput describes one mention span to attach to an outgoing text message.
+// Offset and Length are in UTF-16 code units. For MentionTypeEveryone, FBID
+// should be the thread_key; if 0, a numeric threadID is used as fallback.
+type MentionInput struct {
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	Type   string `json:"type"`
+	FBID   int64  `json:"fbid,omitempty"`
+}
+
 // SendText sends a plain text message to an existing thread. threadID is the
 // short IG chat ID (ThreadInfo.ID). otid may be empty, in which case a new
 // epoch/OTID is generated; pass the same value when retrying a send.
 func (c *Client) SendText(ctx context.Context, threadID, text, replyTo, otid string) (*SendResult, error) {
+	return c.SendTextWithMentions(ctx, threadID, text, replyTo, otid, nil)
+}
+
+// SendTextWithMentions sends a text message with optional person or @everyone mentions.
+func (c *Client) SendTextWithMentions(ctx context.Context, threadID, text, replyTo, otid string, mentions []MentionInput) (*SendResult, error) {
 	if c == nil || c.inner == nil {
 		return nil, errors.New("client is not initialized")
 	}
 
-	request, err := buildSendTextRequest(threadID, text, replyTo, otid)
+	request, err := buildSendTextRequestWithMentions(threadID, text, replyTo, otid, mentions)
 	if err != nil {
 		return nil, err
 	}
@@ -517,6 +534,10 @@ func (c *Client) SendText(ctx context.Context, threadID, text, replyTo, otid str
 }
 
 func buildSendTextRequest(threadID, text, replyTo, otid string) (*slidetypes.SendTextRequest, error) {
+	return buildSendTextRequestWithMentions(threadID, text, replyTo, otid, nil)
+}
+
+func buildSendTextRequestWithMentions(threadID, text, replyTo, otid string, mentions []MentionInput) (*slidetypes.SendTextRequest, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return nil, errors.New("thread ID is required")
@@ -533,6 +554,56 @@ func buildSendTextRequest(threadID, text, replyTo, otid string) (*slidetypes.Sen
 	request := newSendTextRequest(threadID, text, otid)
 	if replyTo != "" {
 		request.ReplyToMessageID = &replyTo
+	}
+	if len(mentions) > 0 {
+		utf16Len := len(utf16.Encode([]rune(text)))
+		sorted := make([]MentionInput, len(mentions))
+		copy(sorted, mentions)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			return sorted[i].Offset < sorted[j].Offset
+		})
+		seenUsers := make(map[int64]bool, len(sorted))
+		for _, m := range sorted {
+			if m.Offset < 0 || m.Length <= 0 || m.Offset+m.Length > utf16Len {
+				return nil, fmt.Errorf("mention span [%d, %d) is out of range for text length %d", m.Offset, m.Offset+m.Length, utf16Len)
+			}
+			kind := strings.ToLower(strings.TrimSpace(m.Type))
+			if kind == "" {
+				kind = MentionTypePerson
+			}
+			switch kind {
+			case MentionTypePerson:
+				if m.FBID <= 0 {
+					return nil, errors.New("person mention requires a positive fbid")
+				}
+				request.Mentions = append(request.Mentions, slidetypes.InputMention{
+					Offset: m.Offset,
+					Length: m.Length,
+					FBID:   m.FBID,
+				})
+				if !seenUsers[m.FBID] {
+					seenUsers[m.FBID] = true
+					request.MentionedUserIDs = append(request.MentionedUserIDs, strconv.FormatInt(m.FBID, 10))
+				}
+			case MentionTypeEveryone:
+				targetID := m.FBID
+				if targetID <= 0 {
+					parsed, err := strconv.ParseInt(threadID, 10, 64)
+					if err != nil || parsed <= 0 {
+						return nil, errors.New("everyone mention requires a positive thread fbid")
+					}
+					targetID = parsed
+				}
+				request.Commands = append(request.Commands, slidetypes.InputCommand{
+					Offset:           m.Offset,
+					Length:           m.Length,
+					Type:             "EVERYONE",
+					UserOrThreadFBID: targetID,
+				})
+			default:
+				return nil, fmt.Errorf("unsupported mention type %q", m.Type)
+			}
+		}
 	}
 	return request, nil
 }

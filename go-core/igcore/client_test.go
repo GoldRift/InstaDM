@@ -75,6 +75,109 @@ func TestBuildSendTextRequestValidation(t *testing.T) {
 	}
 }
 
+func TestBuildSendTextRequestWithMentions(t *testing.T) {
+	// Leading emoji takes 2 UTF-16 code units, matching Instagram's offset space.
+	text := "👋 @maya.chen and @everyone!"
+	mentions := []MentionInput{
+		{Offset: 17, Length: 9, Type: MentionTypeEveryone, FBID: 200000000000000},
+		{Offset: 3, Length: 10, Type: MentionTypePerson, FBID: 42},
+	}
+
+	request, err := buildSendTextRequestWithMentions("1234567890", text, "", "999", mentions)
+	if err != nil {
+		t.Fatalf("buildSendTextRequestWithMentions: %v", err)
+	}
+	if len(request.Mentions) != 1 {
+		t.Fatalf("mentions len = %d, want 1", len(request.Mentions))
+	}
+	if got := request.Mentions[0]; got.Offset != 3 || got.Length != 10 || got.FBID != 42 {
+		t.Errorf("mention[0] = %+v, want offset=3 length=10 fbid=42", got)
+	}
+	if len(request.MentionedUserIDs) != 1 || request.MentionedUserIDs[0] != "42" {
+		t.Errorf("mentioned_user_ids = %#v, want [\"42\"]", request.MentionedUserIDs)
+	}
+	if len(request.Commands) != 1 {
+		t.Fatalf("commands len = %d, want 1", len(request.Commands))
+	}
+	if got := request.Commands[0]; got.Offset != 17 || got.Length != 9 || got.Type != "EVERYONE" || got.UserOrThreadFBID != 200000000000000 {
+		t.Errorf("command[0] = %+v, want offset=17 length=9 type=EVERYONE fbid=200000000000000", got)
+	}
+}
+
+func TestBuildSendTextRequestWithMentionsDeduplicatesUserIDsAndFallbackThreadID(t *testing.T) {
+	text := "@maya @maya @everyone"
+	mentions := []MentionInput{
+		{Offset: 0, Length: 5, Type: MentionTypePerson, FBID: 42},
+		{Offset: 6, Length: 5, Type: MentionTypePerson, FBID: 42},
+		{Offset: 12, Length: 9, Type: MentionTypeEveryone, FBID: 0},
+	}
+
+	request, err := buildSendTextRequestWithMentions("1234567890", text, "", "999", mentions)
+	if err != nil {
+		t.Fatalf("buildSendTextRequestWithMentions: %v", err)
+	}
+	if len(request.Mentions) != 2 {
+		t.Fatalf("mentions len = %d, want 2", len(request.Mentions))
+	}
+	if len(request.MentionedUserIDs) != 1 || request.MentionedUserIDs[0] != "42" {
+		t.Errorf("mentioned_user_ids = %#v, want deduplicated [\"42\"]", request.MentionedUserIDs)
+	}
+	if len(request.Commands) != 1 || request.Commands[0].UserOrThreadFBID != 1234567890 {
+		t.Errorf("commands = %+v, want fallback thread ID 1234567890", request.Commands)
+	}
+}
+
+func TestBuildSendTextRequestWithMentionsValidation(t *testing.T) {
+	cases := []struct {
+		name     string
+		threadID string
+		text     string
+		mentions []MentionInput
+	}{
+		{
+			name:     "negative offset",
+			threadID: "123",
+			text:     "@maya",
+			mentions: []MentionInput{{Offset: -1, Length: 5, Type: MentionTypePerson, FBID: 1}},
+		},
+		{
+			name:     "non-positive length",
+			threadID: "123",
+			text:     "@maya",
+			mentions: []MentionInput{{Offset: 0, Length: 0, Type: MentionTypePerson, FBID: 1}},
+		},
+		{
+			name:     "out of bounds",
+			threadID: "123",
+			text:     "@maya",
+			mentions: []MentionInput{{Offset: 2, Length: 5, Type: MentionTypePerson, FBID: 1}},
+		},
+		{
+			name:     "missing person fbid",
+			threadID: "123",
+			text:     "@maya",
+			mentions: []MentionInput{{Offset: 0, Length: 5, Type: MentionTypePerson, FBID: 0}},
+		},
+		{
+			name:     "non-numeric fallback thread id for everyone",
+			threadID: "non-numeric",
+			text:     "@everyone",
+			mentions: []MentionInput{{Offset: 0, Length: 9, Type: MentionTypeEveryone, FBID: 0}},
+		},
+		{
+			name:     "unsupported type",
+			threadID: "123",
+			text:     "@ai",
+			mentions: []MentionInput{{Offset: 0, Length: 3, Type: "ai", FBID: 1}},
+		},
+	}
+	for _, tc := range cases {
+		if _, err := buildSendTextRequestWithMentions(tc.threadID, tc.text, "", "999", tc.mentions); err == nil {
+			t.Errorf("%s: expected error, got nil", tc.name)
+		}
+	}
+}
+
 func TestBuildPaginateMessagesRequest(t *testing.T) {
 	request := buildPaginateMessagesRequest("thread-id", "cursor-1", 5)
 

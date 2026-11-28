@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -421,6 +422,26 @@ type ReplyView struct {
 	MediaCount   int    `json:"media_count,omitempty"`
 }
 
+const (
+	MentionTypePerson   = "person"
+	MentionTypeEveryone = "everyone"
+	MentionTypeActive   = "active"
+	MentionTypeSilent   = "silent"
+	MentionTypeChannel  = "channel"
+	MentionTypeCustom   = "custom"
+	MentionTypeAI       = "ai"
+	MentionTypeUnknown  = "unknown"
+)
+
+// MentionView is a normalized mention span inside MessageView.Text.
+// Offset and Length are measured in UTF-16 code units, matching Instagram and JVM strings.
+type MentionView struct {
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	Type   string `json:"type"`
+	FBID   int64  `json:"fbid,omitempty"`
+}
+
 type MessageView struct {
 	ID                 string         `json:"id"`
 	OfflineThreadingID string         `json:"offline_threading_id,omitempty"`
@@ -431,6 +452,7 @@ type MessageView struct {
 	Kind               string         `json:"kind"`
 	ContentType        string         `json:"content_type,omitempty"`
 	Text               string         `json:"text,omitempty"`
+	Mentions           []MentionView  `json:"mentions,omitempty"`
 	MediaCount         int            `json:"media_count,omitempty"`
 	Media              []MediaView    `json:"media,omitempty"`
 	RepliedToMessageID string         `json:"replied_to_message_id,omitempty"`
@@ -767,6 +789,7 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		Kind:               kind,
 		ContentType:        contentType,
 		Text:               text,
+		Mentions:           normalizeMentions(message.Mentions),
 		MediaCount:         mediaCount,
 		Media:              messageMedia(message),
 		RepliedToMessageID: repliedToID,
@@ -774,6 +797,52 @@ func newMessageView(message *slidetypes.Message, ownFBID int64, participants map
 		Reactions:          reactions,
 		IsPinned:           message.IsPinned,
 		NeedsSync:          messageNeedsSync(message),
+	}
+}
+
+func normalizeMentions(raw slidetypes.MentionList) []MentionView {
+	if len(raw) == 0 {
+		return nil
+	}
+	mentions := make([]MentionView, 0, len(raw))
+	for _, m := range raw {
+		if m == nil || m.Offset < 0 || m.Length <= 0 {
+			continue
+		}
+		mentions = append(mentions, MentionView{
+			Offset: m.Offset,
+			Length: m.Length,
+			Type:   normalizeMentionType(m.ProfileRangeType),
+			FBID:   m.UserFBID,
+		})
+	}
+	if len(mentions) == 0 {
+		return nil
+	}
+	sort.SliceStable(mentions, func(i, j int) bool {
+		return mentions[i].Offset < mentions[j].Offset
+	})
+	return mentions
+}
+
+func normalizeMentionType(kind slidetypes.ProfileRangeType) string {
+	switch kind {
+	case slidetypes.ProfileRangeTypeProfile:
+		return MentionTypePerson
+	case slidetypes.ProfileRangeTypeThread:
+		return MentionTypeEveryone
+	case slidetypes.ProfileRangeTypeThreadActive:
+		return MentionTypeActive
+	case slidetypes.ProfileRangeTypeSilent:
+		return MentionTypeSilent
+	case slidetypes.ProfileRangeTypeCommunityChannel:
+		return MentionTypeChannel
+	case slidetypes.ProfileRangeTypeCustom:
+		return MentionTypeCustom
+	case slidetypes.ProfileRangeTypeAI:
+		return MentionTypeAI
+	default:
+		return MentionTypeUnknown
 	}
 }
 

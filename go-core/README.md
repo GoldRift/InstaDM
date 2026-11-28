@@ -436,6 +436,7 @@ defer client.StopWatch()
 | `ThreadJSON(threadID, limit, afterCursor, timeoutSeconds)` | Newest page, or older page when `afterCursor` is set |
 | `SearchUsersJSON(query, timeoutSeconds)` | Account search result JSON (`fbid`, `username`, `name`, `avatar_url`) |
 | `SendTextJSON(threadID, text, replyTo, otid, timeoutSeconds)` | Text send result JSON |
+| `SendTextWithMentionsJSON(threadID, text, replyTo, otid, mentionsJSON, timeoutSeconds)` | Text send result JSON with optional person and `@everyone` mentions |
 | `SendNewDMJSON(recipientFBID, text, otid, timeoutSeconds)` | New-DM send result JSON |
 | `EditJSON(threadID, messageID, text, otid, timeoutSeconds)` | Edit result JSON |
 | `UnsendJSON(threadID, messageID, timeoutSeconds)` | Unsend result JSON |
