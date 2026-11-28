@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PinnedMessageEntity::class,
         OutboxEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class InstaDmDatabase : RoomDatabase() {
@@ -161,6 +161,15 @@ abstract class InstaDmDatabase : RoomDatabase() {
             }
         }
 
+        /** v11 stores normalized mention spans alongside message text. */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE messages ADD COLUMN mentions_json TEXT NOT NULL DEFAULT ''",
+                )
+            }
+        }
+
         fun build(context: Context): InstaDmDatabase =
             Room.databaseBuilder(context, InstaDmDatabase::class.java, NAME)
                 .addMigrations(
@@ -173,6 +182,7 @@ abstract class InstaDmDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 .build()
     }

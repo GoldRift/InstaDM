@@ -45,9 +45,21 @@ class GoClient(cookiesJson: String) : Closeable {
         text: String,
         replyTo: String = "",
         otid: String = "",
+        mentionsJson: String = "",
         timeoutSeconds: Int = 90,
     ): JSONObject = JSONObject(
-        client.sendTextJSON(threadId, text, replyTo, otid, timeoutSeconds),
+        if (mentionsJson.isBlank()) {
+            client.sendTextJSON(threadId, text, replyTo, otid, timeoutSeconds)
+        } else {
+            client.sendTextWithMentionsJSON(
+                threadId,
+                text,
+                replyTo,
+                otid,
+                mentionsJson,
+                timeoutSeconds,
+            )
+        },
     )
 
     fun sendMedia(

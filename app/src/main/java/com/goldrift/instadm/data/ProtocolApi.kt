@@ -39,6 +39,7 @@ interface ProtocolApi {
         text: String,
         replyTo: String = "",
         otid: String = "",
+        mentionsJson: String = "",
     ): JSONObject
 
     suspend fun sendMedia(

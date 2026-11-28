@@ -379,6 +379,8 @@ class ChatStore(
                     if (message.media.isEmpty()) "text" else "media"
                 },
                 text = message.text,
+                mentionsJson = mentionsToJson(message.mentions)
+                    .ifBlank { previous?.mentionsJson.orEmpty() },
                 replyToId = replyToId,
                 replyToText = reply?.text ?: storedReply?.replyToText.orEmpty(),
                 replyToSender = reply?.senderName ?: storedReply?.replyToSender.orEmpty(),
@@ -510,6 +512,7 @@ class ChatStore(
                     timestampMs = timestamp,
                     kind = "text",
                     text = text,
+                    mentionsJson = previous?.mentionsJson.orEmpty(),
                     replyToId = previous?.replyToId.orEmpty(),
                     replyToText = previous?.replyToText.orEmpty(),
                     replyToSender = previous?.replyToSender.orEmpty(),
@@ -1119,6 +1122,7 @@ internal data class ParsedServerMessage(
     val timestampMs: Long,
     val kind: String,
     val text: String,
+    val mentionsJson: String = "",
     val replyToId: String,
     val hasQuoted: Boolean,
     val quotedText: String,
@@ -1147,6 +1151,7 @@ internal data class ParsedServerMessage(
             timestampMs = sentTimestamp(previous, isFromViewer, timestampMs),
             kind = kind,
             text = text,
+            mentionsJson = mentionsJson.ifBlank { previous?.mentionsJson.orEmpty() },
             replyToId = resolvedReplyToId,
             replyToText = if (hasQuoted) quotedText else storedReply?.replyToText.orEmpty(),
             replyToSender = if (hasQuoted) quotedSender else storedReply?.replyToSender.orEmpty(),
@@ -1438,6 +1443,7 @@ internal fun parseThreadMessages(messages: JSONArray?): List<ParsedServerMessage
             timestampMs = message.optLong("timestamp_ms"),
             kind = message.optString("kind").ifBlank { "unknown" },
             text = message.optString("text"),
+            mentionsJson = mentionsToJson(parseMentions(message.optJSONArray("mentions"))),
             replyToId = message.optString("replied_to_message_id")
                 .ifBlank { quoted?.optString("id").orEmpty() },
             hasQuoted = quoted != null,

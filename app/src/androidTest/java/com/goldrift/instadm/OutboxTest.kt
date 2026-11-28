@@ -268,6 +268,7 @@ class OutboxTest {
             text: String,
             replyTo: String,
             otid: String,
+            mentionsJson: String,
         ): JSONObject {
             if (failuresLeft > 0) {
                 failuresLeft--

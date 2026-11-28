@@ -46,6 +46,7 @@ data class MessageEntity(
     @ColumnInfo(name = "timestamp_ms") val timestampMs: Long = 0,
     val kind: String = "unknown",
     val text: String = "",
+    @ColumnInfo(name = "mentions_json") val mentionsJson: String = "",
     @ColumnInfo(name = "reply_to_id") val replyToId: String = "",
     /** Snapshot of the quoted message, so a reply renders without its parent. */
     @ColumnInfo(name = "reply_to_text") val replyToText: String = "",

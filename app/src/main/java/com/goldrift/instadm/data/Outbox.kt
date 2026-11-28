@@ -66,6 +66,7 @@ interface OutboxSender {
         text: String,
         replyTo: String,
         otid: String,
+        mentionsJson: String = "",
     ): JSONObject
 
     suspend fun sendMedia(
@@ -85,7 +86,8 @@ class ProtocolOutboxSender(private val repository: ProtocolApi) : OutboxSender {
         text: String,
         replyTo: String,
         otid: String,
-    ): JSONObject = repository.sendText(threadId, text, replyTo, otid)
+        mentionsJson: String,
+    ): JSONObject = repository.sendText(threadId, text, replyTo, otid, mentionsJson)
 
     override suspend fun sendMedia(
         threadId: String,
@@ -145,6 +147,7 @@ class Outbox(
         threadId: String,
         text: String,
         reply: ReplySnapshot? = null,
+        mentions: List<MessageMention> = emptyList(),
         timestampMs: Long = clock(),
     ): String {
         val otid = OfflineThreadingIds.next()
@@ -153,6 +156,7 @@ class Outbox(
                 threadId = threadId,
                 text = text,
                 reply = reply,
+                mentions = mentions,
                 otid = otid,
                 timestampMs = timestampMs,
                 viewerFbid = chatStore.viewerFbid(),
@@ -298,11 +302,13 @@ class Outbox(
         threadId: String,
         text: String,
         reply: ReplySnapshot?,
+        mentions: List<MessageMention> = emptyList(),
         otid: String,
         timestampMs: Long,
         viewerFbid: Long,
     ): String {
         val localId = "local:${UUID.randomUUID()}"
+        val encodedMentions = mentionsToJson(mentions)
         messageDao.upsertMessage(
             MessageEntity(
                 id = localId,
@@ -311,6 +317,7 @@ class Outbox(
                 timestampMs = timestampMs,
                 kind = "text",
                 text = text,
+                mentionsJson = encodedMentions,
                 replyToId = reply?.id.orEmpty(),
                 replyToText = reply?.text.orEmpty(),
                 replyToSender = reply?.senderName.orEmpty(),
@@ -329,6 +336,7 @@ class Outbox(
                 payloadJson = JSONObject()
                     .put("text", text)
                     .put("reply_to", reply?.id.orEmpty())
+                    .apply { if (encodedMentions.isNotEmpty()) put("mentions", encodedMentions) }
                     .toString(),
                 localMessageId = localId,
                 otid = otid,
@@ -559,6 +567,7 @@ class Outbox(
                 text = payload.optString("text"),
                 replyTo = payload.optString("reply_to"),
                 otid = entry.otid,
+                mentionsJson = payload.optString("mentions"),
             )
 
             "media" -> {

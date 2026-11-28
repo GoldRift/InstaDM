@@ -70,6 +70,7 @@ internal class FakeProtocol(
         text: String,
         replyTo: String,
         otid: String,
+        mentionsJson: String,
     ): JSONObject = unsupported()
 
     override suspend fun sendMedia(
@@ -133,6 +134,7 @@ internal object NeverSends : OutboxSender {
         text: String,
         replyTo: String,
         otid: String,
+        mentionsJson: String,
     ): JSONObject = error("no network in this test")
 
     override suspend fun sendMedia(

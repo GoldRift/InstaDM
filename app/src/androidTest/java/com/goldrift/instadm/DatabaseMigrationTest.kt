@@ -385,6 +385,42 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun addsMentionsJsonColumnToMessages() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB)
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(TEST_DB)
+                .callback(object : SupportSQLiteOpenHelper.Callback(10) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(V2_MESSAGES)
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val db = helper.writableDatabase
+            db.execSQL(
+                "INSERT INTO messages (" +
+                    "id, thread_id, sender_fbid, sender_name, timestamp_ms, kind, text, " +
+                    "reply_to_id, otid, is_from_viewer, status, seen, media_count, " +
+                    "edited_at, deleted_at" +
+                    ") VALUES ('m1', 't1', 0, '', 0, 'text', 'hi', '', '', 0, 'sent', 0, 0, 0, 0)",
+            )
+            InstaDmDatabase.MIGRATION_10_11.migrate(db)
+            db.query("SELECT mentions_json FROM messages WHERE id = 'm1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("", cursor.getString(0))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(TEST_DB)
+        }
+    }
+
     private companion object {
         const val TEST_DB = "instadm-migration-test"
         const val V6_THREADS =

@@ -33,7 +33,13 @@ internal interface ProtocolBackend : Closeable {
     fun thread(threadId: String, limit: Int, afterCursor: String = ""): JSONObject
     fun searchUsers(query: String): JSONObject
     fun sendNewDM(recipientFbid: String, text: String, otid: String): JSONObject
-    fun sendText(threadId: String, text: String, replyTo: String, otid: String): JSONObject
+    fun sendText(
+        threadId: String,
+        text: String,
+        replyTo: String,
+        otid: String,
+        mentionsJson: String = "",
+    ): JSONObject
     fun sendMedia(
         threadId: String,
         filePath: String,
@@ -76,8 +82,13 @@ private class GoClientBackend(private val inner: GoClient) : ProtocolBackend {
     override fun searchUsers(query: String): JSONObject = inner.searchUsers(query)
     override fun sendNewDM(recipientFbid: String, text: String, otid: String): JSONObject =
         inner.sendNewDM(recipientFbid, text, otid)
-    override fun sendText(threadId: String, text: String, replyTo: String, otid: String): JSONObject =
-        inner.sendText(threadId, text, replyTo, otid)
+    override fun sendText(
+        threadId: String,
+        text: String,
+        replyTo: String,
+        otid: String,
+        mentionsJson: String,
+    ): JSONObject = inner.sendText(threadId, text, replyTo, otid, mentionsJson)
     override fun sendMedia(
         threadId: String,
         filePath: String,
@@ -253,8 +264,9 @@ class ProtocolRepository internal constructor(
         text: String,
         replyTo: String,
         otid: String,
+        mentionsJson: String,
     ): JSONObject = withRpcClient {
-        it.sendText(threadId, text, replyTo, otid)
+        it.sendText(threadId, text, replyTo, otid, mentionsJson)
     }
 
     /** Uploads one attachment and sends it to an existing thread on the upload lane. */

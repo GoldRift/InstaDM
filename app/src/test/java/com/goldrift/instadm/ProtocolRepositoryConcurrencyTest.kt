@@ -210,8 +210,13 @@ class ProtocolRepositoryConcurrencyTest {
         override fun thread(threadId: String, limit: Int, afterCursor: String): JSONObject = JSONObject()
         override fun searchUsers(query: String): JSONObject = JSONObject()
         override fun sendNewDM(recipientFbid: String, text: String, otid: String): JSONObject = JSONObject()
-        override fun sendText(threadId: String, text: String, replyTo: String, otid: String): JSONObject =
-            onSendText()
+        override fun sendText(
+            threadId: String,
+            text: String,
+            replyTo: String,
+            otid: String,
+            mentionsJson: String,
+        ): JSONObject = onSendText()
         override fun sendMedia(
             threadId: String,
             filePath: String,
